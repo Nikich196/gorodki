@@ -558,3 +558,42 @@ public sealed class PrivacyZoneEntity
 
     public DateTimeOffset CreatedAt { get; set; }
 }
+
+/// <summary>Какой рейтинг.</summary>
+public enum LeaderboardBoard : short
+{
+    /// <summary>«Кто открыл больше» (§3.10): открытая площадь тумана, м².</summary>
+    Exploration = 1,
+}
+
+/// <summary>Слой рейтинга «Исследования»: совпадает с <see cref="FogLayerKind"/>, плюс «Всего» — их сумма.</summary>
+public enum LeaderboardLayer : short
+{
+    Total = 0,
+    Foot = 1,
+    Bike = 2,
+}
+
+/// <summary>
+/// Строка ежедневного среза рейтинга (PLAN.md, §3.5: «рейтинги — по ежедневному снимку»): игрок, его значение и место
+/// в сутки по Минску. Хранится неделю; удаляется вместе с аккаунтом.
+/// </summary>
+public sealed class LeaderboardSnapshotEntity
+{
+    public DateOnly Day { get; set; }
+
+    public LeaderboardBoard Board { get; set; }
+
+    public LeaderboardLayer Layer { get; set; }
+
+    /// <summary>Номер сезона; −1 — «за всё время».</summary>
+    public int Season { get; set; }
+
+    public Guid UserId { get; set; }
+
+    /// <summary>Значение: для «Исследования» — открытая площадь, м².</summary>
+    public double Value { get; set; }
+
+    /// <summary>Место: одинаковое значение — одинаковое место (1, 2, 2, 4).</summary>
+    public int Rank { get; set; }
+}

@@ -8,6 +8,7 @@ using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Health;
+using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
@@ -84,6 +85,7 @@ if (withDatabase)
     builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<RunRetention>();
     builder.Services.AddScoped<AccountDeletion>();
+    builder.Services.AddScoped<LeaderboardSnapshots>();
     builder.Services.AddScoped<AccountExport>();
     builder.Services.AddScoped<CaptureProcessor>();
     builder.Services.AddScoped<CaptureRollback>();
@@ -216,6 +218,7 @@ if (withDatabase)
     app.MapSeasonEndpoints();
     app.MapTerritoryEndpoints();
     app.MapFogEndpoints();
+    app.MapLeaderboardEndpoints();
 }
 
 await app.RunAsync();

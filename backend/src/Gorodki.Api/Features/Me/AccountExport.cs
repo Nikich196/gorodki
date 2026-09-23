@@ -22,6 +22,7 @@ namespace Gorodki.Api.Features.Me;
 /// <param name="Land">Земля сейчас.</param>
 /// <param name="Fog">Туман «Исследования» по слоям, сезонам и тайлам: биты открытых клеток, как в <c>GET /fog</c>.</param>
 /// <param name="PrivacyZones">Приватные зоны.</param>
+/// <param name="Rankings">Свои места в ежедневных срезах рейтингов (хранятся неделю).</param>
 public sealed record AccountExportResponse(
     long ExportedAtMs,
     ExportProfile Profile,
@@ -30,7 +31,15 @@ public sealed record AccountExportResponse(
     IReadOnlyList<ExportCapture> Captures,
     IReadOnlyList<ExportParcel> Land,
     IReadOnlyList<ExportFogTile> Fog,
-    IReadOnlyList<PrivacyZoneResponse> PrivacyZones);
+    IReadOnlyList<PrivacyZoneResponse> PrivacyZones,
+    IReadOnlyList<ExportRanking> Rankings);
+
+/// <param name="Day">Игровые сутки среза, <c>yyyy-MM-dd</c>.</param>
+/// <param name="Board">Рейтинг: <c>exploration</c> — «кто открыл больше».</param>
+/// <param name="Layer"><c>foot</c>, <c>bike</c> или <c>total</c>.</param>
+/// <param name="Season">Номер сезона; −1 — за всё время.</param>
+/// <param name="Value">Значение: для «Исследования» — открытая площадь, м².</param>
+public sealed record ExportRanking(string Day, string Board, string Layer, int Season, double Value, int Rank);
 
 public sealed record ExportProfile(
     Guid Id,
@@ -206,6 +215,19 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
             .Select(z => PrivacyZoneEndpoints.ToResponse(z, radius))
             .ToList();
 
+        var rankings = (await db.LeaderboardSnapshots.AsNoTracking()
+                .Where(s => s.UserId == userId)
+                .OrderBy(s => s.Day).ThenBy(s => s.Board).ThenBy(s => s.Layer).ThenBy(s => s.Season)
+                .ToListAsync(cancellationToken))
+            .Select(s => new ExportRanking(
+                s.Day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                s.Board.ToString().ToLowerInvariant(),
+                s.Layer.ToString().ToLowerInvariant(),
+                s.Season,
+                s.Value,
+                s.Rank))
+            .ToList();
+
         return new AccountExportResponse(
             time.GetUtcNow().ToUnixTimeMilliseconds(),
             new ExportProfile(
@@ -225,6 +247,7 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
             captures,
             land,
             fog,
-            zones);
+            zones,
+            rankings);
     }
 }
