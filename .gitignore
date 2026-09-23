@@ -1,0 +1,76 @@
+# ── Система ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Редакторы ────────────────────────────────────────────
+.idea/
+.vs/
+*.swp
+.vscode/*
+!.vscode/extensions.json
+
+# ── iOS / Xcode ──────────────────────────────────────────
+# Проект .xcodeproj генерируется из ios/project.yml (XcodeGen) и в git не хранится.
+ios/*.xcodeproj/
+ios/*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.xcarchive
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcresult
+# Сборка Swift-пакетов
+.build/
+.swiftpm/
+# Личные переопределения настроек сборки (например, свой Team ID)
+ios/Config/Local.xcconfig
+
+# ── .NET ─────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+TestResults/
+*.trx
+coverage/
+*.coverage
+*.cobertura.xml
+appsettings.*.local.json
+
+# ── Секреты: никогда не коммитим (репозиторий публичный) ─
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.pfx
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+secrets.json
+
+# ── Данные игроков и записи забегов ─────────────────────
+# GPX/FIT/TCX — только очищенные, только в testdata/gpx/ (см. CONTRIBUTING.md).
+*.gpx
+*.fit
+*.tcx
+!testdata/gpx/*.gpx
+*.dump
+*.backup
+*.sql.gz
+*.log
+
+# ── Веб ──────────────────────────────────────────────────
+node_modules/
+
+# ── Записка (LaTeX): PDF кладём только в релиз ───────────
+docs/report/**/*.pdf
+docs/report/**/*.aux
+docs/report/**/*.out
+docs/report/**/*.toc
+docs/report/**/*.synctex.gz
+docs/report/**/*.fdb_latexmk
+docs/report/**/*.fls

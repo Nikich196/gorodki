@@ -1,0 +1,26 @@
+name: Задача
+description: Новая возможность, доработка или спайк
+labels: []
+body:
+  - type: textarea
+    id: why
+    attributes:
+      label: Зачем
+      description: Какую проблему решаем или какой пункт плана закрываем (PLAN.md, §…).
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Что сделать
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Готово, когда
+      description: Проверяемые критерии — тесты, поведение на телефоне, ответ сервера.
+      placeholder: |
+        - [ ] …
+    validations:
+      required: true

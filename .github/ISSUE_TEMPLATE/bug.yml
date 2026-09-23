@@ -1,0 +1,30 @@
+name: Ошибка
+description: Что-то работает не так
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидалось и что получилось
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Сборка и телефон
+      description: С экрана «Проверка установки» или «Настройки → О приложении».
+      placeholder: "Free 0.1.0 (1), iPhone 15, iOS 27.0"
+  - type: textarea
+    id: extra
+    attributes:
+      label: Снимки экрана, логи
+      description: Без личных данных, адресов и маршрутов от дома.

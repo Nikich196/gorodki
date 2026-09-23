@@ -1,0 +1,26 @@
+# Раз в месяц одно сводное предложение обновить зависимости — без потока мелких PR.
+# Мажорные версии не предлагаем: .NET 11 и прочие крупные обновления — только до или после семестра.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /backend
+    schedule:
+      interval: monthly
+    groups:
+      nuget:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "build(backend)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"

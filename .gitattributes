@@ -1,4 +1,22 @@
 * text=auto eol=lf
+
+# Двоичные файлы
 *.png binary
 *.jpg binary
+*.jpeg binary
+*.gif binary
+*.heic binary
+*.webp binary
+*.ico binary
 *.pdf binary
+*.mp4 binary
+*.mov binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+
+# Скрипты Windows оставляем с CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf

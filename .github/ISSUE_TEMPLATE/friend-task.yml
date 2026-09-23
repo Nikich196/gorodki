@@ -1,0 +1,49 @@
+name: Задача для друга (сервер на C#)
+description: Самостоятельная задача по серверу — вне критического пути, до 1,5 часа
+labels: ["для-друга", "area:backend"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Правила (CONTRIBUTING.md): задача не блокирует остальных, занимает до 1,5 ч и имеет крайнюю дату.
+        Падающие тесты уже лежат в `main` с `Skip = "ЗАДАЧА #NN"`: сними `Skip` и добейся зелёного.
+        Если к крайней дате не выходит — ничего страшного: задачу доделает Claude, а ты разберёшь решение.
+  - type: textarea
+    id: why
+    attributes:
+      label: Зачем
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Что сделать
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Какие файлы
+      description: Где заглушки `// ЗАДАЧА #NN` и где тесты.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Готово, когда
+      placeholder: |
+        - [ ] Тесты `…Tests` зелёные без Skip
+        - [ ] В PR есть 5 строк «своими словами»
+    validations:
+      required: true
+  - type: textarea
+    id: hints
+    attributes:
+      label: Подсказки и ссылки
+  - type: input
+    id: deadline
+    attributes:
+      label: Крайняя дата
+      placeholder: "04.11.2026"
+    validations:
+      required: true
