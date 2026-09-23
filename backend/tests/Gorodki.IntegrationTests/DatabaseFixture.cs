@@ -23,10 +23,15 @@ public sealed class DatabaseFixture : IAsyncLifetime
     {
         try
         {
+            // Testcontainers заменяет команду запуска образа своей («-c fsync=off …»), и теряется «-D /etc/postgresql»
+            // из образа Supabase. Без него сервер берёт настройки по умолчанию и слушает только localhost внутри
+            // контейнера: pg_isready изнутри проходит, а подключения снаружи Docker сбрасывает. Поэтому явно
+            // подключаем конфиг Supabase — так же запускает этот образ Supabase CLI.
             _container = new PostgreSqlBuilder(Image)
                 .WithUsername("supabase_admin")
                 .WithPassword("only-for-tests")
                 .WithDatabase("postgres")
+                .WithCommand("-c", "config_file=/etc/postgresql/postgresql.conf")
                 .Build();
             await _container.StartAsync();
         }
@@ -36,22 +41,31 @@ public sealed class DatabaseFixture : IAsyncLifetime
             return;
         }
 
-        // Контейнер локальный: шифрование не нужно. Сервер в образе Supabase сбрасывает запрос SSL/GSS
-        // (в CI соединение рвалось именно на согласовании шифрования). На настоящем Supabase SSL, конечно, включён.
+        // В конфиге образа ssl = off, а контейнер локальный: шифрование не согласуем. На настоящем Supabase SSL включён.
         var builder = new Npgsql.NpgsqlConnectionStringBuilder(_container.GetConnectionString())
         {
             SslMode = Npgsql.SslMode.Disable,
             GssEncryptionMode = Npgsql.GssEncryptionMode.Disable,
         };
         ConnectionString = AppDbContext.WithSearchPath(builder.ConnectionString);
-        await WaitUntilStableAsync(ConnectionString, TimeSpan.FromMinutes(2));
+        try
+        {
+            await WaitUntilStableAsync(ConnectionString, TimeSpan.FromMinutes(2));
+        }
+        catch (TimeoutException e)
+        {
+            // Без журнала контейнера причину не понять — прикладываем его конец к ошибке.
+            var (stdout, stderr) = await _container.GetLogsAsync();
+            throw new TimeoutException($"{e.Message}\n--- журнал контейнера ---\n{Tail(stdout)}\n{Tail(stderr)}", e);
+        }
+
         await using var db = CreateContext();
         await db.Database.MigrateAsync();
     }
 
     /// <summary>
-    /// Образ Supabase при первом запуске выполняет свои скрипты и перезапускает сервер: <c>pg_isready</c> может
-    /// ответить «готово» до перезапуска (так и было в CI — первое подключение оборвалось). Поэтому ждём
+    /// Образ Supabase при первом запуске выполняет свои скрипты на временном сервере и перезапускает его, а
+    /// <c>pg_isready</c> проверяет изнутри контейнера. Поэтому готовность проверяем снаружи, как настоящий клиент:
     /// три успешных запроса подряд.
     /// </summary>
     private static async Task WaitUntilStableAsync(string connectionString, TimeSpan timeout)
@@ -83,6 +97,9 @@ public sealed class DatabaseFixture : IAsyncLifetime
 
         throw new TimeoutException("База в контейнере так и не стала стабильно отвечать.", last);
     }
+
+    private static string Tail(string log, int lines = 40) =>
+        string.Join('\n', log.Split('\n').TakeLast(lines));
 
     public AppDbContext CreateContext()
     {
