@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Gorodki.Api.Features.Health;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Gorodki.Api.Tests.Health;
@@ -42,6 +44,17 @@ public sealed class HealthEndpointTests(WebApplicationFactory<Program> factory)
         var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("healthy", body.RootElement.GetProperty("status").GetString());
+    }
+
+    [Theory]
+    [InlineData(349, HealthStatus.Healthy)]
+    [InlineData(350, HealthStatus.Degraded)]
+    [InlineData(499, HealthStatus.Degraded)]
+    public void Storage_warns_from_350_megabytes(long megabytes, HealthStatus expected)
+    {
+        Assert.Equal(expected, StorageHealthCheck.Evaluate(megabytes * 1024 * 1024));
     }
 
     [Fact]

@@ -1,6 +1,9 @@
 using System.Reflection;
+using System.Text.Json;
 using Gorodki.Domain.Time;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Gorodki.Api.Features.Health;
 
@@ -16,8 +19,18 @@ public static class HealthEndpoints
             .WithTags("Служебное")
             .WithSummary("Сервер жив: версия, коммит, игровой день по Минску");
 
-        // «Готов ли обслуживать игроков». Проверку базы данных добавим, когда появится база.
-        app.MapHealthChecks("/health/ready").AllowAnonymous();
+        // «Готов ли обслуживать игроков»: база отвечает и в ней есть место. Его вызывает пингер (реальный запрос к базе
+        // не даёт Supabase уснуть); 503 — повод посмотреть тело ответа: база недоступна или заполнена больше чем на 350 МБ.
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            ResultStatusCodes =
+            {
+                [HealthStatus.Healthy] = StatusCodes.Status200OK,
+                [HealthStatus.Degraded] = StatusCodes.Status503ServiceUnavailable,
+                [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable,
+            },
+            ResponseWriter = WriteReport,
+        }).AllowAnonymous();
 
         return app;
     }
@@ -30,6 +43,30 @@ public static class HealthEndpoints
             Commit: configuration["RENDER_GIT_COMMIT"],
             MinskTime: clock.MinskNow,
             GameDay: clock.Today));
+
+    /// <summary>Итог проверок в JSON: общий статус и по каждой проверке — статус, описание и числа.</summary>
+    private static Task WriteReport(HttpContext context, HealthReport report)
+    {
+        context.Response.ContentType = "application/json; charset=utf-8";
+        var body = new
+        {
+            status = Name(report.Status),
+            durationMs = Math.Round(report.TotalDuration.TotalMilliseconds),
+            checks = report.Entries.ToDictionary(
+                e => e.Key,
+                e => new { status = Name(e.Value.Status), description = e.Value.Description, data = e.Value.Data }),
+        };
+        return context.Response.WriteAsync(JsonSerializer.Serialize(body, ReportJson), context.RequestAborted);
+    }
+
+    private static string Name(HealthStatus status) => status switch
+    {
+        HealthStatus.Healthy => "healthy",
+        HealthStatus.Degraded => "degraded",
+        _ => "unhealthy",
+    };
+
+    private static readonly JsonSerializerOptions ReportJson = new(JsonSerializerDefaults.Web);
 
     private static readonly string AppVersion =
         typeof(HealthEndpoints).Assembly

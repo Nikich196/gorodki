@@ -57,6 +57,7 @@ if (withDatabase)
 {
     builder.Services.AddDbContext<AppDbContext>(options => AppDbContext.Configure(options, connectionString!));
     health.AddDbContextCheck<AppDbContext>("database");
+    health.AddCheck<StorageHealthCheck>("storage");
     builder.Services.AddSingleton<GameConfigCache>();
     builder.Services.AddScoped<GameConfigStore>();
 
