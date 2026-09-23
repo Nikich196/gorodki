@@ -26,8 +26,8 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
-        var (_, annaId, boris, borisId, borisClaim, area) = await AnnaThenBorisAsync(api);
-        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
+        var scene = await AnnaThenBorisAsync(api);
+        var (annaId, boris, borisId, borisClaim, area, admin) = (scene.AnnaId, scene.Boris, scene.BorisId, scene.BorisClaim, scene.Area, scene.Admin);
 
         var requested = await RequestAsync(admin, borisId);
         Assert.Equal(CaptureRollbackStatus.Pending, requested.Status);
@@ -74,14 +74,13 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
-        var (_, annaId, _, borisId, _, area) = await AnnaThenBorisAsync(api);
+        var scene = await AnnaThenBorisAsync(api);
+        var (annaId, borisId, vera, veraId, area, admin) = (scene.AnnaId, scene.BorisId, scene.Vera, scene.VeraId, scene.Area, scene.Admin);
         api.Time.Advance(TimeSpan.FromHours(13)); // щит после перехода — 12 часов
-        var (vera, veraId) = await api.CreatePlayerClientAsync();
         await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, vera, Square(area, 90, 20, 60))).RunId);
         var veraBefore = await LandAreaAsync(veraId);
         Assert.InRange(veraBefore, 3_300, 3_900);
 
-        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
         var done = await RollBackAsync(api, admin, borisId);
 
         Assert.Equal(1, done.RolledBack);
@@ -97,11 +96,10 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
-        var (_, annaId, _, borisId, _, area) = await AnnaThenBorisAsync(api);
+        var scene = await AnnaThenBorisAsync(api);
+        var (annaId, borisId, vera, veraId, area, admin) = (scene.AnnaId, scene.BorisId, scene.Vera, scene.VeraId, scene.Area, scene.Admin);
         api.Time.Advance(TimeSpan.FromHours(13));
-        var (vera, veraId) = await api.CreatePlayerClientAsync();
         var veraClaim = await WalkAndClaimAsync(Cancel, api, vera, Square(area, 90, 20, 60));
-        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
         var requested = await RequestAsync(admin, borisId);
 
         // Захват Веры применяется ровно между расчётом отката и его записью.
@@ -155,19 +153,33 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
 
     // MARK: — вспомогательное
 
-    /// <summary>Анна берёт квадрат 100 × 100 м, через полчаса Борис — такой же со сдвигом на 50 м: половина — у Анны.</summary>
-    private async Task<(HttpClient Anna, Guid AnnaId, HttpClient Boris, Guid BorisId, (Guid RunId, Guid CaptureId, long EndMs) BorisClaim, (double X, double Y) Area)>
-        AnnaThenBorisAsync(ApiFactory api)
+    private sealed record Scene(
+        Guid AnnaId,
+        HttpClient Boris,
+        Guid BorisId,
+        (Guid RunId, Guid CaptureId, long EndMs) BorisClaim,
+        HttpClient Vera,
+        Guid VeraId,
+        HttpClient Admin,
+        (double X, double Y) Area);
+
+    /// <summary>
+    /// Анна берёт квадрат 100 × 100 м, через полчаса Борис — такой же со сдвигом на 50 м: половина — у Анны.
+    /// Все игроки и админ создаются сразу: токен, выпущенный после сдвига поддельных часов, был бы «из будущего».
+    /// </summary>
+    private async Task<Scene> AnnaThenBorisAsync(ApiFactory api)
     {
         var (anna, annaId) = await api.CreatePlayerClientAsync();
         var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
         var area = NewArea();
         await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
         api.Time.Advance(TimeSpan.FromMinutes(30));
         var borisClaim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100));
         await Walks.ProcessAsync(api, borisClaim.RunId);
         Assert.InRange(await LandAreaAsync(annaId), 4_700, 5_300);
-        return (anna, annaId, boris, borisId, borisClaim, area);
+        return new Scene(annaId, boris, borisId, borisClaim, vera, veraId, admin, area);
     }
 
     private async Task<RollbackResponse> RequestAsync(HttpClient admin, Guid userId, HttpStatusCode expected = HttpStatusCode.Accepted)
