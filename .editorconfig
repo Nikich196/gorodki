@@ -34,5 +34,9 @@ dotnet_naming_symbols.private_fields.applicable_accessibilities = private
 dotnet_naming_style.underscore_camel.required_prefix = _
 dotnet_naming_style.underscore_camel.capitalization = camel_case
 
+# Миграции EF Core генерируются командой dotnet ef — не правим их руками и не проверяем стиль.
+[backend/src/Gorodki.Api/Infrastructure/Persistence/Migrations/*.cs]
+generated_code = true
+
 [Makefile]
 indent_style = tab

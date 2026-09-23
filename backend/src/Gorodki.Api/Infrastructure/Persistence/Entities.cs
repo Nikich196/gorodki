@@ -57,6 +57,31 @@ public sealed class UserEntity
     public DateTimeOffset? DeletionRequestedAt { get; set; }
 }
 
+/// <summary>
+/// Refresh-токен. Хранится только SHA-256 хэш; все токены одного входа — одна «семья»:
+/// при подозрении на кражу отзывается вся семья (PLAN.md, D10).
+/// </summary>
+public sealed class RefreshTokenEntity
+{
+    public Guid Id { get; set; }
+
+    public Guid UserId { get; set; }
+
+    public Guid FamilyId { get; set; }
+
+    public required byte[] TokenHash { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    /// <summary>Когда токен заменён или отозван; null — действует.</summary>
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    /// <summary>Какой токен выдан взамен (при обычном обновлении).</summary>
+    public Guid? ReplacedById { get; set; }
+}
+
 /// <summary>Инвайт-код закрытой регистрации (Сезоны 0–2).</summary>
 public sealed class InviteEntity
 {
@@ -72,7 +97,10 @@ public sealed class InviteEntity
 
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>Скрытый столбец PostgreSQL <c>xmin</c>: защищает <see cref="UsedCount"/> от гонки двух регистраций.</summary>
+    /// <summary>
+    /// Скрытый столбец PostgreSQL <c>xmin</c>: правка приглашения через EF не затрёт чужую. Сама регистрация забирает
+    /// приглашение атомарным UPDATE с условием (AuthEndpoints), ей эта версия не нужна.
+    /// </summary>
     public uint Version { get; set; }
 }
 
