@@ -60,11 +60,90 @@ public sealed class TerritoryTests(DatabaseFixture database)
         Assert.Empty(gone);
     }
 
+    [Fact]
+    public async Task Others_see_a_capture_only_after_the_public_delay()
+    {
+        // PLAN.md, §3.16: чужие видят изменения через 20 минут — иначе карта показывала бы, где человек прямо сейчас.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (demo, _) = await api.CreatePlayerClientAsync(Gorodki.Api.Infrastructure.Persistence.UserRole.Demo);
+        var area = NewArea();
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+
+        var own = await TileAsync(anna, tile);
+        var hidden = await TileAsync(boris, tile);
+        var again = await TileAsync(boris, tile, known: hidden.Version);
+        var onStage = await TileAsync(demo, tile);
+
+        Assert.True(own.Version >= 1);
+        Assert.Null(own.RevealAtMs);
+        Assert.Equal(annaId, Assert.Single(own.Parcels).OwnerId); // свой захват — сразу
+        Assert.Equal(0, hidden.Version); // приложение перезапросит тайл
+        Assert.Empty(hidden.Parcels);
+        Assert.NotNull(hidden.RevealAtMs);
+        Assert.Empty(again.Parcels); // с версией 0 тайл приходит заново, а не «без изменений»
+        Assert.Single(onStage.Parcels); // демо на показе — без задержки
+
+        api.Time.Advance(TerritoryReader.PublicDelay + TimeSpan.FromMinutes(1));
+        var revealed = await TileAsync(boris, tile, known: 0);
+
+        Assert.Equal(own.Version, revealed.Version);
+        Assert.Null(revealed.RevealAtMs);
+        var parcel = Assert.Single(revealed.Parcels);
+        Assert.Equal(annaId, parcel.OwnerId);
+        Assert.Equal(0, parcel.LastVisitAtMs % 3_600_000); // время чужого визита — с точностью до часа
+    }
+
+    [Fact]
+    public async Task While_hidden_the_land_looks_as_it_was_before_the_capture()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(30)); // захват Анны уже публичен
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+
+        var seenByVera = await TileAsync(vera, tile);
+        var seenByBoris = await TileAsync(boris, tile);
+        var seenByAnna = await TileAsync(anna, tile);
+
+        // Вера и сама Анна видят квадрат Анны целым — захват Бориса ещё скрыт.
+        var annaLand = Assert.Single(seenByVera.Parcels);
+        Assert.Equal(annaId, annaLand.OwnerId);
+        Assert.InRange(AreaOf(annaLand.Exterior), 9_500, 10_500);
+        Assert.True(annaLand.Id < 0); // кусок собран проекцией — временный номер
+        Assert.InRange(AreaOf(Assert.Single(seenByAnna.Parcels).Exterior), 9_500, 10_500);
+        // Борис свой захват видит сразу: половина Анны — его.
+        Assert.InRange(seenByBoris.Parcels.Where(p => p.OwnerId == borisId).Sum(p => AreaOf(p.Exterior)), 9_500, 10_500);
+
+        api.Time.Advance(TerritoryReader.PublicDelay + TimeSpan.FromMinutes(1));
+        var later = await TileAsync(vera, tile);
+
+        Assert.InRange(later.Parcels.Where(p => p.OwnerId == borisId).Sum(p => AreaOf(p.Exterior)), 9_500, 10_500);
+        Assert.InRange(later.Parcels.Where(p => p.OwnerId == annaId).Sum(p => AreaOf(p.Exterior)), 4_700, 5_300);
+    }
+
+    private async Task<TileTerritory> TileAsync(HttpClient client, TileKey tile, long? known = null)
+    {
+        var at = known is { } version ? $"@{version}" : "";
+        var response = await client.GetFromJsonAsync<TerritoryResponse>($"/territory?league=run&tiles={tile.X}:{tile.Y}{at}", Json, Cancel);
+        return Assert.Single(response!.Tiles);
+    }
+
     private static async Task<TileTerritory> ReadAsync(ApiFactory api, TileKey tile)
     {
         await using var scope = api.Services.CreateAsyncScope();
         var reader = scope.ServiceProvider.GetRequiredService<TerritoryReader>();
-        return (await reader.ReadAsync(Gorodki.Domain.Leagues.League.Run, [(tile, null)], CancellationToken.None)).Tiles.Single();
+        return (await reader.ReadAsync(Gorodki.Domain.Leagues.League.Run, [(tile, null)], new TerritoryViewer(null, Immediate: true), CancellationToken.None))
+            .Tiles.Single();
     }
 
     [Fact]
