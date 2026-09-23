@@ -148,14 +148,29 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             });
         });
 
+        // Порядок применения захватов к карте: по нему карту можно переиграть (ночная перестройка, откат).
+        model.HasSequence<long>("capture_apply_seq");
+
         model.Entity<CaptureEntity>(capture =>
         {
             capture.HasKey(c => c.Id);
             capture.Property(c => c.Id).ValueGeneratedNever();
             capture.Property(c => c.Shape).HasColumnType($"geometry(Geometry, {Utm34.Srid})");
-            capture.HasOne<RunEntity>().WithMany().HasForeignKey(c => c.RunId).OnDelete(DeleteBehavior.Cascade);
-            capture.HasIndex(c => new { c.UserId, c.CreatedAt });
-            capture.HasIndex(c => c.RunId);
+            capture.Property(c => c.AreaByOutcome).HasColumnType("jsonb");
+            capture.Property(c => c.ChangedTiles).HasColumnType("jsonb");
+            capture.Property(c => c.RejectCode).HasMaxLength(48);
+            capture.Property(c => c.LastError).HasMaxLength(500);
+
+            // История захватов нужна для переигровки карты — удаление забега её не стирает.
+            capture.HasOne<RunEntity>().WithMany().HasForeignKey(c => c.RunId).OnDelete(DeleteBehavior.Restrict);
+            capture.HasIndex(c => new { c.RunId, c.ClaimNo }).IsUnique();
+            capture.HasIndex(c => new { c.UserId, c.EffectiveAt }).HasFilter("status = 1");
+            capture.HasIndex(c => new { c.Status, c.LeaseUntil }).HasFilter("status = 0");
+            capture.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_captures_status", "status BETWEEN 0 AND 4");
+                t.HasCheckConstraint("ck_captures_seq", "start_seq >= 0 AND end_seq > start_seq");
+            });
         });
 
         model.Entity<TileVersionEntity>(tile =>

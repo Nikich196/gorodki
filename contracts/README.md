@@ -22,6 +22,12 @@
 Обновить эталоны после намеренной правки правил судьи: `GORODKI_UPDATE_CONTRACTS=1 swift test --package-path ios/Packages/GameCore`
 (в WSL или на Mac), затем проверить, что серверные тесты зелёные, и объяснить правку в PR.
 
+## Идентификатор заявки петли
+
+`capture_id = UUIDv5(4f2c8a1e-9b3d-4c6f-a1e2-7d5b9c0f3e81, run_id ‖ end_seq)` — 16 байт забега и 4 байта номера последней точки,
+оба старшим байтом вперёд. Эталоны (посчитаны модулем `uuid` в Python) — `CaptureIdsTests` на сервере. Подробно —
+[docs/architecture/captures.md](../docs/architecture/captures.md).
+
 ## Как менять числа правил
 
 1. **До первого выпуска** можно править версию 1: поменять число в `backend/src/Gorodki.Domain` и в GameCore,
