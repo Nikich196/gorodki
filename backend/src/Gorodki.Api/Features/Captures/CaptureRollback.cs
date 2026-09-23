@@ -1,3 +1,4 @@
+using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
@@ -18,7 +19,7 @@ namespace Gorodki.Api.Features.Captures;
 /// от новых к старым, каждый отдельно: откат считается без блокировок, а записывается короткой транзакцией под
 /// блокировками тайлов — и только если версии тайлов не изменились с момента чтения (иначе всё считается заново).
 /// </remarks>
-public sealed class CaptureRollback(AppDbContext db, TimeProvider time, ILogger<CaptureRollback> logger)
+public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimeProvider time, ILogger<CaptureRollback> logger)
 {
     /// <summary>Заморозка при откате — как в PLAN.md, §3.9, слой 5.</summary>
     public static readonly TimeSpan FreezeFor = TimeSpan.FromDays(7);
@@ -273,6 +274,7 @@ public sealed class CaptureRollback(AppDbContext db, TimeProvider time, ILogger<
         }
 
         await transaction.CommitAsync(cancellationToken);
+        hints.TilesChanged(league, changedTiles); // откат — решение администратора, публичен сразу
         return Outcome.RolledBack;
     }
 

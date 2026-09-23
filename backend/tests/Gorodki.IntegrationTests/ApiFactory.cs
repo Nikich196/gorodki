@@ -84,6 +84,10 @@ internal sealed class ApiFactory(DatabaseFixture database) : WebApplicationFacto
         builder.UseSetting("Auth:SigningKey", Convert.ToBase64String(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray()));
         builder.UseSetting("Auth:GoogleClientIds:0", "test-client-id");
         builder.UseSetting(Gorodki.Api.Features.Captures.CaptureWorker.EnabledSetting, "false"); // тесты зовут обработчик сами
+        builder.UseSetting(Gorodki.Api.Features.Realtime.RealtimePump.EnabledSetting, "false"); // и отправку подсказок — тоже
+        // Токены выдаются по подставным часам, а проверяются по настоящим; тесты сдвигают часы на часы вперёд — токен
+        // живёт дольше обычных 15 минут, чтобы соединение с хабом не закрылось посреди теста.
+        builder.UseSetting("Auth:AccessTokenMinutes", "1440");
         builder.ConfigureServices(services =>
         {
             services.AddSingleton<TimeProvider>(Time);

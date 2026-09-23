@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Fog;
+using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
@@ -20,7 +21,8 @@ namespace Gorodki.Api.Features.Captures;
 /// применяется к их свежему состоянию (визит — функция состояния и времени). Кусок, который с тех пор пересобрал захват
 /// (другой номер), пропускается. Путь внутри приватных зон игрока (§3.16) не считается.
 /// </remarks>
-public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, GameConfigStore configs, TimeProvider time)
+public sealed class VisitProcessor(
+    AppDbContext db, RunJudgements judgements, GameConfigStore configs, RealtimeHints hints, TimeProvider time)
 {
     /// <summary>
     /// Забеги, готовые к подсчёту визитов, — сначала закончившиеся раньше. Не раньше чем через 20 минут после конца
@@ -163,6 +165,11 @@ public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, Ga
         }
 
         await transaction.CommitAsync(cancellationToken);
+        if (changedTiles.Count > 0)
+        {
+            hints.TilesChanged(run.League, changedTiles); // визит засчитан уже после публичной задержки
+        }
+
         return visitedCount;
     }
 }

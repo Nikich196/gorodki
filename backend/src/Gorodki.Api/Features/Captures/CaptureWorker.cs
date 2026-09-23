@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
+using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -38,7 +39,8 @@ public sealed class CaptureSignal
 /// Фоновый обработчик захватов, визитов, тумана и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
 /// Два экземпляра сервера во время деплоя не мешают друг другу: заявки берутся в аренду.
 /// </summary>
-public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal signal, TimeProvider time, ILogger<CaptureWorker> logger)
+public sealed class CaptureWorker(
+    IServiceScopeFactory scopes, CaptureSignal signal, RevealScanner reveals, TimeProvider time, ILogger<CaptureWorker> logger)
     : BackgroundService
 {
     public const string EnabledSetting = "Captures:BackgroundWorker";
@@ -96,6 +98,9 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
                         await scope.ServiceProvider.GetRequiredService<FogProcessor>().StampRunAsync(runId, stoppingToken);
                     }
                 }
+
+                // Чужие захваты, ставшие публичными, — подсказка «тайлы изменились» (реальное время, §3.16).
+                await reveals.RunOnceAsync(stoppingToken);
 
                 // Откаты — в том же потоке, что и захваты: движок участков однопоточный (ADR 0003).
                 await using (var rollbackScope = scopes.CreateAsyncScope())
