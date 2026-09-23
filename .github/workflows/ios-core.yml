@@ -32,3 +32,6 @@ jobs:
       # После проверки оформления: в .build пакета лежат исходники зависимостей, их проверять не нужно.
       - name: Клиент API (GorodkiAPI) — генерация из contracts/openapi.v1.json и тесты
         run: swift test --package-path ios/Packages/GorodkiAPI
+
+      - name: Офлайн-синхронизация (GorodkiSync) — запись забега и доставка по контракту
+        run: swift test --package-path ios/Packages/GorodkiSync

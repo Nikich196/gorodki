@@ -6,6 +6,13 @@ public struct LoopClaim: Hashable, Codable, Sendable {
     public var closure: LoopClosure
     /// Грубая площадь на телефоне, м² (для подсказки «≈+1,2 га»; точную считает сервер).
     public var estimatedArea: Double
+
+    public init(startSeq: Int, endSeq: Int, closure: LoopClosure, estimatedArea: Double) {
+        self.startSeq = startSeq
+        self.endSeq = endSeq
+        self.closure = closure
+        self.estimatedArea = estimatedArea
+    }
 }
 
 public enum LoopClosure: String, Codable, Sendable {
