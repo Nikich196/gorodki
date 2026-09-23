@@ -27,6 +27,12 @@ public static class SwiftFriendlySchemas
             if (concrete.Properties is { Count: > 0 } properties)
             {
                 MarkRequired(concrete, properties);
+
+                // Двоичные поля (byte[] → Base64): в OpenAPI 3.1 это contentEncoding, иначе генератор даёт просто строку.
+                foreach (var property in properties.Values.OfType<OpenApiSchema>().Where(p => p.Format == "byte"))
+                {
+                    property.ContentEncoding = "base64";
+                }
             }
 
             // Ошибки — ProblemDetails с кодом для приложения (run_not_found, chunk_conflict…) и дополнительными полями

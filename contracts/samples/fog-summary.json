@@ -1,0 +1,10 @@
+{
+  "layers": [
+    {
+      "layer": "foot",
+      "tiles": 3,
+      "cellCount": 1234,
+      "areaSquareMeters": 42580.5
+    }
+  ]
+}

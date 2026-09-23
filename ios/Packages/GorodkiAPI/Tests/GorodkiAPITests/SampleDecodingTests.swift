@@ -60,6 +60,20 @@ struct SampleDecodingTests {
         #expect(config.rules.exploration.maxGapMeters.bike == 200)
     }
 
+    @Test("Туман: сжатые биты тайла в Base64, итог по слоям, туман забега")
+    func fog() throws {
+        let fog = try Samples.decode(Components.Schemas.FogResponse.self, "fog")
+        let summary = try Samples.decode(Components.Schemas.FogSummaryResponse.self, "fog-summary")
+        let run = try Samples.decode(Components.Schemas.RunResponse.self, "run-finished")
+
+        #expect(fog.layer == .foot && fog.unchanged.map(\.x) == [9_271])
+        let tile = try #require(fog.tiles.first)
+        #expect(tile.cellCount == 55 && tile.version == 2)
+        #expect(!tile.bits.data.isEmpty)
+        #expect(summary.layers.first?.areaSquareMeters == 42_580.5)
+        #expect(run.fogNewCells == 1_234)
+    }
+
     @Test("Ошибки: код для приложения и дополнительные поля (problems, overlaps)")
     func problems() throws {
         let invalid = try Samples.decode(Components.Schemas.ProblemDetails.self, "problem-chunk-invalid")

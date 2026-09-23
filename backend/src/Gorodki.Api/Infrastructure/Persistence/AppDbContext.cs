@@ -32,6 +32,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<TileVersionEntity> TileVersions => Set<TileVersionEntity>();
 
+    public DbSet<FogTileEntity> FogTiles => Set<FogTileEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -176,6 +178,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         model.Entity<TileVersionEntity>(tile =>
         {
             tile.HasKey(t => new { t.League, t.TileX, t.TileY });
+        });
+
+        model.Entity<FogTileEntity>(fog =>
+        {
+            fog.HasKey(f => new { f.UserId, f.Layer, f.Season, f.TileX, f.TileY });
+            fog.HasOne<UserEntity>().WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.Cascade);
+            fog.ToTable(t => t.HasCheckConstraint("ck_fog_tiles_cells", "cell_count BETWEEN 1 AND 65536"));
         });
     }
 }

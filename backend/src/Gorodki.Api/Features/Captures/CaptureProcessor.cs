@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
 using Gorodki.Domain.Geo;
@@ -17,7 +18,8 @@ namespace Gorodki.Api.Features.Captures;
 /// один раз, готовые заявки — по порядку номеров. Заявка берётся в аренду короткой транзакцией, тяжёлое (судья, контур)
 /// считается вне транзакций, земля пишется одной короткой транзакцией под блокировками игрока и тайлов.
 /// </summary>
-public sealed class CaptureProcessor(AppDbContext db, GameConfigStore configs, TimeProvider time, ILogger<CaptureProcessor> logger)
+public sealed class CaptureProcessor(
+    AppDbContext db, GameConfigStore configs, RunJudgements judgements, TimeProvider time, ILogger<CaptureProcessor> logger)
 {
     /// <summary>Петля старше этого к моменту, когда у сервера появилось всё нужное, не засчитывается (§7.3).</summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromHours(3);
@@ -87,16 +89,7 @@ public sealed class CaptureProcessor(AppDbContext db, GameConfigStore configs, T
         }
 
         // Судья отрезков — один раз на проход, по всему непрерывному началу следа.
-        var config = await configs.GetAsync(run.ConfigVersion, cancellationToken)
-            ?? throw new InvalidOperationException($"Нет версии конфига {run.ConfigVersion}, с которой начат забег.");
-        var encoded = await db.RunChunks.AsNoTracking()
-            .Where(c => c.RunId == runId && c.LastSeq <= run.PrefixEndSeq)
-            .OrderBy(c => c.FirstSeq)
-            .Select(c => c.Points)
-            .ToListAsync(cancellationToken);
-        var judgement = TrackJudging.JudgeRun(
-            config.Rules.JudgeRulesFor(run.League, run.Newcomer),
-            encoded.Select(bytes => TrackChunkCodec.Decode(bytes)).ToList());
+        var (rules, judgement) = await judgements.JudgeAsync(run, cancellationToken);
 
         foreach (var claim in ready)
         {
@@ -118,7 +111,7 @@ public sealed class CaptureProcessor(AppDbContext db, GameConfigStore configs, T
                 .Max();
             try
             {
-                decided += await DecideAsync(run, claim, config.Rules, judgement, evidenceAt, token, cancellationToken);
+                decided += await DecideAsync(run, claim, rules, judgement, evidenceAt, token, cancellationToken);
             }
             catch (Exception e) when (IsEngineFailure(e))
             {

@@ -5,6 +5,7 @@ using System.Threading.RateLimiting;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
@@ -59,7 +60,9 @@ if (withDatabase)
 
     // Обработка захватов: заявки петель → проверка → земля. Фоновый обработчик можно выключить (так делают тесты).
     builder.Services.AddSingleton<CaptureSignal>();
+    builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<CaptureProcessor>();
+    builder.Services.AddScoped<FogProcessor>();
     builder.Services.AddScoped<TerritoryReader>();
     if (builder.Configuration.GetValue(CaptureWorker.EnabledSetting, defaultValue: true))
     {
@@ -159,6 +162,7 @@ if (withDatabase)
     app.MapRunEndpoints();
     app.MapCaptureEndpoints();
     app.MapTerritoryEndpoints();
+    app.MapFogEndpoints();
 }
 
 await app.RunAsync();
