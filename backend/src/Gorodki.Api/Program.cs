@@ -57,6 +57,7 @@ if (withDatabase)
 {
     builder.Services.AddDbContext<AppDbContext>(options => AppDbContext.Configure(options, connectionString!));
     health.AddDbContextCheck<AppDbContext>("database");
+    health.AddCheck<StorageHealthCheck>("storage");
     builder.Services.AddSingleton<GameConfigCache>();
     builder.Services.AddScoped<GameConfigStore>();
 
@@ -64,6 +65,8 @@ if (withDatabase)
     builder.Services.AddSingleton<CaptureSignal>();
     builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<RunRetention>();
+    builder.Services.AddScoped<AccountDeletion>();
+    builder.Services.AddScoped<AccountExport>();
     builder.Services.AddScoped<CaptureProcessor>();
     builder.Services.AddScoped<CaptureRollback>();
     builder.Services.AddScoped<VisitProcessor>();
@@ -164,6 +167,7 @@ if (withDatabase)
 {
     app.MapAuthEndpoints();
     app.MapMeEndpoints();
+    app.MapPrivacyZoneEndpoints();
     app.MapConfigEndpoints();
     app.MapRunEndpoints();
     app.MapCaptureEndpoints();

@@ -75,6 +75,21 @@ public sealed class VisitsTests
         Assert.Empty(inside);
     }
 
+    [Fact]
+    public void Path_inside_a_privacy_zone_is_not_counted()
+    {
+        // Путь по y = 50 через кусок x ∈ [255, 355]; зона радиусом 30 м с центром на пути срезает 60 м из 100.
+        var path = Visits.TrimmedPath(Pairs(Line(71, spacing: 10, north: 50)), 200);
+        var piece = RectanglePolygon(255, 0, 100, 100);
+
+        var partly = Visits.Inside(path, [piece], PrivacyZones.Area([At(300, 50)], 30));
+        var covered = Visits.Inside(path, [piece], PrivacyZones.Area([At(300, 50)], 100));
+
+        Assert.Equal(40, partly[0].Meters, 0.5);
+        Assert.Empty(covered); // весь путь по куску — в зоне
+        Assert.Null(PrivacyZones.Area([], 400));
+    }
+
     // ── Засчитанный путь ────────────────────────────────────────────────────
 
     [Fact]
@@ -117,6 +132,17 @@ public sealed class VisitsTests
         Assert.Equal(49 + 48, segments.Count);
         Assert.Contains((48, 49), segments);
         Assert.DoesNotContain((49, 51), segments);
+    }
+
+    [Fact]
+    public void Length_of_the_accepted_path_is_its_meters()
+    {
+        var points = Line(71, spacing: 10);
+        var verdicts = Accepted(71);
+        verdicts[40] = JudgeVerdict.Broken(TrackIssue.Teleport); // скачок 390→400→410 м не в счёт: минус два участка
+
+        Assert.Equal(700, JudgedPath.Length(Pairs(points)), 0.01);
+        Assert.Equal(680, JudgedPath.Length(JudgedPath.Segments(points, verdicts)), 0.01);
     }
 
     // ── Правило визита ──────────────────────────────────────────────────────

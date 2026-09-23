@@ -3,6 +3,7 @@ using System;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Gorodki.Api.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260923174748_MultiAccount")]
+    partial class MultiAccount
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -546,41 +549,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.PrivacyZoneEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<double>("Latitude")
-                        .HasColumnType("double precision")
-                        .HasColumnName("latitude");
-
-                    b.Property<double>("Longitude")
-                        .HasColumnType("double precision")
-                        .HasColumnName("longitude");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_privacy_zones");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_privacy_zones_user_id");
-
-                    b.ToTable("privacy_zones", "app", t =>
-                        {
-                            t.HasCheckConstraint("ck_privacy_zones_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180");
-                        });
-                });
-
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.RefreshTokenEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1040,16 +1008,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_parcels_users_owner_id");
-                });
-
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.PrivacyZoneEntity", b =>
-                {
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_privacy_zones_users_user_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.RefreshTokenEntity", b =>

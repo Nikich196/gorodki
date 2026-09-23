@@ -18,7 +18,7 @@ namespace Gorodki.Api.Features.Captures;
 /// <remarks>
 /// Расчёт — без блокировок; запись — короткая транзакция под блокировками тайлов, куски перечитываются и визит
 /// применяется к их свежему состоянию (визит — функция состояния и времени). Кусок, который с тех пор пересобрал захват
-/// (другой номер), пропускается. Приватных зон ещё нет — появятся вместе с ними (§3.16).
+/// (другой номер), пропускается. Путь внутри приватных зон игрока (§3.16) не считается.
 /// </remarks>
 public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, GameConfigStore configs, TimeProvider time)
 {
@@ -50,7 +50,9 @@ public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, Ga
         var (_, judgement) = await judgements.JudgeAsync(run, cancellationToken);
         var current = (await configs.GetCurrentAsync(cancellationToken)).Rules; // карта общая — правила земли на момент визита
         var rules = current.Territory.ToRules();
-        var path = Visits.TrimmedPath(JudgedPath.Segments(judgement.Points, judgement.Verdicts), current.Privacy.TrimMeters);
+        var segments = JudgedPath.Segments(judgement.Points, judgement.Verdicts).ToList();
+        var acceptedMeters = Math.Round(JudgedPath.Length(segments), 1); // пробег — весь путь, без обрезки
+        var path = Visits.TrimmedPath(segments, current.Privacy.TrimMeters);
 
         // Свои куски в тайлах, которые задевает путь: сколько пути прошло внутри каждого.
         var candidates = new List<(long Id, DateTimeOffset At, TileKey Tile)>();
@@ -69,7 +71,14 @@ public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, Ga
                 .Where(p => p.OwnerId == run.UserId && p.League == run.League
                     && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
                 .ToListAsync(cancellationToken);
-            var inside = Visits.Inside(path, own.Select(p => p.Geometry).ToList());
+            var zones = await db.PrivacyZones.AsNoTracking()
+                .Where(z => z.UserId == run.UserId)
+                .Select(z => new { z.Latitude, z.Longitude })
+                .ToListAsync(cancellationToken);
+            var excluded = PrivacyZones.Area(
+                [.. zones.Select(z => Utm34.Forward(z.Latitude, z.Longitude)).Select(c => new Coordinate(c.Easting, c.Northing))],
+                current.Privacy.ZoneRadiusMeters);
+            var inside = Visits.Inside(path, own.Select(p => p.Geometry).ToList(), excluded);
             candidates = inside
                 .Where(v => v.Value.Meters >= current.Territory.VisitMinMeters)
                 .Select(v => (
@@ -123,7 +132,10 @@ public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, Ga
         var marked = await db.Runs
             .Where(r => r.Id == runId && r.VisitsProcessedAt == null)
             .ExecuteUpdateAsync(
-                set => set.SetProperty(r => r.VisitsProcessedAt, now).SetProperty(r => r.VisitedParcels, visitedCount),
+                set => set
+                    .SetProperty(r => r.VisitsProcessedAt, now)
+                    .SetProperty(r => r.VisitedParcels, visitedCount)
+                    .SetProperty(r => r.AcceptedMeters, acceptedMeters),
                 cancellationToken);
         if (marked == 0)
         {

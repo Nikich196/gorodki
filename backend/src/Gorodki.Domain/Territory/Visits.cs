@@ -61,8 +61,11 @@ public static class Visits
         return result;
     }
 
-    /// <summary>Сколько пути прошло внутри каждого куска (по номеру в списке); куски без пути не входят.</summary>
-    public static IReadOnlyDictionary<int, PieceVisit> Inside(IReadOnlyList<Step> path, IReadOnlyList<Polygon> pieces)
+    /// <summary>
+    /// Сколько пути прошло внутри каждого куска (по номеру в списке); куски без пути не входят. Путь внутри
+    /// <paramref name="excluded"/> (приватные зоны игрока, <see cref="PrivacyZones"/>) не считается.
+    /// </summary>
+    public static IReadOnlyDictionary<int, PieceVisit> Inside(IReadOnlyList<Step> path, IReadOnlyList<Polygon> pieces, Geometry? excluded = null)
     {
         var result = new Dictionary<int, PieceVisit>();
         if (path.Count == 0)
@@ -70,7 +73,10 @@ public static class Visits
             return result;
         }
 
-        var lines = path.Select(s => (Step: s, Line: GeoOps.Factory.CreateLineString([s.From, s.To]))).ToList();
+        var lines = path
+            .Select(s => (Step: s, Line: Counted(GeoOps.Factory.CreateLineString([s.From, s.To]), excluded)))
+            .Where(l => !l.Line.IsEmpty)
+            .ToList();
         for (var i = 0; i < pieces.Count; i++)
         {
             var piece = pieces[i];
@@ -99,6 +105,9 @@ public static class Visits
 
         return result;
     }
+
+    private static Geometry Counted(LineString line, Geometry? excluded) =>
+        excluded is null || !excluded.EnvelopeInternal.Intersects(line.EnvelopeInternal) ? line : GeoOps.LineOutside(line, excluded);
 
     private static Coordinate Along(Step step, double fraction) =>
         new(step.From.X + ((step.To.X - step.From.X) * fraction), step.From.Y + ((step.To.Y - step.From.Y) * fraction));

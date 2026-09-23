@@ -282,6 +282,19 @@ actor FakeServer: APIProtocol {
 
     func getHealth(_ input: Operations.getHealth.Input) async throws -> Operations.getHealth.Output { throw Unused() }
     func getMe(_ input: Operations.getMe.Input) async throws -> Operations.getMe.Output { throw Unused() }
+    func deleteMe(_ input: Operations.deleteMe.Input) async throws -> Operations.deleteMe.Output { throw Unused() }
+    func exportMyData(_ input: Operations.exportMyData.Input) async throws -> Operations.exportMyData.Output {
+        throw Unused()
+    }
+    func listPrivacyZones(_ input: Operations.listPrivacyZones.Input) async throws
+        -> Operations.listPrivacyZones.Output
+    { throw Unused() }
+    func createPrivacyZone(_ input: Operations.createPrivacyZone.Input) async throws
+        -> Operations.createPrivacyZone.Output
+    { throw Unused() }
+    func deletePrivacyZone(_ input: Operations.deletePrivacyZone.Input) async throws
+        -> Operations.deletePrivacyZone.Output
+    { throw Unused() }
     func getConfig(_ input: Operations.getConfig.Input) async throws -> Operations.getConfig.Output { throw Unused() }
     func getTerritory(_ input: Operations.getTerritory.Input) async throws -> Operations.getTerritory.Output {
         throw Unused()

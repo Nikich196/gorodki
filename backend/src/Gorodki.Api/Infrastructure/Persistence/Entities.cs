@@ -209,6 +209,12 @@ public sealed class RunEntity
     public int? VisitedParcels { get; set; }
 
     /// <summary>
+    /// Засчитанный путь забега, метры (судья отрезков, без обрезки) — пробег для защиты от мультиаккаунтов (§3.3).
+    /// Считается вместе с визитами; null — ещё не посчитан.
+    /// </summary>
+    public double? AcceptedMeters { get; set; }
+
+    /// <summary>
     /// Когда стёрты сырые точки забега (через 14 дней, PLAN.md §3.16): содержимое кусков пустое, номера и время остались.
     /// </summary>
     public DateTimeOffset? PointsPurgedAt { get; set; }
@@ -534,4 +540,21 @@ public sealed class TileVersionEntity
     public int TileY { get; set; }
 
     public long Version { get; set; }
+}
+
+/// <summary>
+/// Приватная зона игрока (PLAN.md, §3.16): круг вокруг точки, где визиты не засчитываются. Радиус — из игрового конфига.
+/// Видит только сам игрок; удаляется вместе с аккаунтом и входит в «мои данные».
+/// </summary>
+public sealed class PrivacyZoneEntity
+{
+    public Guid Id { get; set; }
+
+    public Guid UserId { get; set; }
+
+    public double Latitude { get; set; }
+
+    public double Longitude { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
 }

@@ -53,6 +53,9 @@ public sealed record PrivacyConfig
 
     /// <summary>Радиус приватной зоны, которую предлагают при первом «Старте», метры.</summary>
     public double ZoneRadiusMeters { get; init; } = 400;
+
+    /// <summary>Сколько приватных зон может быть у игрока (план числа не называет: дом, работа, учёба).</summary>
+    public int MaxZones { get; init; } = 3;
 }
 
 /// <summary>Захват (PLAN.md, §3.2).</summary>
@@ -99,6 +102,12 @@ public sealed record TerritoryConfig
 
     /// <summary>Визит: столько метров засчитанного следа внутри своего куска (§3.3).</summary>
     public double VisitMinMeters { get; init; } = 50;
+
+    /// <summary>Защита от мультиаккаунтов (§3.3): аккаунт моложе стольких часов чужие уровни не снимает.</summary>
+    public double NewAccountHours { get; init; } = 48;
+
+    /// <summary>…и с засчитанным пробегом (все забеги, обе лиги) меньше стольких метров — тоже.</summary>
+    public double NewAccountMinMeters { get; init; } = 3000;
 
     public TerritoryRules ToRules() => new()
     {

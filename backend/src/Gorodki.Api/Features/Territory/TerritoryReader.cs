@@ -93,8 +93,9 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
                 t.Tile.Y,
                 t.Version,
                 t.Pieces
+                    .Where(p => colors.ContainsKey(p.State.OwnerId)) // из журнала мог вернуться кусок уже удалённого аккаунта
                     .OrderBy(p => p.Id)
-                    .Select(p => ToView(p.Id, p.State, p.Geometry, colors.GetValueOrDefault(p.State.OwnerId), viewer, rules, now))
+                    .Select(p => ToView(p.Id, p.State, p.Geometry, colors[p.State.OwnerId], viewer, rules, now))
                     .OfType<ParcelView>()
                     .ToList(),
                 t.RevealAt?.ToUnixTimeMilliseconds()))
@@ -185,7 +186,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
     }
 
     /// <summary>Кольцо из UTM 34N в широту и долготу; 7 знаков после запятой — около 1 см.</summary>
-    private static IReadOnlyList<double> LatLon(LineString ring)
+    internal static IReadOnlyList<double> LatLon(LineString ring)
     {
         var result = new double[ring.NumPoints * 2];
         for (var i = 0; i < ring.NumPoints; i++)

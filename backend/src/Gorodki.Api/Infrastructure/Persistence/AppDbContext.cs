@@ -42,6 +42,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<SeasonEntity> Seasons => Set<SeasonEntity>();
 
+    public DbSet<PrivacyZoneEntity> PrivacyZones => Set<PrivacyZoneEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -123,6 +125,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             run.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
             run.HasOne<GameConfigEntity>().WithMany().HasForeignKey(r => r.ConfigVersion).OnDelete(DeleteBehavior.Restrict);
             run.HasIndex(r => new { r.UserId, r.StartedAt });
+            run.HasIndex(r => r.DeviceId); // «один аккаунт на устройство в сутки» (§3.3)
             run.Property(r => r.AppVersion).HasMaxLength(32);
             // Один активный забег на игрока (PLAN.md, §3.2) — это гарантирует сама база.
             run.HasIndex(r => r.UserId).IsUnique().HasFilter("status = 0").HasDatabaseName("ux_runs_one_active_per_user");
@@ -235,6 +238,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             fog.HasKey(f => new { f.UserId, f.Layer, f.Season, f.TileX, f.TileY });
             fog.HasOne<UserEntity>().WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.Cascade);
             fog.ToTable(t => t.HasCheckConstraint("ck_fog_tiles_cells", "cell_count BETWEEN 1 AND 65536"));
+        });
+
+        model.Entity<PrivacyZoneEntity>(zone =>
+        {
+            zone.HasKey(z => z.Id);
+            zone.HasIndex(z => z.UserId);
+            zone.HasOne<UserEntity>().WithMany().HasForeignKey(z => z.UserId).OnDelete(DeleteBehavior.Cascade);
+            zone.ToTable(t => t.HasCheckConstraint(
+                "ck_privacy_zones_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180"));
         });
     }
 }

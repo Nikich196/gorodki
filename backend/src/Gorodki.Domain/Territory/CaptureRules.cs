@@ -34,7 +34,11 @@ public sealed record ParcelState
 /// <param name="CapturerId">Игрок, замкнувший петлю.</param>
 /// <param name="At">Время захвата.</param>
 /// <param name="ClanMates">Соклановцы игрока: их землю не отбирают, а освежают.</param>
-public sealed record CaptureContext(Guid CapturerId, DateTimeOffset At, IReadOnlySet<Guid> ClanMates);
+/// <param name="CanRemoveLevels">
+/// Может ли игрок снимать чужие уровни. Нет — у нового аккаунта (моложе 48 ч или с пробегом меньше 3 км, §3.3,
+/// защита от мультиаккаунтов): ничью землю он берёт, чужую не трогает.
+/// </param>
+public sealed record CaptureContext(Guid CapturerId, DateTimeOffset At, IReadOnlySet<Guid> ClanMates, bool CanRemoveLevels = true);
 
 /// <summary>Числа правил земли. Хранятся в игровом конфиге.</summary>
 public sealed record TerritoryRules
@@ -90,6 +94,11 @@ public enum PieceOutcome
     /// Задержка отправки не должна давать преимуществ.
     /// </summary>
     Superseded,
+    /// <summary>
+    /// Чужой кусок не тронут: аккаунт нападающего моложе 48 ч или с пробегом меньше 3 км (§3.3). Иначе второй аккаунт,
+    /// заведённый на минуту, снимал бы уровни «вторым нападающим».
+    /// </summary>
+    NewAccountLimited,
 }
 
 /// <summary>
@@ -144,6 +153,11 @@ public static class CaptureRules
         if (current.ShieldUntil > now)
         {
             return (current, PieceOutcome.Shielded);
+        }
+
+        if (!context.CanRemoveLevels)
+        {
+            return (current, PieceOutcome.NewAccountLimited);
         }
 
         // Окно снятия уровней: прошло — считаем заново. Петля «из прошлого» (now раньше начала окна) — в том же окне.

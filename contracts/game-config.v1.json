@@ -30,7 +30,9 @@
     "maxLevelsLostPerWindow": 2,
     "decayDaysPerLevel": 6,
     "ghostDays": 3,
-    "visitMinMeters": 50
+    "visitMinMeters": 50,
+    "newAccountHours": 48,
+    "newAccountMinMeters": 3000
   },
   "leagues": {
     "run": {
@@ -111,6 +113,7 @@
   "privacy": {
     "trimMeters": 200,
     "publicEventDelayMinutes": 20,
-    "zoneRadiusMeters": 400
+    "zoneRadiusMeters": 400,
+    "maxZones": 3
   }
 }
