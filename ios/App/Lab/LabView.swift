@@ -11,6 +11,11 @@ struct LabView: View {
                 } label: {
                     Label("Прогулка: фоновый трекинг (S1)", systemImage: "figure.walk")
                 }
+                NavigationLink {
+                    MapStressView()
+                } label: {
+                    Label("Карта: 5 000 участков и туман (S4)", systemImage: "map")
+                }
             } footer: {
                 Text("Каждый экран отвечает на один вопрос из плана. Результат — снимок экрана со сводкой.")
             }
