@@ -33,7 +33,7 @@ public sealed class CaptureSignal
 }
 
 /// <summary>
-/// Фоновый обработчик захватов и тумана: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
+/// Фоновый обработчик захватов, тумана и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
 /// Два экземпляра сервера во время деплоя не мешают друг другу: заявки берутся в аренду.
 /// </summary>
 public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal signal, TimeProvider time, ILogger<CaptureWorker> logger)
@@ -75,6 +75,12 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
                         await using var scope = scopes.CreateAsyncScope();
                         await scope.ServiceProvider.GetRequiredService<FogProcessor>().StampRunAsync(runId, stoppingToken);
                     }
+                }
+
+                // Откаты — в том же потоке, что и захваты: движок участков однопоточный (ADR 0003).
+                await using (var rollbackScope = scopes.CreateAsyncScope())
+                {
+                    await rollbackScope.ServiceProvider.GetRequiredService<CaptureRollback>().ProcessPendingAsync(stoppingToken);
                 }
             }
             catch (Exception e) when (e is not OperationCanceledException)

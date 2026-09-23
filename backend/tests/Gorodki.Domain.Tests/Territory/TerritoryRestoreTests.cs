@@ -25,7 +25,7 @@ public sealed class TerritoryRestoreTests
         return result;
     }
 
-    private static RestoreResult Restore(TerritoryMap map, CaptureResult capture, Func<ParcelState, ParcelState>? adjust = null)
+    private static RestoreResult Restore(TerritoryMap map, CaptureResult capture, Func<ParcelState, ParcelState?>? adjust = null)
     {
         var result = map.Restore(capture.Changes, adjust);
         Assert.Empty(TerritoryInvariants.Check(map));
@@ -114,6 +114,22 @@ public sealed class TerritoryRestoreTests
         Assert.Equal(40_000, map.AreaOf(Anna), 1);
         var visits = map.Parcels.Select(p => (p.State.LastVisitAt, Area: Math.Round(p.Geometry.Area))).OrderBy(v => v.LastVisitAt).ToList();
         Assert.Equal([(T0, 20_000.0), (T0.AddDays(2), 20_000.0)], visits);
+    }
+
+    [Fact]
+    public void Land_of_an_owner_who_is_gone_comes_back_neutral()
+    {
+        // Аккаунт Анны удалён: вернуть ей землю некому — взятое у неё становится ничьим.
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(0, 0, 200, 200));
+        var cheat = Capture(map, Boris, T0.AddHours(1), RectanglePolygon(100, 0, 200, 200));
+
+        var result = Restore(map, cheat, state => state.OwnerId == Anna ? null : state);
+
+        Assert.Equal(20_000, map.AreaOf(Anna), 1); // нетронутая половина — как была
+        Assert.Equal(0, map.AreaOf(Boris), 1);
+        Assert.Equal(40_000, result.RestoredArea, 1);
+        Assert.Equal(20_000, map.Parcels.Sum(p => p.Geometry.Area), 1);
     }
 
     [Fact]
