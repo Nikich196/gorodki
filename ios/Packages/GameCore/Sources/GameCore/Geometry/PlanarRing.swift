@@ -23,6 +23,26 @@ public struct PlanarRing: Hashable, Sendable {
     /// Площадь без знака, м². Для контура без самопересечений.
     public var area: Double { abs(signedArea) }
 
+    /// Лежит ли точка внутри контура (правило чётности пересечений луча). Точка на границе может дать любой ответ:
+    /// для касания участка на карте это не важно.
+    public func contains(_ point: PlanarPoint) -> Bool {
+        guard vertices.count >= 3 else { return false }
+        var inside = false
+        var j = vertices.count - 1
+        for i in vertices.indices {
+            let a = vertices[i]
+            let b = vertices[j]
+            if (a.north > point.north) != (b.north > point.north) {
+                let crossEast = a.east + (point.north - a.north) * (b.east - a.east) / (b.north - a.north)
+                if point.east < crossEast {
+                    inside.toggle()
+                }
+            }
+            j = i
+        }
+        return inside
+    }
+
     /// Периметр вместе с замыкающим отрезком, м.
     public var perimeter: Double {
         guard vertices.count >= 2 else { return 0 }
