@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Правила игры: чистый C# без ASP.NET и базы данных. Здесь живёт всё, что можно проверить тестом без сервера. -->
+  <PropertyGroup>
+    <RootNamespace>Gorodki.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>

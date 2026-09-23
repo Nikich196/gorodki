@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Gorodki.Api/Gorodki.Api.csproj" />
+    <Project Path="src/Gorodki.Domain/Gorodki.Domain.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Gorodki.Api.Tests/Gorodki.Api.Tests.csproj" />
+    <Project Path="tests/Gorodki.Domain.Tests/Gorodki.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

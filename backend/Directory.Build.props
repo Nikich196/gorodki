@@ -1,0 +1,20 @@
+<Project>
+  <!-- Общие настройки для всех проектов сервера. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <Deterministic>true</Deterministic>
+    <Authors>Авторы проекта «Городки»</Authors>
+    <Copyright>© 2026 Авторы проекта «Городки». Все права защищены.</Copyright>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!-- В CI (GitHub Actions выставляет CI=true) любое предупреждение — ошибка.
+       Локально предупреждения остаются предупреждениями, чтобы не мешать экспериментам. -->
+  <PropertyGroup Condition="'$(CI)' == 'true'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+</Project>

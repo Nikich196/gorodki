@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Веб-сервер: адреса API (Minimal APIs), вход, реальное время, фоновые задачи. -->
+  <PropertyGroup>
+    <RootNamespace>Gorodki.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Gorodki.Domain\Gorodki.Domain.csproj" />
+  </ItemGroup>
+</Project>
