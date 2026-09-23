@@ -4,6 +4,7 @@ using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Fog;
+using Gorodki.Domain.Time;
 using Microsoft.Extensions.DependencyInjection;
 using static Gorodki.IntegrationTests.RunRequests;
 using static Gorodki.IntegrationTests.Walks;
@@ -33,8 +34,8 @@ public sealed class FogTests(DatabaseFixture database)
         Assert.InRange(opened!.Value, 480, 680);
         Assert.Null(again);
         var summary = await client.GetFromJsonAsync<FogSummaryResponse>("/fog/summary", Json, Cancel);
-        var foot = Assert.Single(summary!.Layers);
-        Assert.Equal((FogLayerKind.Foot, opened.Value), (foot.Layer, foot.CellCount));
+        var foot = Assert.Single(summary!.Layers); // до первого сезона — только «за всё время»
+        Assert.Equal((FogLayerKind.Foot, (int?)null, opened.Value), (foot.Layer, foot.Season, foot.CellCount));
         Assert.InRange(foot.AreaSquareMeters, 16_000, 24_000);
 
         var mine = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot", Json, Cancel);
@@ -68,6 +69,34 @@ public sealed class FogTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Walk_in_a_season_opens_both_the_seasonal_and_the_all_time_layer()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, _) = await api.CreatePlayerClientAsync(); // до сдвига часов: токен «из будущего» не прошёл бы проверку
+        var area = NewArea();
+        var before = await WalkAndFinishAsync(Cancel, api, client, Square(area, 0, 0, 100)); // предсезонье
+        var beforeCells = await StampAsync(api, before.Id);
+        api.Time.SetUtcNow(SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 20)).AddHours(9));
+        var inSeason = await WalkAndFinishAsync(Cancel, api, client, Square(area, 50, 0, 100));
+
+        var newCells = await StampAsync(api, inSeason.Id);
+
+        var summary = (await client.GetFromJsonAsync<FogSummaryResponse>("/fog/summary", Json, Cancel))!.Layers;
+        var allTime = Assert.Single(summary, l => l.Season is null);
+        var season = Assert.Single(summary, l => l.Season == 0);
+        Assert.Equal(beforeCells + newCells, allTime.CellCount); // «+N га» — только новое за всё время
+        Assert.True(season.CellCount > newCells!.Value); // сезонный слой — весь квартал второй прогулки, включая уже открытое раньше
+        Assert.True(season.CellCount < allTime.CellCount);
+
+        var seasonal = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot&season=0", Json, Cancel);
+        Assert.Equal(0, seasonal!.Season);
+        Assert.Equal(season.CellCount, seasonal.Tiles.Sum(t => FogTileCodec.Decompress(t.Bits).Count));
+        var past = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot&season=1", Json, Cancel);
+        Assert.Empty(past!.Tiles);
+    }
+
+    [Fact]
     public async Task Broken_query_is_refused()
     {
         database.RequireDatabase();
@@ -75,8 +104,10 @@ public sealed class FogTests(DatabaseFixture database)
         var (client, _) = await api.CreatePlayerClientAsync();
 
         var response = await client.GetAsync("/fog?layer=swim", Cancel);
+        var negativeSeason = await client.GetAsync("/fog?layer=foot&season=-1", Cancel);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, negativeSeason.StatusCode); // −1 — внутреннее «за всё время», не номер сезона
     }
 
     private static async Task<List<Guid>> ReadyAsync(ApiFactory api)

@@ -703,7 +703,7 @@
         "tags": [
           "Исследование"
         ],
-        "summary": "Свой туман: layer=foot|bike, tiles=x:y@версия через запятую (без tiles — все тайлы слоя)",
+        "summary": "Свой туман: layer=foot|bike, season=номер (без него — за всё время), tiles=x:y@версия через запятую (без tiles — все тайлы слоя)",
         "operationId": "getFog",
         "parameters": [
           {
@@ -718,6 +718,14 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "season",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
             }
           }
         ],
@@ -750,7 +758,7 @@
         "tags": [
           "Исследование"
         ],
-        "summary": "Сколько открыто: клетки и площадь по слоям",
+        "summary": "Сколько открыто: клетки и площадь по слоям — за всё время и за текущий сезон",
         "operationId": "getFogSummary",
         "responses": {
           "200": {
@@ -1058,6 +1066,13 @@
           "layer": {
             "$ref": "#/components/schemas/FogLayerKind"
           },
+          "season": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
           "tiles": {
             "type": "integer",
             "format": "int32"
@@ -1082,6 +1097,13 @@
         "properties": {
           "layer": {
             "$ref": "#/components/schemas/FogLayerKind"
+          },
+          "season": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           },
           "tiles": {
             "type": "array",

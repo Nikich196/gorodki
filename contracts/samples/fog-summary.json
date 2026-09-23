@@ -2,9 +2,17 @@
   "layers": [
     {
       "layer": "foot",
+      "season": null,
       "tiles": 3,
       "cellCount": 1234,
       "areaSquareMeters": 42580.5
+    },
+    {
+      "layer": "foot",
+      "season": 0,
+      "tiles": 1,
+      "cellCount": 321,
+      "areaSquareMeters": 11074.9
     }
   ]
 }

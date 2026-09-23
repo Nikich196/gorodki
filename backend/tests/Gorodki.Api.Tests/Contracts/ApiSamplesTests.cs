@@ -98,9 +98,14 @@ public sealed class ApiSamplesTests
         yield return ("config", new ConfigResponse(1, 0, GameConfig.Default));
         yield return ("fog", new FogResponse(
             FogLayerKind.Foot,
+            0,
             [new FogTileView(9_270, 5_404, 2, 55, FogTileCodec.Compress(SampleFogTile()))],
             [new TileRef(9_271, 5_404)]));
-        yield return ("fog-summary", new FogSummaryResponse([new FogLayerSummary(FogLayerKind.Foot, 3, 1_234, 42_580.5)]));
+        yield return ("fog-summary", new FogSummaryResponse(
+        [
+            new FogLayerSummary(FogLayerKind.Foot, null, 3, 1_234, 42_580.5),
+            new FogLayerSummary(FogLayerKind.Foot, 0, 1, 321, 11_074.9),
+        ]));
         yield return ("seasons", SeasonEndpoints.ToResponse(
             new SeasonCalendar(
             [

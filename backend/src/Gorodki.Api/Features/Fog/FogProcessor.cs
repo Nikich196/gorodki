@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Fog;
 using Gorodki.Domain.Leagues;
@@ -11,8 +12,10 @@ namespace Gorodki.Api.Features.Fog;
 /// Туман «Исследования» на сервере (PLAN.md, §3.10, §7.3): забег открывает клетки один раз — когда он завершён и все его точки
 /// на месте (или давно закрыт сервером). Клетки — по проверенным судьёй точкам (<see cref="FogStamp"/>), запись — одной
 /// короткой транзакцией под блокировкой игрока; новые клетки считаются ровно один раз.
+/// Слоя два: за всё время и сезонный — сезон забега определяется по времени его начала (по часам сервера), а не по моменту
+/// обработки: забег, начатый в 23:50 последнего дня сезона, весь относится к нему. Забеги до первого сезона — только «за всё время».
 /// </summary>
-public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, TimeProvider time)
+public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, SeasonStore seasons, TimeProvider time)
 {
     /// <summary>Закрытый сервером забег, который телефон так и не завершил, открывает туман через сутки — тем, что успело прийти.</summary>
     public static readonly TimeSpan ClosedRunGrace = TimeSpan.FromDays(1);
@@ -45,6 +48,8 @@ public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, Time
         var stamp = FogStamp.Of(judgement.Points, judgement.Verdicts, run.League, rules.Exploration);
         var layer = run.League == League.Bike ? FogLayerKind.Bike : FogLayerKind.Foot;
         var now = time.GetUtcNow();
+        var calendar = await seasons.CalendarAsync(cancellationToken);
+        var season = calendar.At(run.StartedAt.AddMilliseconds(-run.ClockSkewMs))?.Number;
 
         db.ChangeTracker.Clear();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -60,47 +65,59 @@ public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, Time
             stored = await db.FogTiles
                 .Where(f => f.UserId == run.UserId
                     && f.Layer == layer
-                    && f.Season == SeasonCalendar.AllTime
+                    && (f.Season == SeasonCalendar.AllTime || f.Season == season)
                     && f.TileX >= minX && f.TileX <= maxX
                     && f.TileY >= minY && f.TileY <= maxY)
                 .ToListAsync(cancellationToken);
         }
 
-        var newCells = 0;
-        foreach (var (key, bits) in stamp.Tiles)
+        int Merge(int seasonNumber)
         {
-            var entity = stored.SingleOrDefault(f => f.TileX == key.X && f.TileY == key.Y);
-            if (entity is null)
+            var added = 0;
+            foreach (var (key, bits) in stamp.Tiles)
             {
-                newCells += bits.Count;
-                db.FogTiles.Add(new FogTileEntity
+                var entity = stored.SingleOrDefault(f => f.Season == seasonNumber && f.TileX == key.X && f.TileY == key.Y);
+                if (entity is null)
                 {
-                    UserId = run.UserId,
-                    Layer = layer,
-                    Season = SeasonCalendar.AllTime,
-                    TileX = key.X,
-                    TileY = key.Y,
-                    Bits = FogTileCodec.Compress(bits),
-                    CellCount = bits.Count,
-                    Version = 1,
-                    UpdatedAt = now,
-                });
-                continue;
+                    added += bits.Count;
+                    db.FogTiles.Add(new FogTileEntity
+                    {
+                        UserId = run.UserId,
+                        Layer = layer,
+                        Season = seasonNumber,
+                        TileX = key.X,
+                        TileY = key.Y,
+                        Bits = FogTileCodec.Compress(bits),
+                        CellCount = bits.Count,
+                        Version = 1,
+                        UpdatedAt = now,
+                    });
+                    continue;
+                }
+
+                var old = FogTileCodec.Decompress(entity.Bits);
+                var fresh = bits.NewCount(old);
+                if (fresh == 0)
+                {
+                    continue; // тайл не изменился — версию не трогаем, приложение его не перекачает
+                }
+
+                added += fresh;
+                old.UnionWith(bits);
+                entity.Bits = FogTileCodec.Compress(old);
+                entity.CellCount = old.Count;
+                entity.Version++;
+                entity.UpdatedAt = now;
             }
 
-            var old = FogTileCodec.Decompress(entity.Bits);
-            var added = bits.NewCount(old);
-            if (added == 0)
-            {
-                continue; // тайл не изменился — версию не трогаем, приложение его не перекачает
-            }
+            return added;
+        }
 
-            newCells += added;
-            old.UnionWith(bits);
-            entity.Bits = FogTileCodec.Compress(old);
-            entity.CellCount = old.Count;
-            entity.Version++;
-            entity.UpdatedAt = now;
+        // «+N га» в итоге забега — новое за всё время; сезонный слой пополняется теми же клетками.
+        var newCells = Merge(SeasonCalendar.AllTime);
+        if (season is { } seasonNumber)
+        {
+            Merge(seasonNumber);
         }
 
         await db.SaveChangesAsync(cancellationToken);
