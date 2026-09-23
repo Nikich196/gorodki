@@ -1,0 +1,23 @@
+# Blueprint Render для сервера «Городков»: один веб-сервис Render Free на аккаунте Никиты (PLAN.md, §1, §2, §9).
+# Как развернуть — docs/guides/deploy-render.md. Секретов в файле нет: строку подключения Render спросит при создании
+# (sync: false), ключ подписи токенов сгенерирует сам (generateValue — случайные 256 бит в Base64).
+services:
+  - type: web
+    name: gorodki-api
+    runtime: docker
+    plan: free
+    region: frankfurt # рядом с базой Supabase (eu-central-1, Франкфурт)
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health # «жив ли процесс», в базу не ходит; /health/ready — для пингера
+    autoDeployTrigger: checksPass # только после зелёного CI; за неделю до показа — off (PLAN.md, §8)
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - key: ConnectionStrings__Gorodki
+        sync: false
+      - key: Auth__SigningKey
+        generateValue: true
+      - key: Database__MigrateOnStartup
+        value: "true"
