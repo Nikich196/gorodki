@@ -5,21 +5,21 @@ namespace Gorodki.Api.Features.Config;
 
 /// <summary>Игровой конфиг для телефона.</summary>
 /// <param name="Version">Номер версии: его телефон передаёт при старте забега.</param>
-/// <param name="ActiveFrom">С какого момента версия действует.</param>
+/// <param name="ActiveFromMs">С какого момента версия действует, мс Unix (как всё время в API).</param>
 /// <param name="Rules">Все числа правил.</param>
-public sealed record ConfigResponse(int Version, DateTimeOffset ActiveFrom, GameConfig Rules);
+public sealed record ConfigResponse(int Version, long ActiveFromMs, GameConfig Rules);
 
 public static class ConfigEndpoints
 {
     public static IEndpointRouteBuilder MapConfigEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/config", GetCurrent).WithTags("Конфиг").WithSummary("Действующая версия игрового конфига (берётся при каждом «Старте»)");
+        app.MapGet("/config", GetCurrent).WithName("getConfig").WithTags("Конфиг").WithSummary("Действующая версия игрового конфига (берётся при каждом «Старте»)");
         return app;
     }
 
     private static async Task<Ok<ConfigResponse>> GetCurrent(GameConfigStore store, CancellationToken cancellationToken)
     {
         var current = await store.GetCurrentAsync(cancellationToken);
-        return TypedResults.Ok(new ConfigResponse(current.Version, current.ActiveFrom, current.Rules));
+        return TypedResults.Ok(new ConfigResponse(current.Version, current.ActiveFrom.ToUnixTimeMilliseconds(), current.Rules));
     }
 }

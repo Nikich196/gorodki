@@ -1,0 +1,26 @@
+{
+  "id": "624661fe-a660-59b4-be57-f29da86d1ebc",
+  "claimNo": 1,
+  "startSeq": 300,
+  "endSeq": 612,
+  "status": "applied",
+  "waitingFor": null,
+  "rejectCode": null,
+  "areaSquareMeters": 10004.3,
+  "areaByOutcome": {
+    "claimedNeutral": 5002.1,
+    "transferred": 5002.2,
+    "cracked": 1200
+  },
+  "changedTiles": [
+    {
+      "x": 684,
+      "y": 5775
+    },
+    {
+      "x": 685,
+      "y": 5775
+    }
+  ],
+  "effectiveAtMs": 1790000612000
+}

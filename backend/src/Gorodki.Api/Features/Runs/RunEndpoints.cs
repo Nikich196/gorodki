@@ -22,6 +22,7 @@ public static class RunEndpoints
         var runs = app.MapGroup("/runs").WithTags("Забеги").RequireRateLimiting(RunLimits.RateLimitPolicy);
 
         runs.MapPost("", StartRun)
+            .WithName("startRun")
             .WithSummary("Старт забега (повтор того же запроса безопасен)")
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -30,6 +31,7 @@ public static class RunEndpoints
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
         runs.MapPut("/{runId:guid}/chunks/{firstSeq:int}", UploadChunk)
+            .WithName("uploadChunk")
             .WithSummary("Кусок точек и данных датчиков (повтор того же куска безопасен)")
             .WithMetadata(new RequestSizeLimitAttribute(RunLimits.MaxRequestBytes))
             .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -40,12 +42,14 @@ public static class RunEndpoints
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
         runs.MapPost("/{runId:guid}/finish", FinishRun)
+            .WithName("finishRun")
             .WithSummary("Завершение забега: время конца и номер последней точки")
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         runs.MapGet("/{runId:guid}", GetRun)
+            .WithName("getRun")
             .WithSummary("Забег: статус, какие точки уже есть и каких не хватает")
             .ProducesProblem(StatusCodes.Status404NotFound);
 

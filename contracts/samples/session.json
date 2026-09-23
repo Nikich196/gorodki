@@ -1,0 +1,6 @@
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiJ9.e30.c2lnbmF0dXJl",
+  "refreshToken": "cmVmcmVzaA",
+  "expiresIn": 900,
+  "isNewUser": true
+}

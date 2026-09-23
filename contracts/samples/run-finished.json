@@ -1,0 +1,28 @@
+{
+  "id": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c",
+  "league": "bike",
+  "source": "replay",
+  "configVersion": 1,
+  "startedAtMs": 1790000000000,
+  "endedAtMs": 1790003600000,
+  "status": "finished",
+  "lastSeq": 199,
+  "processedSeq": 179,
+  "received": [
+    {
+      "firstSeq": 0,
+      "lastSeq": 59
+    },
+    {
+      "firstSeq": 120,
+      "lastSeq": 199
+    }
+  ],
+  "missing": [
+    {
+      "firstSeq": 60,
+      "lastSeq": 119
+    }
+  ],
+  "newcomer": false
+}

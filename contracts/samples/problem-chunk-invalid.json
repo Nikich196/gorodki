@@ -1,0 +1,15 @@
+{
+  "title": "Кусок забега не прошёл проверку.",
+  "status": 400,
+  "code": "chunk_invalid",
+  "problems": [
+    {
+      "field": "points[37]",
+      "rule": "lat_range"
+    },
+    {
+      "field": "points",
+      "rule": "seq_limit"
+    }
+  ]
+}

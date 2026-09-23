@@ -1,0 +1,1879 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Gorodki.Api | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Служебное"
+        ],
+        "summary": "Сервер жив: версия, коммит, игровой день по Минску",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Кто я: ник, цвет, роль",
+        "operationId": "getMe",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/config": {
+      "get": {
+        "tags": [
+          "Конфиг"
+        ],
+        "summary": "Действующая версия игрового конфига (берётся при каждом «Старте»)",
+        "operationId": "getConfig",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/territory": {
+      "get": {
+        "tags": [
+          "Карта"
+        ],
+        "summary": "Земля по тайлам: tiles=x:y или x:y@известная_версия через запятую, не больше 25",
+        "operationId": "getTerritory",
+        "parameters": [
+          {
+            "name": "league",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tiles",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerritoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/google": {
+      "post": {
+        "tags": [
+          "Вход"
+        ],
+        "summary": "Вход через Google; новый игрок — по инвайту, 16+ и согласию",
+        "operationId": "signInWithGoogle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleSignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "Вход"
+        ],
+        "summary": "Новая пара токенов взамен refresh-токена",
+        "operationId": "refreshSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "Вход"
+        ],
+        "summary": "Выход: отзывает все токены этого входа",
+        "operationId": "logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/runs": {
+      "post": {
+        "tags": [
+          "Забеги"
+        ],
+        "summary": "Старт забега (повтор того же запроса безопасен)",
+        "operationId": "startRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{runId}/chunks/{firstSeq}": {
+      "put": {
+        "tags": [
+          "Забеги"
+        ],
+        "summary": "Кусок точек и данных датчиков (повтор того же куска безопасен)",
+        "operationId": "uploadChunk",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "firstSeq",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadChunkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkReceipt"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{runId}/finish": {
+      "post": {
+        "tags": [
+          "Забеги"
+        ],
+        "summary": "Завершение забега: время конца и номер последней точки",
+        "operationId": "finishRun",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{runId}": {
+      "get": {
+        "tags": [
+          "Забеги"
+        ],
+        "summary": "Забег: статус, какие точки уже есть и каких не хватает",
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{runId}/loops": {
+      "post": {
+        "tags": [
+          "Захваты"
+        ],
+        "summary": "Заявка петли: сервер засчитает её, когда получит точки и датчики (повтор безопасен)",
+        "operationId": "claimLoop",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoopClaimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{runId}/captures": {
+      "get": {
+        "tags": [
+          "Захваты"
+        ],
+        "summary": "Все заявки забега: статус, итог, чего ждёт ожидающая",
+        "operationId": "listCaptures",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CaptureResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CaptureConfig": {
+        "required": [
+          "loopDetector",
+          "shape",
+          "maxCapturesPerDay",
+          "maxRunHours",
+          "newcomerMaxAccuracyMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "loopDetector": {
+            "$ref": "#/components/schemas/LoopDetectorSettings"
+          },
+          "shape": {
+            "$ref": "#/components/schemas/CaptureShapeSettings"
+          },
+          "maxCapturesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxDailyAreaSquareMeters": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "maxRunHours": {
+            "type": "number",
+            "format": "double"
+          },
+          "newcomerMaxAccuracyMeters": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "CaptureResponse": {
+        "required": [
+          "id",
+          "claimNo",
+          "startSeq",
+          "endSeq",
+          "status",
+          "areaSquareMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "claimNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "endSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaptureStatus"
+          },
+          "waitingFor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "rejectCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "areaSquareMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "areaByOutcome": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "changedTiles": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TileRef"
+            }
+          },
+          "effectiveAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "CaptureShapeSettings": {
+        "required": [
+          "simplifyToleranceMeters",
+          "spurHalfWidthMeters",
+          "thinFaceMinSharedBoundary",
+          "spikeMaxAngleDegrees",
+          "minAreaSquareMeters",
+          "maxAreaSquareMeters",
+          "minHalfWidthMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "simplifyToleranceMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "spurHalfWidthMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "thinFaceMinSharedBoundary": {
+            "type": "number",
+            "format": "double"
+          },
+          "spikeMaxAngleDegrees": {
+            "type": "number",
+            "format": "double"
+          },
+          "minAreaSquareMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxAreaSquareMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "minHalfWidthMeters": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "CaptureStatus": {
+        "enum": [
+          "pending",
+          "applied",
+          "rejected",
+          "stale",
+          "failed"
+        ],
+        "type": "string"
+      },
+      "CarLaunchRule": {
+        "required": [
+          "deltaKilometersPerHour",
+          "withinSeconds",
+          "reachingKilometersPerHour"
+        ],
+        "type": "object",
+        "properties": {
+          "deltaKilometersPerHour": {
+            "type": "number",
+            "format": "double"
+          },
+          "withinSeconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "reachingKilometersPerHour": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "ChunkReceipt": {
+        "required": [
+          "firstSeq",
+          "lastSeq",
+          "duplicate"
+        ],
+        "type": "object",
+        "properties": {
+          "firstSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ConfigResponse": {
+        "required": [
+          "version",
+          "activeFromMs",
+          "rules"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "activeFromMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rules": {
+            "$ref": "#/components/schemas/GameConfig"
+          }
+        }
+      },
+      "ExplorationConfig": {
+        "required": [
+          "revealRadiusMeters",
+          "maxGapMeters",
+          "radarMultiplier"
+        ],
+        "type": "object",
+        "properties": {
+          "revealRadiusMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxGapMeters": {
+            "$ref": "#/components/schemas/PerLeagueOfdouble"
+          },
+          "radarMultiplier": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "FinishRunRequest": {
+        "required": [
+          "endedAtMs",
+          "lastSeq",
+          "sentAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "endedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lastSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sentAtMs": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "GameConfig": {
+        "required": [
+          "capture",
+          "territory",
+          "leagues",
+          "exploration"
+        ],
+        "type": "object",
+        "properties": {
+          "capture": {
+            "$ref": "#/components/schemas/CaptureConfig"
+          },
+          "territory": {
+            "$ref": "#/components/schemas/TerritoryConfig"
+          },
+          "leagues": {
+            "$ref": "#/components/schemas/LeaguesConfig"
+          },
+          "exploration": {
+            "$ref": "#/components/schemas/ExplorationConfig"
+          }
+        }
+      },
+      "GoogleSignInRequest": {
+        "required": [
+          "idToken",
+          "ageConfirmed"
+        ],
+        "type": "object",
+        "properties": {
+          "idToken": {
+            "type": "string"
+          },
+          "inviteCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ageConfirmed": {
+            "type": "boolean"
+          },
+          "consentVersion": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "HealthResponse": {
+        "required": [
+          "status",
+          "version",
+          "minskTime",
+          "gameDay"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "minskTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "gameDay": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "League": {
+        "enum": [
+          "run",
+          "bike"
+        ],
+        "type": "string"
+      },
+      "LeagueRules": {
+        "required": [
+          "maxAccuracyMeters",
+          "maxFixAgeSeconds",
+          "teleportMetersPerSecond",
+          "speedLimits",
+          "noStepsMinSpeed",
+          "strideWindowSeconds"
+        ],
+        "type": "object",
+        "properties": {
+          "maxAccuracyMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxFixAgeSeconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "teleportMetersPerSecond": {
+            "type": "number",
+            "format": "double"
+          },
+          "speedLimits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpeedLimit"
+            }
+          },
+          "vehicleSeconds": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "cyclingSeconds": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "vehicleShare": {
+            "$ref": "#/components/schemas/VehicleShareRule"
+          },
+          "carLaunch": {
+            "$ref": "#/components/schemas/CarLaunchRule"
+          },
+          "noStepsWindowSeconds": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "noStepsMinSpeed": {
+            "type": "number",
+            "format": "double"
+          },
+          "strideMeters": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "strideWindowSeconds": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "LeaguesConfig": {
+        "required": [
+          "run",
+          "bike"
+        ],
+        "type": "object",
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/LeagueRules"
+          },
+          "bike": {
+            "$ref": "#/components/schemas/LeagueRules"
+          }
+        }
+      },
+      "LoopClaimRequest": {
+        "required": [
+          "claimNo",
+          "startSeq",
+          "endSeq",
+          "closure",
+          "estimatedArea",
+          "sentAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "claimNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "endSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "closure": {
+            "$ref": "#/components/schemas/LoopClosure"
+          },
+          "estimatedArea": {
+            "type": "number",
+            "format": "double"
+          },
+          "sentAtMs": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "LoopClosure": {
+        "enum": [
+          "crossing",
+          "proximity"
+        ],
+        "type": "string"
+      },
+      "LoopDetectorSettings": {
+        "required": [
+          "minPathMeters",
+          "radiusFactor",
+          "minRadiusMeters",
+          "maxRadiusMeters",
+          "minEstimatedAreaSquareMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "minPathMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "radiusFactor": {
+            "type": "number",
+            "format": "double"
+          },
+          "minRadiusMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxRadiusMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "minEstimatedAreaSquareMeters": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "MeResponse": {
+        "required": [
+          "id",
+          "displayName",
+          "colorIndex",
+          "role",
+          "publicProfile"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "colorIndex": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "role": {
+            "type": "string"
+          },
+          "publicProfile": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MotionActivity": {
+        "enum": [
+          "unknown",
+          "stationary",
+          "walking",
+          "running",
+          "cycling",
+          "automotive"
+        ],
+        "type": "string"
+      },
+      "MotionSampleDto": {
+        "required": [
+          "t",
+          "activity"
+        ],
+        "type": "object",
+        "properties": {
+          "t": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "activity": {
+            "$ref": "#/components/schemas/MotionActivity"
+          }
+        }
+      },
+      "ParcelView": {
+        "required": [
+          "id",
+          "ownerId",
+          "colorIndex",
+          "level",
+          "ghost",
+          "lastVisitAtMs",
+          "exterior",
+          "holes"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "colorIndex": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "level": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "ghost": {
+            "type": "boolean"
+          },
+          "lastVisitAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "shieldUntilMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "siegeUntilMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "exterior": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "holes": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          }
+        }
+      },
+      "PerLeagueOfdouble": {
+        "required": [
+          "run",
+          "bike"
+        ],
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "number",
+            "format": "double"
+          },
+          "bike": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Код ошибки для приложения: docs/architecture/*.md."
+          }
+        },
+        "additionalProperties": {}
+      },
+      "RefreshRequest": {
+        "required": [
+          "refreshToken"
+        ],
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "RunResponse": {
+        "required": [
+          "id",
+          "league",
+          "source",
+          "configVersion",
+          "startedAtMs",
+          "status",
+          "processedSeq",
+          "received",
+          "missing",
+          "newcomer"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RunSource"
+          },
+          "configVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "endedAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "lastSeq": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "processedSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "received": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeqRange"
+            }
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeqRange"
+            }
+          },
+          "newcomer": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RunSource": {
+        "enum": [
+          "live",
+          "replay"
+        ],
+        "type": "string"
+      },
+      "RunStatus": {
+        "enum": [
+          "active",
+          "finished",
+          "abandoned"
+        ],
+        "type": "string"
+      },
+      "SeqRange": {
+        "required": [
+          "firstSeq",
+          "lastSeq"
+        ],
+        "type": "object",
+        "properties": {
+          "firstSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastSeq": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "SessionResponse": {
+        "required": [
+          "accessToken",
+          "refreshToken",
+          "expiresIn",
+          "isNewUser"
+        ],
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "isNewUser": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SpeedLimit": {
+        "required": [
+          "windowSeconds",
+          "maxKilometersPerHour"
+        ],
+        "type": "object",
+        "properties": {
+          "windowSeconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxKilometersPerHour": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "StartRunRequest": {
+        "required": [
+          "id",
+          "league",
+          "source",
+          "configVersion",
+          "startedAtMs",
+          "sentAtMs",
+          "deviceId",
+          "appVersion",
+          "motionAuthorized"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RunSource"
+          },
+          "configVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sentAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersion": {
+            "type": "string"
+          },
+          "motionAuthorized": {
+            "type": "boolean"
+          }
+        }
+      },
+      "StepSampleDto": {
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "end": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "steps": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "TerritoryConfig": {
+        "required": [
+          "maxLevel",
+          "levelUpIntervalHours",
+          "transferShieldHours",
+          "siegeHours",
+          "levelLossWindowHours",
+          "maxLevelsLostPerWindow",
+          "decayDaysPerLevel",
+          "ghostDays"
+        ],
+        "type": "object",
+        "properties": {
+          "maxLevel": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "levelUpIntervalHours": {
+            "type": "number",
+            "format": "double"
+          },
+          "transferShieldHours": {
+            "type": "number",
+            "format": "double"
+          },
+          "siegeHours": {
+            "type": "number",
+            "format": "double"
+          },
+          "levelLossWindowHours": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxLevelsLostPerWindow": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "decayDaysPerLevel": {
+            "type": "number",
+            "format": "double"
+          },
+          "ghostDays": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "TerritoryResponse": {
+        "required": [
+          "league",
+          "tiles",
+          "unchanged"
+        ],
+        "type": "object",
+        "properties": {
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "tiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TileTerritory"
+            }
+          },
+          "unchanged": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TileRef"
+            }
+          }
+        }
+      },
+      "TileRef": {
+        "required": [
+          "x",
+          "y"
+        ],
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "TileTerritory": {
+        "required": [
+          "x",
+          "y",
+          "version",
+          "parcels"
+        ],
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "parcels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParcelView"
+            }
+          }
+        }
+      },
+      "TrackPointDto": {
+        "required": [
+          "seq",
+          "t",
+          "lat",
+          "lon",
+          "acc",
+          "flags"
+        ],
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "t": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "acc": {
+            "type": "number",
+            "format": "double"
+          },
+          "speed": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "flags": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "UploadChunkRequest": {
+        "required": [
+          "sentAtMs",
+          "sensorsCompleteThroughMs"
+        ],
+        "type": "object",
+        "properties": {
+          "sentAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sensorsCompleteThroughMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "points": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/TrackPointDto"
+            }
+          },
+          "motion": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/MotionSampleDto"
+            }
+          },
+          "steps": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/StepSampleDto"
+            }
+          }
+        }
+      },
+      "VehicleShareRule": {
+        "required": [
+          "windowSeconds",
+          "minShare",
+          "speedWindowSeconds",
+          "minKilometersPerHour"
+        ],
+        "type": "object",
+        "properties": {
+          "windowSeconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "minShare": {
+            "type": "number",
+            "format": "double"
+          },
+          "speedWindowSeconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "minKilometersPerHour": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Служебное"
+    },
+    {
+      "name": "Профиль"
+    },
+    {
+      "name": "Конфиг"
+    },
+    {
+      "name": "Карта"
+    },
+    {
+      "name": "Вход"
+    },
+    {
+      "name": "Забеги"
+    },
+    {
+      "name": "Захваты"
+    }
+  ]
+}

@@ -26,9 +26,9 @@ public static class AuthEndpoints
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
         var auth = app.MapGroup("/auth").WithTags("Вход").AllowAnonymous();
-        auth.MapPost("/google", SignInWithGoogle).WithSummary("Вход через Google; новый игрок — по инвайту, 16+ и согласию");
-        auth.MapPost("/refresh", Refresh).WithSummary("Новая пара токенов взамен refresh-токена");
-        auth.MapPost("/logout", Logout).WithSummary("Выход: отзывает все токены этого входа");
+        auth.MapPost("/google", SignInWithGoogle).WithName("signInWithGoogle").WithSummary("Вход через Google; новый игрок — по инвайту, 16+ и согласию");
+        auth.MapPost("/refresh", Refresh).WithName("refreshSession").WithSummary("Новая пара токенов взамен refresh-токена");
+        auth.MapPost("/logout", Logout).WithName("logout").WithSummary("Выход: отзывает все токены этого входа");
         return app;
     }
 

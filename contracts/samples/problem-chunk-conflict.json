@@ -1,0 +1,11 @@
+{
+  "title": "Эти номера точек уже заняты другим куском.",
+  "status": 409,
+  "code": "chunk_conflict",
+  "overlaps": [
+    {
+      "firstSeq": 0,
+      "lastSeq": 59
+    }
+  ]
+}
