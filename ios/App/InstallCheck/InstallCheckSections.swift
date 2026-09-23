@@ -17,7 +17,7 @@ struct InstallCheckSections: View {
         .task { model.refresh() }
 
         Section {
-            if model.activity == nil {
+            if model.activityID == nil {
                 Button("Запустить Live Activity", systemImage: "play.fill") {
                     model.startActivity()
                 }

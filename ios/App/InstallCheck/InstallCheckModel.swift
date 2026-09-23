@@ -1,4 +1,3 @@
-import ActivityKit
 import Foundation
 import Observation
 import Platform
@@ -26,7 +25,8 @@ struct CheckItem: Identifiable, Sendable {
 @Observable
 final class InstallCheckModel {
     private(set) var items: [CheckItem] = []
-    private(set) var activity: Activity<RunActivityAttributes>?
+    /// Идентификатор запущенной Live Activity. Сам объект `Activity` храним не здесь — см. `RunActivityController`.
+    private(set) var activityID: String?
     private(set) var activityError: String?
 
     func refresh(now: Date = .now) {
@@ -41,7 +41,7 @@ final class InstallCheckModel {
             liveActivitiesItem(),
         ]
         // Если Live Activity уже запущена (например, приложение перезапускали), подхватываем её.
-        activity = Activity<RunActivityAttributes>.activities.first
+        activityID = RunActivityController.currentActivityID
     }
 
     // MARK: - Live Activity
@@ -53,29 +53,26 @@ final class InstallCheckModel {
             detail: "Видишь это на экране блокировки — расширение работает."
         )
         do {
-            activity = try Activity.request(
-                attributes: RunActivityAttributes(startedAt: .now),
-                content: ActivityContent(state: state, staleDate: nil)
-            )
+            activityID = try RunActivityController.start(startedAt: .now, state: state)
         } catch {
             activityError = error.localizedDescription
         }
     }
 
     func updateActivity() async {
-        guard let activity else { return }
+        guard let activityID else { return }
         let time = Date.now.formatted(date: .omitted, time: .standard)
         let state = RunActivityAttributes.ContentState(
             title: "Городки · проверка",
             detail: "Обновлено из приложения в \(time)."
         )
-        await activity.update(ActivityContent(state: state, staleDate: nil))
+        await RunActivityController.update(id: activityID, state: state)
     }
 
     func endActivity() async {
-        guard let activity else { return }
-        await activity.end(nil, dismissalPolicy: .immediate)
-        self.activity = nil
+        guard let activityID else { return }
+        await RunActivityController.end(id: activityID)
+        self.activityID = nil
     }
 
     // MARK: - Строки проверки
@@ -154,7 +151,7 @@ final class InstallCheckModel {
     }
 
     private func liveActivitiesItem() -> CheckItem {
-        let enabled = ActivityAuthorizationInfo().areActivitiesEnabled
+        let enabled = RunActivityController.areActivitiesEnabled
         return CheckItem(
             id: "liveActivities",
             title: "Live Activities",
