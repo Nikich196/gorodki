@@ -3,6 +3,7 @@ using System;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Gorodki.Api.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260923170807_Visits")]
+    partial class Visits
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -711,10 +714,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.Property<bool>("Newcomer")
                         .HasColumnType("boolean")
                         .HasColumnName("newcomer");
-
-                    b.Property<DateTimeOffset?>("PointsPurgedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("points_purged_at");
 
                     b.Property<int>("PrefixEndSeq")
                         .HasColumnType("integer")

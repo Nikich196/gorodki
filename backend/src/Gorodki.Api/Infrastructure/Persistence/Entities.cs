@@ -201,6 +201,17 @@ public sealed class RunEntity
 
     /// <summary>Сколько новых клеток тумана открыл забег — для итога «+N га».</summary>
     public int? FogNewCells { get; set; }
+
+    /// <summary>Когда засчитаны визиты забега (≥50 м следа внутри своего куска, PLAN.md §3.3) — один раз за забег.</summary>
+    public DateTimeOffset? VisitsProcessedAt { get; set; }
+
+    /// <summary>Сколько своих кусков забег освежил визитом.</summary>
+    public int? VisitedParcels { get; set; }
+
+    /// <summary>
+    /// Когда стёрты сырые точки забега (через 14 дней, PLAN.md §3.16): содержимое кусков пустое, номера и время остались.
+    /// </summary>
+    public DateTimeOffset? PointsPurgedAt { get; set; }
 }
 
 /// <summary>Слой «Исследования»: у пешком и на велосипеде — своя карта тумана (PLAN.md, §3.10).</summary>
@@ -249,7 +260,7 @@ public sealed class RunChunkEntity
     /// <summary>SHA-256 содержимого.</summary>
     public required byte[] ContentHash { get; set; }
 
-    /// <summary>Точки в компактном двоичном виде. Сырые точки хранятся 14 дней.</summary>
+    /// <summary>Точки и датчики в компактном двоичном виде. Хранятся 14 дней, потом массив пустой (<see cref="RunEntity.PointsPurgedAt"/>).</summary>
     public required byte[] Points { get; set; }
 
     public DateTimeOffset ReceivedAt { get; set; }

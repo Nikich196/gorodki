@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Gorodki.Api.Features.Fog;
+using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,7 +34,7 @@ public sealed class CaptureSignal
 }
 
 /// <summary>
-/// Фоновый обработчик захватов, тумана и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
+/// Фоновый обработчик захватов, визитов, тумана и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
 /// Два экземпляра сервера во время деплоя не мешают друг другу: заявки берутся в аренду.
 /// </summary>
 public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal signal, TimeProvider time, ILogger<CaptureWorker> logger)
@@ -43,7 +44,7 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
-    /// <summary>Журнал захватов старше недели стирается раз в час.</summary>
+    /// <summary>Раз в час: стирается журнал захватов старше недели и сырые точки старше 14 дней, закрываются забытые забеги.</summary>
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -57,6 +58,9 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
                 {
                     await using var pruneScope = scopes.CreateAsyncScope();
                     await pruneScope.ServiceProvider.GetRequiredService<CaptureProcessor>().PruneJournalAsync(stoppingToken);
+                    var retention = pruneScope.ServiceProvider.GetRequiredService<RunRetention>();
+                    await retention.CloseForgottenAsync(stoppingToken); // до тумана и визитов ниже: закрытый забег сразу готов к ним
+                    await retention.PurgeRawPointsAsync(stoppingToken);
                     prunedAt = time.GetUtcNow();
                 }
 
@@ -64,6 +68,17 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
                 {
                     await using var scope = scopes.CreateAsyncScope();
                     await scope.ServiceProvider.GetRequiredService<CaptureProcessor>().ProcessRunAsync(runId, stoppingToken);
+                }
+
+                // Визиты — после захватов: забег освежает свою землю один раз, когда завершён и все точки на месте.
+                await using (var visitScope = scopes.CreateAsyncScope())
+                {
+                    var visits = visitScope.ServiceProvider.GetRequiredService<VisitProcessor>();
+                    foreach (var runId in await visits.RunsReadyAsync(20, stoppingToken))
+                    {
+                        await using var scope = scopes.CreateAsyncScope();
+                        await scope.ServiceProvider.GetRequiredService<VisitProcessor>().ProcessRunAsync(runId, stoppingToken);
+                    }
                 }
 
                 // Туман — после захватов: забег открывает его один раз, когда завершён и все точки на месте.

@@ -26,6 +26,7 @@ public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, Seas
         var closedBefore = time.GetUtcNow() - ClosedRunGrace;
         return db.Runs.AsNoTracking()
             .Where(r => r.FogStampedAt == null
+                && r.PointsPurgedAt == null
                 && r.PrefixEndSeq >= 0
                 && ((r.Status == RunStatus.Finished && r.LastSeq != null && r.PrefixEndSeq >= r.LastSeq)
                     || (r.Status != RunStatus.Active && r.EndedAt < closedBefore)))
@@ -39,7 +40,7 @@ public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, Seas
     public async Task<int?> StampRunAsync(Guid runId, CancellationToken cancellationToken)
     {
         var run = await db.Runs.AsNoTracking().SingleOrDefaultAsync(r => r.Id == runId, cancellationToken);
-        if (run is null || run.FogStampedAt is not null || run.PrefixEndSeq < 0)
+        if (run is null || run.FogStampedAt is not null || run.PrefixEndSeq < 0 || run.PointsPurgedAt is not null)
         {
             return null;
         }
