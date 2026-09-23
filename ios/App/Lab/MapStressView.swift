@@ -151,7 +151,20 @@ final class MapStressModel {
                 previous = next
             }
         }
+        revealNorthMarker(plane: plane)
         fogRenderer.update(fog)
+    }
+
+    /// Буква «Т» перекладиной на север: по ней на телефоне сразу видно, не перевёрнута ли маска.
+    private func revealNorthMarker(plane: LocalTangentPlane) {
+        func line(_ a: (Double, Double), _ b: (Double, Double)) {
+            fog.reveal(
+                from: plane.unproject(PlanarPoint(east: a.0, north: a.1)),
+                to: plane.unproject(PlanarPoint(east: b.0, north: b.1)),
+                radius: 30, maxGap: 1_000)
+        }
+        line((0, -400), (0, 400))
+        line((-300, 400), (300, 400))
     }
 
     private func tickFog() {
