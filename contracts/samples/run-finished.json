@@ -24,5 +24,6 @@
       "lastSeq": 119
     }
   ],
-  "newcomer": false
+  "newcomer": false,
+  "fogNewCells": 1234
 }

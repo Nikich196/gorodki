@@ -4,11 +4,13 @@ using System.Text.Json.Nodes;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
+using Gorodki.Domain.Fog;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Runs;
 using Microsoft.AspNetCore.Hosting;
@@ -62,10 +64,10 @@ public sealed class ApiSamplesTests
     private static IEnumerable<(string Name, object Sample)> Samples()
     {
         yield return ("run-active", new RunResponse(
-            Run, League.Run, RunSource.Live, 1, Start, null, RunStatus.Active, null, -1, [new SeqRange(0, 119)], [], Newcomer: true));
+            Run, League.Run, RunSource.Live, 1, Start, null, RunStatus.Active, null, -1, [new SeqRange(0, 119)], [], Newcomer: true, FogNewCells: null));
         yield return ("run-finished", new RunResponse(
             Run, League.Bike, RunSource.Replay, 1, Start, Start + 3_600_000, RunStatus.Finished, 199, 179,
-            [new SeqRange(0, 59), new SeqRange(120, 199)], [new SeqRange(60, 119)], Newcomer: false));
+            [new SeqRange(0, 59), new SeqRange(120, 199)], [new SeqRange(60, 119)], Newcomer: false, FogNewCells: 1_234));
         yield return ("chunk-receipt", new ChunkReceipt(0, 119, Duplicate: true));
         yield return ("capture-pending", new CaptureResponse(
             Guid.Parse("2e19b697-e397-532d-a6e6-7c0fc1940226"), 0, 10, 300, CaptureStatus.Pending, "sensors", null, 0, null, null, null));
@@ -92,6 +94,11 @@ public sealed class ApiSamplesTests
             ],
             [new TileRef(685, 5775)]));
         yield return ("config", new ConfigResponse(1, 0, GameConfig.Default));
+        yield return ("fog", new FogResponse(
+            FogLayerKind.Foot,
+            [new FogTileView(9_270, 5_404, 2, 55, FogTileCodec.Compress(SampleFogTile()))],
+            [new TileRef(9_271, 5_404)]));
+        yield return ("fog-summary", new FogSummaryResponse([new FogLayerSummary(FogLayerKind.Foot, 3, 1_234, 42_580.5)]));
         yield return ("session", new SessionResponse("eyJhbGciOiJIUzI1NiJ9.e30.c2lnbmF0dXJl", "cmVmcmVzaA", 900, IsNewUser: true));
         yield return ("me", new MeResponse(Player, "Бегун-1234", 7, "player", PublicProfile: false));
         yield return ("problem-chunk-invalid", Problem(400, "chunk_invalid", "Кусок забега не прошёл проверку.", "problems",
@@ -99,6 +106,14 @@ public sealed class ApiSamplesTests
         yield return ("problem-chunk-conflict", Problem(409, "chunk_conflict", "Эти номера точек уже заняты другим куском.", "overlaps",
             new[] { new SeqRange(0, 59) }));
         yield return ("problem-run-not-found", Problem(404, "run_not_found", "Забег не найден.", null, null));
+    }
+
+    /// <summary>Круг 25 м в центре Бреста — 55 клеток.</summary>
+    private static FogTileBits SampleFogTile()
+    {
+        var layer = new FogLayer();
+        layer.RevealAround(52.0976, 23.688, 25);
+        return layer.Tiles.Values.Single();
     }
 
     private static ProblemDetails Problem(int status, string code, string title, string? extra, object? extraValue)

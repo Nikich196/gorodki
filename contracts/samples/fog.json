@@ -1,0 +1,18 @@
+{
+  "layer": "foot",
+  "tiles": [
+    {
+      "x": 9270,
+      "y": 5404,
+      "version": 2,
+      "cellCount": 55,
+      "bits": "7c6hEQAgDACxOiQjsGpHYxRGYYNiuKtJ7JuPAAAAAABokrPue9X9NPfXX466AwBA/HMB"
+    }
+  ],
+  "unchanged": [
+    {
+      "x": 9271,
+      "y": 5404
+    }
+  ]
+}

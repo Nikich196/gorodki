@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,7 +33,7 @@ public sealed class CaptureSignal
 }
 
 /// <summary>
-/// Фоновый обработчик захватов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
+/// Фоновый обработчик захватов и тумана: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
 /// Два экземпляра сервера во время деплоя не мешают друг другу: заявки берутся в аренду.
 /// </summary>
 public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal signal, TimeProvider time, ILogger<CaptureWorker> logger)
@@ -52,6 +53,17 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
                 {
                     await using var scope = scopes.CreateAsyncScope();
                     await scope.ServiceProvider.GetRequiredService<CaptureProcessor>().ProcessRunAsync(runId, stoppingToken);
+                }
+
+                // Туман — после захватов: забег открывает его один раз, когда завершён и все точки на месте.
+                await using (var fogScope = scopes.CreateAsyncScope())
+                {
+                    var fog = fogScope.ServiceProvider.GetRequiredService<FogProcessor>();
+                    foreach (var runId in await fog.RunsReadyAsync(20, stoppingToken))
+                    {
+                        await using var scope = scopes.CreateAsyncScope();
+                        await scope.ServiceProvider.GetRequiredService<FogProcessor>().StampRunAsync(runId, stoppingToken);
+                    }
                 }
             }
             catch (Exception e) when (e is not OperationCanceledException)

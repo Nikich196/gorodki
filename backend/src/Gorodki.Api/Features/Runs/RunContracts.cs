@@ -66,6 +66,7 @@ public sealed record ChunkReceipt(int FirstSeq, int LastSeq, bool Duplicate);
 /// Первый забег новичка: весь забег судится с порогом точности <c>capture.newcomerMaxAccuracyMeters</c> из конфига (35 м)
 /// вместо порога лиги — так же должен судить и телефон.
 /// </param>
+/// <param name="FogNewCells">Сколько новых клеток тумана открыл забег («+N га» в итоге); null — ещё не открывал.</param>
 public sealed record RunResponse(
     Guid Id,
     League League,
@@ -78,7 +79,8 @@ public sealed record RunResponse(
     int ProcessedSeq,
     IReadOnlyList<SeqRange> Received,
     IReadOnlyList<SeqRange> Missing,
-    bool Newcomer);
+    bool Newcomer,
+    int? FogNewCells);
 
 /// <summary>
 /// Лимиты приёма забегов: защищают бесплатную базу (500 МБ; при переполнении она только для чтения — встанет вся игра)

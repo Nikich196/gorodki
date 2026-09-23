@@ -15,5 +15,6 @@
     }
   ],
   "missing": [],
-  "newcomer": true
+  "newcomer": true,
+  "fogNewCells": null
 }

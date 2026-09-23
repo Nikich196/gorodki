@@ -676,6 +676,74 @@
           }
         }
       }
+    },
+    "/fog": {
+      "get": {
+        "tags": [
+          "Исследование"
+        ],
+        "summary": "Свой туман: layer=foot|bike, tiles=x:y@версия через запятую (без tiles — все тайлы слоя)",
+        "operationId": "getFog",
+        "parameters": [
+          {
+            "name": "layer",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tiles",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fog/summary": {
+      "get": {
+        "tags": [
+          "Исследование"
+        ],
+        "summary": "Сколько открыто: клетки и площадь по слоям",
+        "operationId": "getFogSummary",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FogSummaryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -947,6 +1015,111 @@
           "sentAtMs": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "FogLayerKind": {
+        "enum": [
+          "foot",
+          "bike"
+        ],
+        "type": "string"
+      },
+      "FogLayerSummary": {
+        "required": [
+          "layer",
+          "tiles",
+          "cellCount",
+          "areaSquareMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "layer": {
+            "$ref": "#/components/schemas/FogLayerKind"
+          },
+          "tiles": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cellCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "areaSquareMeters": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "FogResponse": {
+        "required": [
+          "layer",
+          "tiles",
+          "unchanged"
+        ],
+        "type": "object",
+        "properties": {
+          "layer": {
+            "$ref": "#/components/schemas/FogLayerKind"
+          },
+          "tiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FogTileView"
+            }
+          },
+          "unchanged": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TileRef"
+            }
+          }
+        }
+      },
+      "FogSummaryResponse": {
+        "required": [
+          "layers"
+        ],
+        "type": "object",
+        "properties": {
+          "layers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FogLayerSummary"
+            }
+          }
+        }
+      },
+      "FogTileView": {
+        "required": [
+          "x",
+          "y",
+          "version",
+          "cellCount",
+          "bits"
+        ],
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cellCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "bits": {
+            "contentEncoding": "base64",
+            "type": "string",
+            "format": "byte"
           }
         }
       },
@@ -1470,6 +1643,13 @@
           },
           "newcomer": {
             "type": "boolean"
+          },
+          "fogNewCells": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -1874,6 +2054,9 @@
     },
     {
       "name": "Захваты"
+    },
+    {
+      "name": "Исследование"
     }
   ]
 }

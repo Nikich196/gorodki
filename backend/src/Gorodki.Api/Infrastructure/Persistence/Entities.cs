@@ -192,6 +192,46 @@ public sealed class RunEntity
 
     /// <summary>Первый забег новичка: точность до 35 м вместо 25 (§3.9). Решает сервер при старте, телефон судит так же.</summary>
     public bool Newcomer { get; set; }
+
+    /// <summary>Когда забег открыл туман (один раз за забег, §7.3); null — ещё не открывал.</summary>
+    public DateTimeOffset? FogStampedAt { get; set; }
+
+    /// <summary>Сколько новых клеток тумана открыл забег — для итога «+N га».</summary>
+    public int? FogNewCells { get; set; }
+}
+
+/// <summary>Слой «Исследования»: у пешком и на велосипеде — своя карта тумана (PLAN.md, §3.10).</summary>
+public enum FogLayerKind : short
+{
+    Foot = 1,
+    Bike = 2,
+}
+
+/// <summary>
+/// Тайл тумана игрока (веб-меркатор, уровень 14): какие клетки G22 он открыл. Биты сжаты Deflate.
+/// Где человек ходит — личные данные: тайлы видит только он сам, и они удаляются вместе с ним.
+/// </summary>
+public sealed class FogTileEntity
+{
+    public Guid UserId { get; set; }
+
+    public FogLayerKind Layer { get; set; }
+
+    /// <summary>0 — за всё время; номер сезона — для рейтинга сезона (появится со сменой сезонов).</summary>
+    public int Season { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    public required byte[] Bits { get; set; }
+
+    public int CellCount { get; set; }
+
+    /// <summary>Растёт при каждом изменении: приложение перезапрашивает только новые версии.</summary>
+    public long Version { get; set; }
+
+    public DateTimeOffset UpdatedAt { get; set; }
 }
 
 /// <summary>Кусок точек забега, присланный телефоном. Повтор того же содержимого не сохраняется (идемпотентность).</summary>
