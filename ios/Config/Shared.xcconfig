@@ -4,6 +4,12 @@
 APP_DISPLAY_NAME = Городки
 BASE_BUNDLE_ID = io.github.nikich196.gorodki
 
+// Адрес сервера API (Info.plist → GorodkiServerURL). Пока сервер не развёрнут — пусто: приложение работает без сети,
+// очередь забегов ждёт. Свой адрес — в Local.xcconfig. В xcconfig «//» начинает комментарий, поэтому адрес пишется
+// так: GORODKI_SERVER_URL = https:/$()/gorodki.example.com
+// Только адрес: без логина, пароля и ключей — Info.plist любой может прочитать из IPA.
+GORODKI_SERVER_URL =
+
 // Свой Team ID и прочие личные настройки — в Local.xcconfig (он в .gitignore).
 // Пример содержимого: DEVELOPMENT_TEAM = ABCDE12345
 #include? "Local.xcconfig"

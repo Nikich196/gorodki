@@ -16,6 +16,11 @@ struct LabView: View {
                 } label: {
                     Label("Карта: 5 000 участков и туман (S4)", systemImage: "map")
                 }
+                NavigationLink {
+                    ServerLabView(dependencies: .shared)
+                } label: {
+                    Label("Сервер: связь и вход", systemImage: "network")
+                }
             } footer: {
                 Text("Каждый экран отвечает на один вопрос из плана. Результат — снимок экрана со сводкой.")
             }

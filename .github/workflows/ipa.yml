@@ -1,6 +1,7 @@
 # IPA для установки на iPhone через Sideloadly (сборка Free, без Mac и без платного аккаунта).
 # Запуск: вкладка Actions → ipa → Run workflow, или автоматически после изменений iOS-кода в main.
 # Результат — во вкладке запуска, раздел Artifacts: два IPA (без подписи и с ad-hoc подписью).
+# -skipPackagePluginValidation — ради плагина, генерирующего клиент API (см. ios.yml).
 name: ipa
 
 on:
@@ -40,6 +41,7 @@ jobs:
             -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Release-Free \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet
 
       - name: Упаковка IPA

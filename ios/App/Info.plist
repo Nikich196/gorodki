@@ -68,5 +68,8 @@
   <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
   <key>GorodkiAppGroupID</key>
   <string>$(APP_GROUP_ID)</string>
+  <!-- Адрес сервера API (ios/Config/Shared.xcconfig). Пустой — сервер не настроен, приложение работает без сети. -->
+  <key>GorodkiServerURL</key>
+  <string>$(GORODKI_SERVER_URL)</string>
 </dict>
 </plist>

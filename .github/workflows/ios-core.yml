@@ -35,3 +35,6 @@ jobs:
 
       - name: Офлайн-синхронизация (GorodkiSync) — запись забега и доставка по контракту
         run: swift test --package-path ios/Packages/GorodkiSync
+
+      - name: Сетевой слой (GorodkiNetwork) — токены входа и обновление при 401
+        run: swift test --package-path ios/Packages/GorodkiNetwork
