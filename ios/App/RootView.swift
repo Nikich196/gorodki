@@ -12,6 +12,15 @@ struct RootView: View {
                         .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 20, trailing: 20))
                 }
                 InstallCheckSections()
+                Section {
+                    NavigationLink {
+                        LabView()
+                    } label: {
+                        Label("Лаборатория: пробная сборка", systemImage: "flask")
+                    }
+                } footer: {
+                    Text("Проверки этапа 1 на настоящем телефоне: фоновый трекинг, Live Activity, туман.")
+                }
             }
         }
     }

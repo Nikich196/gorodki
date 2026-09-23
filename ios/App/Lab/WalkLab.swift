@@ -1,0 +1,247 @@
+import Foundation
+import GameCore
+import Observation
+import Platform
+
+/// Итоги прогулки для спайка S1 — только числа, без координат: сводку можно смело прислать в чат.
+struct WalkStats: Codable, Equatable {
+    var api: LocationAPI
+    var startedAt: Date
+    var fixes = 0
+    var ignored = 0
+    var breaks: [String: Int] = [:]
+    var longestGapSeconds = 0.0
+    var gapsOver15Seconds = 0
+    var distanceMeters = 0.0
+    var loops = 0
+    var loopAreaSquareMeters = 0.0
+    var fogCells = 0
+    var fogAreaSquareMeters = 0.0
+    var lastAccuracy: Double?
+    var bestAccuracy: Double?
+    var relaunches = 0
+    /// Сколько секунд после перезапуска приложения пришла первая точка (цель спайка — не больше 5 с).
+    var lastRecoverySeconds: Double?
+    var lastFixAt: Date?
+
+    init(api: LocationAPI, startedAt: Date) {
+        self.api = api
+        self.startedAt = startedAt
+    }
+}
+
+/// «Лаборатория», прогулка: проверка фонового трекинга (спайк S1) вместе с живыми правилами GameCore.
+///
+/// Каждая точка проходит тот же путь, что в игре: античит (`SegmentJudge`) → детектор петли (`LoopDetector`)
+/// → туман (`FogLayer`). Статистика сохраняется на каждой десятой точке, поэтому переживает перезапуск приложения:
+/// после перезапуска запись продолжается сама, а время до первой точки записывается как «восстановление».
+@MainActor
+@Observable
+final class WalkLab {
+    static let shared = WalkLab()
+
+    var api: LocationAPI = .liveUpdates
+    private(set) var stats: WalkStats?
+    private(set) var isRunning = false
+    private(set) var lastEvent: String?
+
+    private var feed: LocationFeed?
+    private let motion = MotionFeed()
+    private var judge = SegmentJudge(league: .run)
+    private var detector = LoopDetector()
+    private var fog = FogLayer()
+    private var lastAccepted: TrackPoint?
+    private var lastFixTime: Double?
+    private var seq = 0
+    private var resumedAt: Date?
+    private var activityID: String?
+    private var lastActivityUpdate = Date.distantPast
+
+    private static let storageKey = "lab.walk.stats"
+
+    private init() {
+        stats = Self.loadStats()
+    }
+
+    // MARK: - Управление
+
+    func start() {
+        guard !isRunning else { return }
+        stats = WalkStats(api: api, startedAt: .now)
+        fog = FogLayer()
+        seq = 0
+        lastEvent = nil
+        save()
+        begin()
+        startLiveActivity()
+    }
+
+    func stop() {
+        guard isRunning else { return }
+        feed?.stop()
+        feed = nil
+        motion.stop()
+        isRunning = false
+        UserDefaults.standard.set(false, forKey: Self.activeKey)
+        save()
+        if let activityID {
+            Task { await RunActivityController.end(id: activityID) }
+        }
+        activityID = nil
+    }
+
+    /// Вызывается при запуске приложения: если прогулка шла, когда приложение закрыли, — продолжаем.
+    func resumeIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: Self.activeKey), var saved = stats, !isRunning else { return }
+        saved.relaunches += 1
+        stats = saved
+        api = saved.api
+        resumedAt = .now
+        begin()
+        activityID = RunActivityController.currentActivityID
+    }
+
+    /// Сводка без координат — для снимка экрана или отправки в чат.
+    var summary: String {
+        guard let stats else { return "Прогулки ещё не было." }
+        let minutes = Int((stats.lastFixAt ?? .now).timeIntervalSince(stats.startedAt) / 60)
+        var lines = [
+            "Спайк S1 · \(stats.api.title) · \(minutes) мин",
+            "Точек: \(stats.fixes) (отброшено \(stats.ignored))",
+            "Самый длинный разрыв: \(Int(stats.longestGapSeconds)) с · разрывов > 15 с: \(stats.gapsOver15Seconds)",
+            "Дистанция: \(String(format: "%.2f", stats.distanceMeters / 1_000)) км",
+            "Петель: \(stats.loops) (≈\(String(format: "%.2f", stats.loopAreaSquareMeters / 10_000)) га)",
+            "Туман: \(stats.fogCells) клеток (≈\(String(format: "%.2f", stats.fogAreaSquareMeters / 10_000)) га)",
+            "Точность: последняя \(stats.lastAccuracy.map { "\(Int($0)) м" } ?? "—"), лучшая \(stats.bestAccuracy.map { "\(Int($0)) м" } ?? "—")",
+            "Перезапусков: \(stats.relaunches), восстановление: \(stats.lastRecoverySeconds.map { String(format: "%.1f с", $0) } ?? "—")",
+        ]
+        if !stats.breaks.isEmpty {
+            lines.append(
+                "Разрывы следа: "
+                    + stats.breaks.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Обработка точек
+
+    private static let activeKey = "lab.walk.active"
+
+    private func begin() {
+        judge = SegmentJudge(league: .run)
+        detector = LoopDetector()
+        lastAccepted = nil
+        lastFixTime = nil
+        let feed: LocationFeed = api == .liveUpdates ? LiveUpdatesFeed() : ManagerFeed()
+        self.feed = feed
+        isRunning = true
+        UserDefaults.standard.set(true, forKey: Self.activeKey)
+        feed.start { [weak self] fix in self?.handle(fix) }
+        motion.start(
+            onActivity: { [weak self] sample in self?.judge.record(sample) },
+            onSteps: { [weak self] sample in self?.judge.record(sample) }
+        )
+    }
+
+    private func handle(_ fix: LocationFix) {
+        guard var stats else { return }
+        let now = Date.now
+
+        if let resumedAt {
+            stats.lastRecoverySeconds = now.timeIntervalSince(resumedAt)
+            self.resumedAt = nil
+        }
+
+        stats.fixes += 1
+        stats.lastAccuracy = fix.horizontalAccuracy
+        stats.bestAccuracy = min(stats.bestAccuracy ?? .infinity, fix.horizontalAccuracy)
+        stats.lastFixAt = now
+        if let last = lastFixTime {
+            let gap = fix.timestamp - last
+            stats.longestGapSeconds = max(stats.longestGapSeconds, gap)
+            if gap > 15 {
+                stats.gapsOver15Seconds += 1
+            }
+        }
+        lastFixTime = fix.timestamp
+
+        let point = TrackPoint(
+            seq: seq,
+            coordinate: Coordinate(latitude: fix.latitude, longitude: fix.longitude),
+            timestamp: fix.timestamp,
+            horizontalAccuracy: fix.horizontalAccuracy,
+            speed: fix.speed >= 0 ? fix.speed : nil
+        )
+        seq += 1
+
+        switch judge.judge(point, now: now.timeIntervalSince1970) {
+        case .accepted:
+            accept(point, into: &stats)
+        case .ignored:
+            stats.ignored += 1
+        case .segmentBroken(let issue):
+            stats.breaks[issue.rawValue, default: 0] += 1
+            lastEvent = "След порван: \(issue.rawValue)"
+            detector.reset()
+            lastAccepted = nil
+            accept(point, into: &stats)
+        }
+
+        self.stats = stats
+        if stats.fixes % 10 == 0 {
+            save()
+        }
+        updateLiveActivity(stats)
+    }
+
+    private func accept(_ point: TrackPoint, into stats: inout WalkStats) {
+        if let last = lastAccepted {
+            stats.distanceMeters += Geodesy.distance(from: last.coordinate, to: point.coordinate)
+            fog.reveal(from: last.coordinate, to: point.coordinate)
+        } else {
+            fog.reveal(around: point.coordinate)
+        }
+        lastAccepted = point
+        stats.fogCells = fog.cellCount
+        stats.fogAreaSquareMeters = fog.areaSquareMeters
+
+        if let claim = detector.add(point) {
+            stats.loops += 1
+            stats.loopAreaSquareMeters += claim.estimatedArea
+            lastEvent = "Петля замкнута: ≈\(Int(claim.estimatedArea)) м²"
+        }
+    }
+
+    // MARK: - Live Activity
+
+    private func startLiveActivity() {
+        guard RunActivityController.areActivitiesEnabled else { return }
+        activityID = try? RunActivityController.start(
+            startedAt: .now,
+            state: RunActivityAttributes.ContentState(title: "Прогулка · проверка", detail: "Ждём GPS…")
+        )
+    }
+
+    /// Не чаще раза в 5 секунд: чаще система всё равно не покажет.
+    private func updateLiveActivity(_ stats: WalkStats) {
+        guard let activityID, Date.now.timeIntervalSince(lastActivityUpdate) >= 5 else { return }
+        lastActivityUpdate = .now
+        let state = RunActivityAttributes.ContentState(
+            title: "Прогулка · \(String(format: "%.2f", stats.distanceMeters / 1_000)) км",
+            detail: "Петель \(stats.loops) · точек \(stats.fixes) · разрывов >15 с: \(stats.gapsOver15Seconds)"
+        )
+        Task { await RunActivityController.update(id: activityID, state: state) }
+    }
+
+    // MARK: - Хранение
+
+    private func save() {
+        guard let stats, let data = try? JSONEncoder().encode(stats) else { return }
+        UserDefaults.standard.set(data, forKey: Self.storageKey)
+    }
+
+    private static func loadStats() -> WalkStats? {
+        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return nil }
+        return try? JSONDecoder().decode(WalkStats.self, from: data)
+    }
+}
