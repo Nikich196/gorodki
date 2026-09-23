@@ -50,6 +50,14 @@ if (withDatabase)
     builder.Services.AddSingleton<GameConfigCache>();
     builder.Services.AddScoped<GameConfigStore>();
 
+    // Обработка захватов: заявки петель → проверка → земля. Фоновый обработчик можно выключить (так делают тесты).
+    builder.Services.AddSingleton<CaptureSignal>();
+    builder.Services.AddScoped<CaptureProcessor>();
+    if (builder.Configuration.GetValue(CaptureWorker.EnabledSetting, defaultValue: true))
+    {
+        builder.Services.AddHostedService<CaptureWorker>();
+    }
+
     var authSection = builder.Configuration.GetSection(AuthOptions.Section);
     var auth = authSection.Get<AuthOptions>() ?? new AuthOptions();
     var signingKey = TokenService.SigningKey(auth); // без ключа сервер не стартует — и сразу говорит почему
