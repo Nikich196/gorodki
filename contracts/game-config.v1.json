@@ -25,7 +25,9 @@
     "maxLevel": 3,
     "levelUpIntervalHours": 20,
     "transferShieldHours": 12,
-    "siegeHours": 24
+    "siegeHours": 24,
+    "levelLossWindowHours": 20,
+    "maxLevelsLostPerWindow": 2
   },
   "leagues": {
     "run": {

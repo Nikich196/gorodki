@@ -23,6 +23,24 @@ public sealed class TerritoryMapScenarioTests
         map.Parcels.Where(p => p.State.OwnerId == player);
 
     [Fact]
+    public void Map_loaded_from_storage_continues_exactly_like_the_original()
+    {
+        // Так работает сервер: куски задетых тайлов читаются из базы в новую карту, захват применяется к ней.
+        var original = new TerritoryMap();
+        Capture(original, Anna, T0, RectanglePolygon(-100, -100, 200, 200));
+        Capture(original, Boris, T0.AddHours(1), RectanglePolygon(-50, -50, 120, 80));
+        var loaded = new TerritoryMap();
+        loaded.Load(original.Parcels);
+
+        var next = RectanglePolygon(20, -150, 100, 300);
+        var fromOriginal = Capture(original, Boris, T0.AddHours(2), next);
+        var fromLoaded = Capture(loaded, Boris, T0.AddHours(2), next);
+
+        Assert.Equal(original.StateHash(), loaded.StateHash());
+        Assert.Equal(fromOriginal.ChangedTiles, fromLoaded.ChangedTiles);
+    }
+
+    [Fact]
     public void Neutral_capture_becomes_level_one_land()
     {
         var map = new TerritoryMap();

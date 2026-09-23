@@ -61,12 +61,19 @@ public sealed record TerritoryConfig
 
     public double SiegeHours { get; init; } = 24;
 
+    /// <summary>Окно лимита снятия уровней: за него с куска снимают не больше <see cref="MaxLevelsLostPerWindow"/> уровней, от одного игрока — один.</summary>
+    public double LevelLossWindowHours { get; init; } = 20;
+
+    public int MaxLevelsLostPerWindow { get; init; } = 2;
+
     public TerritoryRules ToRules() => new()
     {
         MaxLevel = MaxLevel,
         LevelUpInterval = TimeSpan.FromHours(LevelUpIntervalHours),
         TransferShield = TimeSpan.FromHours(TransferShieldHours),
         Siege = TimeSpan.FromHours(SiegeHours),
+        LevelLossWindow = TimeSpan.FromHours(LevelLossWindowHours),
+        MaxLevelsLostPerWindow = MaxLevelsLostPerWindow,
     };
 }
 
