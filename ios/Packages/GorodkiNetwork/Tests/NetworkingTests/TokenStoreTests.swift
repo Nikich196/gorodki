@@ -34,9 +34,7 @@ struct TokenStoreTests {
 
         #expect(await store.current() == nil)
         #expect(storage.load() == nil)
-        var events = store.events.makeAsyncIterator()
-        #expect(await events.next() == .signedIn)
-        #expect(await events.next() == .signedOut(.userRequested))
+        #expect(await authEvents(of: store, count: 2) == [.signedIn, .signedOut(.userRequested)])
     }
 
     @Test("Недоступный Keychain — ещё не выход: вход читается, когда хранилище снова доступно")

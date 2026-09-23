@@ -133,9 +133,8 @@ struct AuthMiddlewareTests {
         #expect(await backend.authorizations == ["Bearer A1"])
         #expect(await store.current() == nil)
         #expect(storage.load() == nil)
-        var events = store.events.makeAsyncIterator()
-        #expect(await events.next() == .signedIn)
-        #expect(await events.next() == .signedOut(.sessionExpired(code: "refresh_reused")))
+        #expect(
+            await authEvents(of: store, count: 2) == [.signedIn, .signedOut(.sessionExpired(code: "refresh_reused"))])
 
         // Дальше запросы уходят без подписи и обновление не повторяется.
         #expect(try await Self.send(middleware, to: backend) == .unauthorized)

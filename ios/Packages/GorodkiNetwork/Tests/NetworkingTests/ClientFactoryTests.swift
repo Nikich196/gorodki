@@ -107,9 +107,8 @@ struct ClientFactoryTests {
             return
         }
         #expect(await store.current() == nil)
-        var events = store.events.makeAsyncIterator()
-        #expect(await events.next() == .signedIn)
-        #expect(await events.next() == .signedOut(.sessionExpired(code: "refresh_reused")))
+        #expect(
+            await authEvents(of: store, count: 2) == [.signedIn, .signedOut(.sessionExpired(code: "refresh_reused"))])
     }
 
     @Test("Сервер недоступен при обновлении (503): запрос — ошибка, вход сохраняется")

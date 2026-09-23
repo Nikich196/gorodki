@@ -132,6 +132,34 @@ enum Jwt {
     }
 }
 
+/// Первые `count` событий входа; ждёт не дольше 2 секунд и отдаёт то, что успело прийти. Пропавшее событие роняет тест,
+/// а не вешает его.
+func authEvents(of store: TokenStore, count: Int) async -> [AuthEvent] {
+    await withTaskGroup(of: [AuthEvent]?.self) { group in
+        group.addTask {
+            var received: [AuthEvent] = []
+            for await event in store.events {
+                received.append(event)
+                if received.count == count { break }
+            }
+            return received
+        }
+        group.addTask {
+            try? await Task.sleep(for: .seconds(2))
+            return nil
+        }
+        var result: [AuthEvent] = []
+        while let finished = await group.next() {
+            // Первым закончил читатель — всё пришло; первым сработал таймер — читатель отменяется и отдаёт, что успел.
+            if let received = finished {
+                result = received
+            }
+            group.cancelAll()
+        }
+        return result
+    }
+}
+
 /// Ждёт условия (не дольше 5 секунд): одновременные запросы должны успеть дойти до нужного места.
 func waitUntil(_ condition: @Sendable () async -> Bool) async throws {
     for _ in 0..<2_500 {
