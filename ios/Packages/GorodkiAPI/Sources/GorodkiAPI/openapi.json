@@ -97,7 +97,7 @@
         "tags": [
           "Карта"
         ],
-        "summary": "Земля по тайлам: tiles=x:y или x:y@известная_версия через запятую, не больше 25",
+        "summary": "Земля по тайлам: tiles=x:y или x:y@известная_версия через запятую, не больше 25. Чужие захваты видны через 20 минут",
         "operationId": "getTerritory",
         "parameters": [
           {
@@ -2005,6 +2005,13 @@
             "items": {
               "$ref": "#/components/schemas/ParcelView"
             }
+          },
+          "revealAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
           }
         }
       },

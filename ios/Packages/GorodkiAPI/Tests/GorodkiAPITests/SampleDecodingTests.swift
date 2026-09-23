@@ -47,6 +47,10 @@ struct SampleDecodingTests {
         #expect(tile.parcels[0].siegeUntilMs == nil && tile.parcels[0].shieldUntilMs != nil)
         #expect(tile.parcels[1].ghost && tile.parcels[1].level == 0)
         #expect(map.unchanged.map(\.x) == [685])
+        #expect(tile.revealAtMs == nil)
+        // Чужой захват ещё скрыт публичной задержкой: версия 0, когда откроется — revealAtMs.
+        let hidden = try #require(map.tiles.last)
+        #expect(hidden.version == 0 && hidden.parcels.isEmpty && hidden.revealAtMs != nil)
     }
 
     @Test("Конфиг целиком: правила лиг, пустой суточный потолок, разрывы по лигам")

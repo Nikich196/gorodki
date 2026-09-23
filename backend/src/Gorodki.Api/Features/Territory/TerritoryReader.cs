@@ -9,11 +9,26 @@ using NetTopologySuite.Geometries;
 
 namespace Gorodki.Api.Features.Territory;
 
-/// <summary>Чтение земли по тайлам для карты: версии тайлов, куски, угасание «при чтении» (PLAN.md, §3.3, §7.3).</summary>
-public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, TimeProvider time)
+/// <summary>Кто смотрит карту.</summary>
+/// <param name="UserId">Игрок; свои захваты он видит сразу.</param>
+/// <param name="Immediate">Видит всё без задержки: демо-аккаунт на показе и администратор (PLAN.md, §3.16).</param>
+public sealed record TerritoryViewer(Guid? UserId, bool Immediate);
+
+/// <summary>
+/// Чтение земли по тайлам для карты: версии тайлов, куски, угасание «при чтении» (PLAN.md, §3.3, §7.3) и публичная
+/// проекция с задержкой (§3.16): чужой захват виден остальным только через 20 минут — до этого на его месте земля такая,
+/// какой была до него (по журналу захватов). Иначе карта показывала бы, где конкретный человек находится прямо сейчас.
+/// </summary>
+public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, TimeProvider time, ILogger<TerritoryReader> logger)
 {
+    /// <summary>Задержка публичной проекции (<c>public_event_delay_min</c> в PLAN.md, §3.16).</summary>
+    public static readonly TimeSpan PublicDelay = TimeSpan.FromMinutes(20);
+
     public async Task<TerritoryResponse> ReadAsync(
-        League league, IReadOnlyList<(TileKey Tile, long? KnownVersion)> requested, CancellationToken cancellationToken)
+        League league,
+        IReadOnlyList<(TileKey Tile, long? KnownVersion)> requested,
+        TerritoryViewer viewer,
+        CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         var rules = (await configs.GetCurrentAsync(cancellationToken)).Rules.Territory.ToRules();
@@ -39,51 +54,133 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             }
         }
 
-        var parcels = changed.Count == 0
-            ? []
-            : await db.Parcels.AsNoTracking()
-                .Where(p => p.League == league && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
-                .Join(db.Users, p => p.OwnerId, u => u.Id, (p, u) => new { Parcel = p, u.ColorIndex })
-                .ToListAsync(cancellationToken);
+        if (changed.Count == 0)
+        {
+            return new TerritoryResponse(league, [], unchanged);
+        }
 
-        var result = changed
-            .Select(c => new TileTerritory(
-                c.Tile.X,
-                c.Tile.Y,
-                c.Version,
-                parcels
-                    .Where(p => p.Parcel.TileX == c.Tile.X && p.Parcel.TileY == c.Tile.Y)
-                    .OrderBy(p => p.Parcel.Id)
-                    .Select(p => ToView(p.Parcel, p.ColorIndex, rules, now))
+        var parcels = await db.Parcels.AsNoTracking()
+            .Where(p => p.League == league && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
+            .ToListAsync(cancellationToken);
+        var hidden = viewer.Immediate ? [] : await HiddenCapturesAsync(league, viewer.UserId, now, minX, maxX, minY, maxY, cancellationToken);
+
+        var tiles = new List<(TileKey Tile, long Version, List<(long Id, ParcelState State, Polygon Geometry)> Pieces, DateTimeOffset? RevealAt)>();
+        foreach (var (tile, version) in changed)
+        {
+            var stored = parcels.Where(p => p.TileX == tile.X && p.TileY == tile.Y).ToList();
+            var pending = hidden.Where(h => h.TileX == tile.X && h.TileY == tile.Y).ToList();
+            if (pending.Count == 0)
+            {
+                tiles.Add((tile, version, stored.Select(p => (p.Id, CaptureProcessor.ToParcel(p).State, p.Geometry)).ToList(), null));
+                continue;
+            }
+
+            // Версия 0: приложение пришлёт её обратно, она не совпадёт с настоящей — и тайл придёт заново, уже открытым.
+            var revealAt = pending.Max(h => h.AppliedAt) + PublicDelay;
+            tiles.Add((tile, 0, await ProjectAsync(tile, stored, pending, cancellationToken), revealAt));
+        }
+
+        var owners = tiles.SelectMany(t => t.Pieces.Select(p => p.State.OwnerId)).Distinct().ToList();
+        var colors = await db.Users.AsNoTracking()
+            .Where(u => owners.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.ColorIndex, cancellationToken);
+
+        var result = tiles
+            .Select(t => new TileTerritory(
+                t.Tile.X,
+                t.Tile.Y,
+                t.Version,
+                t.Pieces
+                    .OrderBy(p => p.Id)
+                    .Select(p => ToView(p.Id, p.State, p.Geometry, colors.GetValueOrDefault(p.State.OwnerId), viewer, rules, now))
                     .OfType<ParcelView>()
-                    .ToList()))
+                    .ToList(),
+                t.RevealAt?.ToUnixTimeMilliseconds()))
             .ToList();
         return new TerritoryResponse(league, result, unchanged);
     }
 
-    /// <summary>Кусок для карты с учётом угасания; null — земля потеряна и «призрак» уже исчез.</summary>
-    private static ParcelView? ToView(ParcelEntity parcel, short colorIndex, TerritoryRules rules, DateTimeOffset now)
+    private sealed record HiddenCapture(Guid CaptureId, int TileX, int TileY, DateTimeOffset AppliedAt, long AppliedSeq);
+
+    /// <summary>Чужие захваты моложе <see cref="PublicDelay"/> в этих тайлах (откаченные — не в счёт: их земли уже нет).</summary>
+    private async Task<List<HiddenCapture>> HiddenCapturesAsync(
+        League league, Guid? viewerId, DateTimeOffset now, int minX, int maxX, int minY, int maxY, CancellationToken cancellationToken)
     {
-        var state = new ParcelState
+        var since = now - PublicDelay;
+        var rows = await db.CaptureJournal.AsNoTracking()
+            .Where(j => j.League == league && j.AppliedAt > since
+                && j.TileX >= minX && j.TileX <= maxX && j.TileY >= minY && j.TileY <= maxY)
+            .Join(
+                db.Captures,
+                j => j.CaptureId,
+                c => c.Id,
+                (j, c) => new { j.CaptureId, j.TileX, j.TileY, j.AppliedAt, c.UserId, c.AppliedSeq, c.RolledBackAt })
+            .Where(r => r.UserId != viewerId && r.RolledBackAt == null)
+            .ToListAsync(cancellationToken);
+        return rows.Select(r => new HiddenCapture(r.CaptureId, r.TileX, r.TileY, r.AppliedAt, r.AppliedSeq ?? 0)).ToList();
+    }
+
+    /// <summary>
+    /// Тайл таким, каким его видят остальные: недавние чужие захваты откатываются в памяти — от новых к старым, только там,
+    /// где земля и сейчас такая, какой её оставил захват (свои более поздние изменения зрителя остаются).
+    /// </summary>
+    private async Task<List<(long Id, ParcelState State, Polygon Geometry)>> ProjectAsync(
+        TileKey tile, List<ParcelEntity> stored, List<HiddenCapture> pending, CancellationToken cancellationToken)
+    {
+        try
         {
-            OwnerId = parcel.OwnerId,
-            Level = parcel.Level,
-            LastVisitAt = parcel.LastVisitAt,
-            LastLevelUpAt = parcel.LastLevelUpAt,
-        };
+            var map = new TerritoryMap();
+            map.Load(stored.Select(CaptureProcessor.ToParcel));
+            foreach (var capture in pending.OrderByDescending(h => h.AppliedSeq))
+            {
+                var changes = (await CaptureJournal.LoadAsync(db, capture.CaptureId, cancellationToken)).Where(c => c.Tile == tile).ToList();
+                map.Restore(changes);
+            }
+
+            // Неизменные куски сохраняют свои номера; пересобранные получают временные отрицательные.
+            var projected = map.ParcelsIn(tile);
+            var diff = ParcelDiff.Compute([.. stored.Select(p => (p.Id, CaptureProcessor.ToParcel(p)))], projected);
+            var kept = stored.Where(p => diff.Kept.Contains(p.Id)).Select(p => (p.Id, CaptureProcessor.ToParcel(p).State, p.Geometry));
+            var added = diff.Added.Select((p, i) => (-(long)(i + 1), p.State, p.Geometry));
+            return [.. kept, .. added];
+        }
+        catch (Exception e) when (e is TerritoryEngineException or TopologyException)
+        {
+            // Лучше пустой тайл на 20 минут, чем показать, где человек сейчас.
+            logger.LogError(e, "Публичная проекция тайла {Tile} не собралась — тайл отдан пустым до раскрытия", tile);
+            return [];
+        }
+    }
+
+    /// <summary>Кусок для карты с учётом угасания; null — земля потеряна и «призрак» уже исчез.</summary>
+    private static ParcelView? ToView(
+        long id, ParcelState state, Polygon geometry, short colorIndex, TerritoryViewer viewer, TerritoryRules rules, DateTimeOffset now)
+    {
         var level = Decay.EffectiveLevel(state, now, rules);
         var ghost = level == 0 && Decay.IsGhost(state, now, rules);
-        return level == 0 && !ghost ? null : new ParcelView(
-        parcel.Id,
-        parcel.OwnerId,
-        colorIndex,
-        (short)level,
-        ghost,
-        parcel.LastVisitAt.ToUnixTimeMilliseconds(),
-        parcel.ShieldUntil?.ToUnixTimeMilliseconds(),
-        parcel.SiegeUntil?.ToUnixTimeMilliseconds(),
-        LatLon(parcel.Geometry.ExteriorRing),
-        [.. parcel.Geometry.InteriorRings.Select(LatLon)]);
+        if (level == 0 && !ghost)
+        {
+            return null;
+        }
+
+        // Точное время чужого визита — это «был здесь в 18:42»; остальным хватает часа (угасание считается днями).
+        var lastVisit = state.LastVisitAt.ToUnixTimeMilliseconds();
+        if (!viewer.Immediate && state.OwnerId != viewer.UserId)
+        {
+            lastVisit -= lastVisit % 3_600_000;
+        }
+
+        return new ParcelView(
+            id,
+            state.OwnerId,
+            colorIndex,
+            (short)level,
+            ghost,
+            lastVisit,
+            state.ShieldUntil?.ToUnixTimeMilliseconds(),
+            state.SiegeUntil?.ToUnixTimeMilliseconds(),
+            LatLon(geometry.ExteriorRing),
+            [.. geometry.InteriorRings.Select(LatLon)]);
     }
 
     /// <summary>Кольцо из UTM 34N в широту и долготу; 7 знаков после запятой — около 1 см.</summary>

@@ -1,12 +1,18 @@
 using System.Globalization;
+using System.Security.Claims;
+using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
 
 namespace Gorodki.Api.Features.Territory;
 
 /// <summary>Кусок земли для карты.</summary>
+/// <param name="Id">Номер куска; отрицательный — временный кусок из публичной проекции (см. <c>RevealAtMs</c> тайла).</param>
+/// <param name="LastVisitAtMs">Последний визит владельца; у чужих кусков — с точностью до часа (приватность).</param>
 /// <param name="Level">Действующий уровень с учётом угасания (§3.3); 0 — у «призрака».</param>
 /// <param name="Ghost">Земля уже потеряна (угасла), но ещё 3 дня видна «призраком».</param>
 /// <param name="Exterior">Внешний контур: <c>[широта, долгота, широта, долгота, …]</c>, первая точка повторяется в конце.</param>
@@ -24,8 +30,14 @@ public sealed record ParcelView(
     IReadOnlyList<IReadOnlyList<double>> Holes);
 
 /// <summary>Тайл и все его куски.</summary>
-/// <param name="Version">Версия тайла: растёт при каждом изменении; 0 — в тайле ещё ничего не было.</param>
-public sealed record TileTerritory(int X, int Y, long Version, IReadOnlyList<ParcelView> Parcels);
+/// <param name="Version">
+/// Версия тайла: растёт при каждом изменении; 0 — в тайле ещё ничего не было или часть изменений ещё не публична
+/// (тогда приложение перезапросит тайл — с версией 0 он придёт заново).
+/// </param>
+/// <param name="RevealAtMs">
+/// Когда станут видны чужие захваты, которые пока скрыты публичной задержкой (PLAN.md, §3.16: 20 минут); <c>null</c> — скрытого нет.
+/// </param>
+public sealed record TileTerritory(int X, int Y, long Version, IReadOnlyList<ParcelView> Parcels, long? RevealAtMs);
 
 /// <summary>Земля по тайлам.</summary>
 /// <param name="Tiles">Тайлы, которые изменились (или все запрошенные, если версии не переданы).</param>
@@ -46,13 +58,18 @@ public static class TerritoryEndpoints
             .WithName("getTerritory")
             .WithTags("Карта")
             .RequireRateLimiting(CaptureEndpoints.ReadRateLimitPolicy)
-            .WithSummary("Земля по тайлам: tiles=x:y или x:y@известная_версия через запятую, не больше 25")
+            .WithSummary("Земля по тайлам: tiles=x:y или x:y@известная_версия через запятую, не больше 25. Чужие захваты видны через 20 минут")
             .ProducesProblem(StatusCodes.Status400BadRequest);
         return app;
     }
 
     private static async Task<Results<Ok<TerritoryResponse>, ProblemHttpResult>> GetTerritory(
-        string? league, string? tiles, TerritoryReader reader, CancellationToken cancellationToken)
+        string? league,
+        string? tiles,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        TerritoryReader reader,
+        CancellationToken cancellationToken)
     {
         if (ParseLeague(league) is not { } parsedLeague || ParseTiles(tiles) is not { } requested)
         {
@@ -62,7 +79,10 @@ public static class TerritoryEndpoints
                 extensions: new Dictionary<string, object?> { ["code"] = "territory_query_invalid" });
         }
 
-        return TypedResults.Ok(await reader.ReadAsync(parsedLeague, requested, cancellationToken));
+        var userId = principal.UserId();
+        var role = await db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => (UserRole?)u.Role).SingleOrDefaultAsync(cancellationToken);
+        var viewer = new TerritoryViewer(userId, role is UserRole.Demo or UserRole.Admin);
+        return TypedResults.Ok(await reader.ReadAsync(parsedLeague, requested, viewer, cancellationToken));
     }
 
     /// <summary>Тайлы из строки <c>684:5775,685:5775@3</c>; null — если формат неверный или тайлов нет либо слишком много.</summary>
