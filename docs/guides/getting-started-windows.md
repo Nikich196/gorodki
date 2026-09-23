@@ -35,6 +35,22 @@ dotnet run --project backend/src/Gorodki.Api
 Открой http://localhost:5080/scalar — интерактивное описание API. Попробуй `GET /health`:
 сервер ответит версией и текущим игровым днём по Минску.
 
+### База данных (по желанию)
+
+Большинство тестов базы не требуют. Интеграционные тесты (`tests/Gorodki.IntegrationTests`) запускают PostgreSQL + PostGIS
+в Docker — если Docker Desktop не установлен, они просто пропускаются (в CI выполняются всегда).
+
+Миграции:
+
+```powershell
+cd backend
+dotnet tool restore                                   # ставит dotnet-ef нужной версии (из dotnet-tools.json)
+dotnet ef migrations add ИмяМиграции --project src/Gorodki.Api --output-dir Infrastructure/Persistence/Migrations
+dotnet ef migrations script --project src/Gorodki.Api # посмотреть SQL
+```
+
+Модель данных — [docs/architecture/data-model.md](../architecture/data-model.md).
+
 ## 4. Как устроен сервер
 
 - `backend/src/Gorodki.Domain` — правила игры на чистом C#: время по Минску, потом геометрия участков,
