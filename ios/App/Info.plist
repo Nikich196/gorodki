@@ -42,6 +42,15 @@
   <array>
     <string>UIInterfaceOrientationPortrait</string>
   </array>
+  <!-- Приложение только для iPhone, но Xcode требует объявить все ориентации для iPad,
+       иначе предупреждает при сборке. -->
+  <key>UISupportedInterfaceOrientations~ipad</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
 
   <!-- Свои ключи «Городков». Установщик (Sideloadly) может переписать bundle ID,
        поэтому исходные значения храним отдельно и сравниваем на экране «Проверка установки». -->
