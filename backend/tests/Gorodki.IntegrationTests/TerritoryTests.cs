@@ -61,40 +61,55 @@ public sealed class TerritoryTests(DatabaseFixture database)
     }
 
     [Fact]
-    public async Task Others_see_a_capture_only_after_the_public_delay()
+    public async Task Others_see_a_capture_only_after_the_public_delay_and_nothing_gives_it_away_before()
     {
         // PLAN.md, §3.16: чужие видят изменения через 20 минут — иначе карта показывала бы, где человек прямо сейчас.
+        // Скрытый захват не выдаёт себя и версией тайла: с прежней версией тайл «без изменений».
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
         var (boris, _) = await api.CreatePlayerClientAsync();
         var (demo, _) = await api.CreatePlayerClientAsync(Gorodki.Api.Infrastructure.Persistence.UserRole.Demo);
         var area = NewArea();
-        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
         var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        var before = await TileAsync(boris, tile);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
 
         var own = await TileAsync(anna, tile);
         var hidden = await TileAsync(boris, tile);
-        var again = await TileAsync(boris, tile, known: hidden.Version);
-        var onStage = await TileAsync(demo, tile);
+        var sameVersion = await IsUnchangedAsync(boris, tile, before.Version);
+        var demoViewer = await TileAsync(demo, tile);
 
-        Assert.True(own.Version >= 1);
-        Assert.Null(own.RevealAtMs);
         Assert.Equal(annaId, Assert.Single(own.Parcels).OwnerId); // свой захват — сразу
-        Assert.Equal(0, hidden.Version); // приложение перезапросит тайл
+        Assert.True(own.Version > before.Version);
+        Assert.Equal(before.Version, hidden.Version); // видимая версия не сдвинулась
         Assert.Empty(hidden.Parcels);
-        Assert.NotNull(hidden.RevealAtMs);
-        Assert.Empty(again.Parcels); // с версией 0 тайл приходит заново, а не «без изменений»
-        Assert.Single(onStage.Parcels); // демо на показе — без задержки
+        Assert.True(sameVersion); // с прежней версией — «без изменений»
+        Assert.Empty(demoViewer.Parcels); // демо-зритель видит карту как все
 
-        api.Time.Advance(TerritoryReader.PublicDelay + TimeSpan.FromMinutes(1));
-        var revealed = await TileAsync(boris, tile, known: 0);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var revealed = await TileAsync(boris, tile, known: before.Version);
 
-        Assert.Equal(own.Version, revealed.Version);
-        Assert.Null(revealed.RevealAtMs);
+        Assert.True(revealed.Version > before.Version);
         var parcel = Assert.Single(revealed.Parcels);
         Assert.Equal(annaId, parcel.OwnerId);
         Assert.Equal(0, parcel.LastVisitAtMs % 3_600_000); // время чужого визита — с точностью до часа
+    }
+
+    [Fact]
+    public async Task Demo_account_captures_are_public_at_once()
+    {
+        // PLAN.md, §11, показ: «захват точно по контуру, /live обновился» — изменения демо-аккаунта без задержки.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (demo, demoId) = await api.CreatePlayerClientAsync(Gorodki.Api.Infrastructure.Persistence.UserRole.Demo);
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, demo, Square(area, 0, 0, 100))).RunId);
+
+        var seen = await TileAsync(boris, TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50));
+
+        Assert.Equal(demoId, Assert.Single(seen.Parcels).OwnerId);
     }
 
     [Fact]
@@ -106,29 +121,46 @@ public sealed class TerritoryTests(DatabaseFixture database)
         var (boris, borisId) = await api.CreatePlayerClientAsync();
         var (vera, _) = await api.CreatePlayerClientAsync();
         var area = NewArea();
-        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
-        api.Time.Advance(TimeSpan.FromMinutes(30)); // захват Анны уже публичен
-        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
         var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep); // захват Анны уже публичен
+        var beforeBoris = await TileAsync(vera, tile);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
 
         var seenByVera = await TileAsync(vera, tile);
+        var veraUnchanged = await IsUnchangedAsync(vera, tile, beforeBoris.Version);
         var seenByBoris = await TileAsync(boris, tile);
         var seenByAnna = await TileAsync(anna, tile);
 
-        // Вера и сама Анна видят квадрат Анны целым — захват Бориса ещё скрыт.
+        // Вера и сама Анна видят квадрат Анны целым — захват Бориса ещё скрыт и версию не сдвигает.
         var annaLand = Assert.Single(seenByVera.Parcels);
         Assert.Equal(annaId, annaLand.OwnerId);
         Assert.InRange(AreaOf(annaLand.Exterior), 9_500, 10_500);
-        Assert.True(annaLand.Id < 0); // кусок собран проекцией — временный номер
+        Assert.Equal(beforeBoris.Version, seenByVera.Version);
+        Assert.True(veraUnchanged);
+        Assert.True(annaLand.Id > 0); // номер собранного проекцией куска — такой же, как у настоящего
         Assert.InRange(AreaOf(Assert.Single(seenByAnna.Parcels).Exterior), 9_500, 10_500);
-        // Борис свой захват видит сразу: половина Анны — его.
-        Assert.InRange(seenByBoris.Parcels.Where(p => p.OwnerId == borisId).Sum(p => AreaOf(p.Exterior)), 9_500, 10_500);
+        // Борис свой захват видит сразу: половина Анны — его, щит — до миллисекунды.
+        var borisOwn = seenByBoris.Parcels.Where(p => p.OwnerId == borisId).ToList();
+        Assert.InRange(borisOwn.Sum(p => AreaOf(p.Exterior)), 9_500, 10_500);
 
-        api.Time.Advance(TerritoryReader.PublicDelay + TimeSpan.FromMinutes(1));
-        var later = await TileAsync(vera, tile);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var later = await TileAsync(vera, tile, known: beforeBoris.Version);
 
-        Assert.InRange(later.Parcels.Where(p => p.OwnerId == borisId).Sum(p => AreaOf(p.Exterior)), 9_500, 10_500);
+        Assert.True(later.Version > beforeBoris.Version);
+        var borisLand = later.Parcels.Where(p => p.OwnerId == borisId).ToList();
+        Assert.InRange(borisLand.Sum(p => AreaOf(p.Exterior)), 9_500, 10_500);
         Assert.InRange(later.Parcels.Where(p => p.OwnerId == annaId).Sum(p => AreaOf(p.Exterior)), 4_700, 5_300);
+        // Чужой щит (12 ч после захвата) — с точностью до 10 минут: минута захвата не видна и после раскрытия.
+        Assert.Contains(borisLand, p => p.ShieldUntilMs is not null);
+        Assert.All(borisLand.Where(p => p.ShieldUntilMs is not null), p => Assert.Equal(0, p.ShieldUntilMs!.Value % 600_000));
+    }
+
+    private async Task<bool> IsUnchangedAsync(HttpClient client, TileKey tile, long known)
+    {
+        var response = await client.GetFromJsonAsync<TerritoryResponse>(
+            $"/territory?league=run&tiles={tile.X}:{tile.Y}@{known}", Json, Cancel);
+        return response!.Tiles.Count == 0 && response.Unchanged.Single() == new TileRef(tile.X, tile.Y);
     }
 
     private async Task<TileTerritory> TileAsync(HttpClient client, TileKey tile, long? known = null)

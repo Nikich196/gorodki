@@ -1,3 +1,4 @@
+using Gorodki.Api.Features.Config;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Microsoft.EntityFrameworkCore;
@@ -14,19 +15,26 @@ namespace Gorodki.Api.Features.Me;
 /// обновится. В журнале захватов других игроков (земля до/после их захватов) номер удалённого остаётся, пока журнал
 /// не сотрётся — через 7 дней, раньше срока закона; откат и публичная проекция такую землю возвращают ничьей.
 /// </remarks>
-public sealed class AccountDeletion(AppDbContext db, TimeProvider time, ILogger<AccountDeletion> logger)
+public sealed class AccountDeletion(AppDbContext db, GameConfigStore configs, TimeProvider time, ILogger<AccountDeletion> logger)
 {
     /// <summary>Срок по закону; фактически аккаунт стирается при ближайшем часовом проходе.</summary>
     public static readonly TimeSpan Deadline = TimeSpan.FromDays(15);
 
     private const int Batch = 20;
 
-    /// <summary>Стирает аккаунты, удаление которых запрошено. Возвращает, сколько стёрто.</summary>
+    /// <summary>
+    /// Стирает аккаунты, удаление которых запрошено. Не раньше чем через 20 минут после запроса и после последнего
+    /// захвата (публичная задержка, §3.16): стёртая земля становится ничьей, и контур недавней петли, ещё скрытой
+    /// от остальных, иначе проступил бы на карте. Возвращает, сколько стёрто.
+    /// </summary>
     public async Task<int> ProcessRequestedAsync(CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
+        var delay = TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
+        var publicBefore = now - delay;
         var requested = await db.Users.AsNoTracking()
-            .Where(u => u.DeletionRequestedAt != null && u.DeletionRequestedAt <= now)
+            .Where(u => u.DeletionRequestedAt != null && u.DeletionRequestedAt <= publicBefore
+                && !db.Captures.Any(c => c.UserId == u.Id && c.AppliedAt > publicBefore))
             .OrderBy(u => u.DeletionRequestedAt)
             .Select(u => u.Id)
             .Take(Batch)

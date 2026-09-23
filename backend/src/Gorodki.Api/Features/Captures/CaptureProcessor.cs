@@ -294,7 +294,9 @@ public sealed class CaptureProcessor(
         }
 
         // Журнал — в той же транзакции: земля без записи для отката (или запись без земли) не сохраняется никогда.
-        CaptureJournal.Add(db, claim.Id, claim.League, now, result.Changes);
+        // Только тайлы, версия которых выросла: публичная проекция считает скрытые захваты по журналу и вычитает их
+        // из версии тайла — запись без роста версии дала бы зрителю «провал» версии.
+        CaptureJournal.Add(db, claim.Id, claim.League, now, [.. result.Changes.Where(c => changedTiles.Contains(c.Tile))]);
 
         await db.SaveChangesAsync(cancellationToken);
         foreach (var tile in changedTiles)

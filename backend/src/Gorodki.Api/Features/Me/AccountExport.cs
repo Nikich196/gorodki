@@ -3,6 +3,7 @@ using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Runs;
 using Microsoft.EntityFrameworkCore;
@@ -89,8 +90,46 @@ public sealed record ExportParcel(
 public sealed record ExportFogTile(FogLayerKind Layer, int Season, int X, int Y, int CellCount, byte[] Bits);
 
 /// <summary>Собирает выгрузку игрока.</summary>
-public sealed class AccountExport(AppDbContext db, GameConfigStore configs, TimeProvider time)
+public sealed class AccountExport(AppDbContext db, GameConfigStore configs, TerritoryReader territory, TimeProvider time)
 {
+    /// <summary>
+    /// Земля — такой, какой её видит на карте сам игрок (публичная проекция, §3.16): чужой захват его земли виден ему через
+    /// те же 20 минут, что и всем, и выгрузка не должна раскрывать его раньше. Тайлы — где у игрока земля сейчас и где её
+    /// взяли ещё не публичные захваты.
+    /// </summary>
+    private async Task<List<ExportParcel>> OwnLandAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var delay = TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
+        var horizon = TerritoryReader.PublicHorizon(time.GetUtcNow(), delay);
+        var owned = await db.Parcels.AsNoTracking()
+            .Where(p => p.OwnerId == userId)
+            .Select(p => new { p.League, p.TileX, p.TileY })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var takenRecently = await db.CaptureJournalPieces.AsNoTracking()
+            .Where(p => p.OwnerId == userId && !p.After)
+            .Join(
+                db.CaptureJournal.Where(j => j.AppliedAt > horizon),
+                p => new { p.CaptureId, p.TileX, p.TileY },
+                j => new { j.CaptureId, j.TileX, j.TileY },
+                (p, j) => new { j.League, j.TileX, j.TileY })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var land = new List<ExportParcel>();
+        foreach (var league in owned.Concat(takenRecently).GroupBy(t => t.League).OrderBy(g => g.Key))
+        {
+            var tiles = league.Select(t => (new TileKey(t.TileX, t.TileY), (long?)null)).Distinct().ToList();
+            var seen = await territory.ReadAsync(league.Key, tiles, new TerritoryViewer(userId, Immediate: false), cancellationToken);
+            land.AddRange(seen.Tiles
+                .SelectMany(t => t.Parcels)
+                .Where(p => p.OwnerId == userId)
+                .Select(p => new ExportParcel(league.Key, p.Level, p.LastVisitAtMs, p.Exterior, p.Holes)));
+        }
+
+        return land;
+    }
+
     public async Task<AccountExportResponse?> BuildAsync(Guid userId, CancellationToken cancellationToken)
     {
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
@@ -154,14 +193,7 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Time
                 c.RolledBackAt?.ToUnixTimeMilliseconds()))
             .ToList();
 
-        var land = (await db.Parcels.AsNoTracking().Where(p => p.OwnerId == userId).OrderBy(p => p.Id).ToListAsync(cancellationToken))
-            .Select(p => new ExportParcel(
-                p.League,
-                p.Level,
-                p.LastVisitAt.ToUnixTimeMilliseconds(),
-                TerritoryReader.LatLon(p.Geometry.ExteriorRing),
-                [.. p.Geometry.InteriorRings.Select(TerritoryReader.LatLon)]))
-            .ToList();
+        var land = await OwnLandAsync(userId, cancellationToken);
 
         var fog = await db.FogTiles.AsNoTracking()
             .Where(f => f.UserId == userId)

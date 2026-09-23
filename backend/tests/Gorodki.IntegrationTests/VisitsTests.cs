@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Territory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using static Gorodki.IntegrationTests.Walks;
@@ -27,6 +28,10 @@ public sealed class VisitsTests(DatabaseFixture database)
         // 700 м по прямой через квадрат: первые и последние 200 м не в счёт, внутри остаётся 100 м.
         var run = await WalkAndFinishAsync(Cancel, api, anna, [(area.X - 300, area.Y + 50), (area.X + 400, area.Y + 50)]);
 
+        // Визит меняет карту — публично, поэтому не раньше чем через 20 минут после конца забега (§3.16).
+        Assert.DoesNotContain(run.Id, await ReadyAsync(api));
+        Assert.Null(await VisitAsync(api, run.Id));
+        api.Time.Advance(TerritoryReader.PublicDelay);
         Assert.Contains(run.Id, await ReadyAsync(api));
         Assert.Equal(1, await VisitAsync(api, run.Id));
         Assert.Null(await VisitAsync(api, run.Id)); // забег считается один раз
@@ -58,6 +63,7 @@ public sealed class VisitsTests(DatabaseFixture database)
 
         // Старт посреди своего квадрата — «у дома»: 50 м внутри приходятся на первые 200 м.
         var run = await WalkAndFinishAsync(Cancel, api, anna, [(area.X + 50, area.Y + 50), (area.X + 750, area.Y + 50)]);
+        api.Time.Advance(TerritoryReader.PublicDelay);
 
         Assert.Equal(0, await VisitAsync(api, run.Id));
         var piece = Assert.Single(await LandAsync(annaId));
@@ -77,6 +83,7 @@ public sealed class VisitsTests(DatabaseFixture database)
 
         // Диагональ x + y = 25 срезает угол квадрата: внутри ~35 м, меньше 50.
         var run = await WalkAndFinishAsync(Cancel, api, anna, [(area.X - 325, area.Y + 350), (area.X + 375, area.Y - 350)]);
+        api.Time.Advance(TerritoryReader.PublicDelay);
 
         Assert.Equal(0, await VisitAsync(api, run.Id));
         var piece = Assert.Single(await LandAsync(annaId));
