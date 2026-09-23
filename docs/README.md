@@ -7,6 +7,7 @@
 | [adr/](adr/README.md) | Архитектурные решения (почему выбрано именно так) |
 | [architecture/data-model.md](architecture/data-model.md) | Модель данных: таблицы, ER-диаграмма, проверки |
 | [architecture/sync.md](architecture/sync.md) | Офлайн-синхронизация на телефоне: запись забега и доставка очереди |
+| [architecture/realtime.md](architecture/realtime.md) | Реальное время (SignalR): подсказки «тайлы изменились» и «заявка решена», контракт для приложения |
 | [architecture/ios-app.md](architecture/ios-app.md) | Приложение: клиент API, токены в Keychain, обновление при 401, адрес сервера |
 | [guides/for-egor.md](guides/for-egor.md) | **Для Егора**: что готово, его задачи (#34–#41) и как их сделать, где что лежит |
 | [guides/install-on-iphone.md](guides/install-on-iphone.md) | Установка на iPhone без Mac через Sideloadly |

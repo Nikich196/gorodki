@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
@@ -19,7 +20,12 @@ namespace Gorodki.Api.Features.Captures;
 /// считается вне транзакций, земля пишется одной короткой транзакцией под блокировками игрока и тайлов.
 /// </summary>
 public sealed class CaptureProcessor(
-    AppDbContext db, GameConfigStore configs, RunJudgements judgements, TimeProvider time, ILogger<CaptureProcessor> logger)
+    AppDbContext db,
+    GameConfigStore configs,
+    RunJudgements judgements,
+    RealtimeHints hints,
+    TimeProvider time,
+    ILogger<CaptureProcessor> logger)
 {
     /// <summary>Петля старше этого к моменту, когда у сервера появилось всё нужное, не засчитывается (§7.3).</summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromHours(3);
@@ -37,6 +43,58 @@ public sealed class CaptureProcessor(
 
     /// <summary>Обрабатывает готовые заявки забега. Возвращает, сколько заявок получили итог.</summary>
     public async Task<int> ProcessRunAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var pending = await db.Captures.AsNoTracking()
+            .Where(c => c.RunId == runId && c.Status == CaptureStatus.Pending)
+            .Select(c => c.Id)
+            .ToListAsync(cancellationToken);
+        var decided = await DecideRunAsync(runId, cancellationToken);
+        if (decided > 0)
+        {
+            await NotifyDecidedAsync(pending, cancellationToken);
+        }
+
+        return decided;
+    }
+
+    /// <summary>
+    /// Подсказки после фиксации (PLAN.md, D6): итог заявки — автору; тайлы применённого захвата — автору сразу (свои
+    /// захваты он видит сразу), остальным — при раскрытии (<see cref="RevealScanner"/>), у демо-аккаунта — сразу всем.
+    /// </summary>
+    private async Task NotifyDecidedAsync(List<Guid> pending, CancellationToken cancellationToken)
+    {
+        var decided = await db.Captures.AsNoTracking()
+            .Where(c => pending.Contains(c.Id) && c.Status != CaptureStatus.Pending)
+            .Select(c => new
+            {
+                c.Id,
+                c.RunId,
+                c.UserId,
+                c.League,
+                c.Status,
+                c.ChangedTiles,
+                Demo = db.Users.Any(u => u.Id == c.UserId && u.Role == UserRole.Demo),
+            })
+            .ToListAsync(cancellationToken);
+        foreach (var capture in decided)
+        {
+            hints.Publish(new CaptureDecidedHint(
+                capture.UserId, capture.RunId, capture.Id, JsonNamingPolicy.CamelCase.ConvertName(capture.Status.ToString())));
+            if (capture.Status != CaptureStatus.Applied || capture.ChangedTiles is not { } json)
+            {
+                continue;
+            }
+
+            var tiles = (JsonSerializer.Deserialize<int[][]>(json) ?? []).Select(t => new TileKey(t[0], t[1])).ToList();
+            hints.TilesChangedFor(capture.UserId, capture.League, tiles);
+            if (capture.Demo)
+            {
+                hints.TilesChanged(capture.League, tiles);
+            }
+        }
+    }
+
+    private async Task<int> DecideRunAsync(Guid runId, CancellationToken cancellationToken)
     {
         var run = await db.Runs.AsNoTracking().SingleOrDefaultAsync(r => r.Id == runId, cancellationToken);
         var pending = await db.Captures.AsNoTracking()

@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Microsoft.EntityFrameworkCore;
@@ -15,7 +16,8 @@ namespace Gorodki.Api.Features.Me;
 /// обновится. В журнале захватов других игроков (земля до/после их захватов) номер удалённого остаётся, пока журнал
 /// не сотрётся — через 7 дней, раньше срока закона; откат и публичная проекция такую землю возвращают ничьей.
 /// </remarks>
-public sealed class AccountDeletion(AppDbContext db, GameConfigStore configs, TimeProvider time, ILogger<AccountDeletion> logger)
+public sealed class AccountDeletion(
+    AppDbContext db, GameConfigStore configs, RealtimeHints hints, TimeProvider time, ILogger<AccountDeletion> logger)
 {
     /// <summary>Срок по закону; фактически аккаунт стирается при ближайшем часовом проходе.</summary>
     public static readonly TimeSpan Deadline = TimeSpan.FromDays(15);
@@ -100,6 +102,11 @@ public sealed class AccountDeletion(AppDbContext db, GameConfigStore configs, Ti
         await db.Captures.Where(c => c.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.Users.Where(u => u.Id == userId).ExecuteDeleteAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        foreach (var league in tiles.GroupBy(t => t.League))
+        {
+            hints.TilesChanged(league.Key, league.Select(t => new TileKey(t.TileX, t.TileY)));
+        }
+
         logger.LogInformation("Аккаунт {UserId} удалён: земля в {Tiles} тайлах стала ничьей", userId, tiles.Count);
         return true;
     }
