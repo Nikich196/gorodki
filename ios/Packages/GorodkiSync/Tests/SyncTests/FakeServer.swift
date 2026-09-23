@@ -298,6 +298,9 @@ actor FakeServer: APIProtocol {
     func deletePrivacyZone(_ input: Operations.deletePrivacyZone.Input) async throws
         -> Operations.deletePrivacyZone.Output
     { throw Unused() }
+    func getExplorationLeaderboard(_ input: Operations.getExplorationLeaderboard.Input) async throws
+        -> Operations.getExplorationLeaderboard.Output
+    { throw Unused() }
     func getConfig(_ input: Operations.getConfig.Input) async throws -> Operations.getConfig.Output { throw Unused() }
     func getTerritory(_ input: Operations.getTerritory.Input) async throws -> Operations.getTerritory.Output {
         throw Unused()

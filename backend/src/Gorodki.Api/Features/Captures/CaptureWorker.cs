@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Gorodki.Api.Features.Fog;
+using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
@@ -49,7 +50,7 @@ public sealed class CaptureWorker(
 
     /// <summary>
     /// Раз в час: стирается журнал захватов старше недели и сырые точки старше 14 дней, закрываются забытые забеги,
-    /// стираются аккаунты, удаление которых запрошено.
+    /// стираются аккаунты, удаление которых запрошено, раз в игровые сутки — срез рейтингов.
     /// </summary>
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
 
@@ -68,6 +69,7 @@ public sealed class CaptureWorker(
                     await retention.CloseForgottenAsync(stoppingToken); // до тумана и визитов ниже: закрытый забег сразу готов к ним
                     await retention.PurgeRawPointsAsync(stoppingToken);
                     await pruneScope.ServiceProvider.GetRequiredService<AccountDeletion>().ProcessRequestedAsync(stoppingToken);
+                    await pruneScope.ServiceProvider.GetRequiredService<LeaderboardSnapshots>().TakeIfDueAsync(stoppingToken);
                     prunedAt = time.GetUtcNow();
                 }
 
