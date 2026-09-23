@@ -34,6 +34,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<FogTileEntity> FogTiles => Set<FogTileEntity>();
 
+    public DbSet<CaptureJournalEntity> CaptureJournal => Set<CaptureJournalEntity>();
+
+    public DbSet<CaptureJournalPieceEntity> CaptureJournalPieces => Set<CaptureJournalPieceEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -173,6 +177,24 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 t.HasCheckConstraint("ck_captures_status", "status BETWEEN 0 AND 4");
                 t.HasCheckConstraint("ck_captures_seq", "start_seq >= 0 AND end_seq > start_seq");
             });
+        });
+
+        model.Entity<CaptureJournalEntity>(journal =>
+        {
+            journal.HasKey(j => new { j.CaptureId, j.TileX, j.TileY });
+            journal.HasOne<CaptureEntity>().WithMany().HasForeignKey(j => j.CaptureId).OnDelete(DeleteBehavior.Cascade);
+            journal.HasIndex(j => j.AppliedAt); // чистка старше 7 дней
+        });
+
+        model.Entity<CaptureJournalPieceEntity>(piece =>
+        {
+            piece.HasKey(p => p.Id);
+            piece.Property(p => p.Id).UseIdentityAlwaysColumn();
+            piece.HasOne<CaptureJournalEntity>()
+                .WithMany()
+                .HasForeignKey(p => new { p.CaptureId, p.TileX, p.TileY })
+                .OnDelete(DeleteBehavior.Cascade);
+            piece.ToTable(t => t.HasCheckConstraint("ck_capture_journal_pieces_level", "level BETWEEN 1 AND 3"));
         });
 
         model.Entity<TileVersionEntity>(tile =>

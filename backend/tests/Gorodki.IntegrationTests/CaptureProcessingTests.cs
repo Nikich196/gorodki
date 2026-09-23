@@ -224,7 +224,17 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         map.Load(parcels.Select(p => new Parcel(
             new TileKey(p.TileX, p.TileY),
             p.Geometry,
-            new ParcelState { OwnerId = p.OwnerId, Level = p.Level, LastVisitAt = p.LastVisitAt, LastLevelUpAt = p.LastLevelUpAt })));
+            new ParcelState
+            {
+                OwnerId = p.OwnerId,
+                Level = p.Level,
+                LastVisitAt = p.LastVisitAt,
+                LastLevelUpAt = p.LastLevelUpAt,
+                ShieldUntil = p.ShieldUntil,
+                SiegeUntil = p.SiegeUntil,
+                LossWindowSince = p.LossWindowSince,
+                LossAttackers = AttackerSet.Of(p.LossAttackers),
+            })));
         return map;
     }
 }

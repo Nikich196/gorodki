@@ -295,6 +295,63 @@ public sealed class ParcelEntity
     public required Polygon Geometry { get; set; }
 }
 
+/// <summary>
+/// Журнал захвата по одному тайлу: след — где земля после захвата стала другой (PLAN.md, §7.3, шаг B.5).
+/// Пишется в той же транзакции, что и земля, хранится 7 дней — столько доступен откат (§3.9, слой 5).
+/// </summary>
+public sealed class CaptureJournalEntity
+{
+    public Guid CaptureId { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    public League League { get; set; }
+
+    public DateTimeOffset AppliedAt { get; set; }
+
+    /// <summary>След в TWKB (сетка 0,1 м, без потерь): многоугольник или мультимногоугольник.</summary>
+    public required byte[] Footprint { get; set; }
+}
+
+/// <summary>
+/// Земля одного состояния внутри следа — до или после захвата. Без внешнего ключа на владельца: журнал переживает
+/// удаление аккаунта, а откат вернёт землю несуществующего игрока ничьей.
+/// </summary>
+public sealed class CaptureJournalPieceEntity
+{
+    public long Id { get; set; }
+
+    public Guid CaptureId { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    /// <summary><c>false</c> — земля до захвата, <c>true</c> — после.</summary>
+    public bool After { get; set; }
+
+    public Guid OwnerId { get; set; }
+
+    public short Level { get; set; }
+
+    public DateTimeOffset LastVisitAt { get; set; }
+
+    public DateTimeOffset LastLevelUpAt { get; set; }
+
+    public DateTimeOffset? ShieldUntil { get; set; }
+
+    public DateTimeOffset? SiegeUntil { get; set; }
+
+    public DateTimeOffset? LossWindowSince { get; set; }
+
+    public Guid[] LossAttackers { get; set; } = [];
+
+    /// <summary>Геометрия в TWKB (сетка 0,1 м).</summary>
+    public required byte[] Geometry { get; set; }
+}
+
 public enum CaptureStatus : short
 {
     /// <summary>Ждёт точек, данных датчиков или своей очереди. Ноль — чтобы забытый статус не означал «применено».</summary>

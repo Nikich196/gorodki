@@ -32,6 +32,9 @@ public sealed class CaptureProcessor(
 
     public const int MaxAttempts = 5;
 
+    /// <summary>Столько хранится журнал захватов — и столько после захвата доступен его откат (PLAN.md, §7.3, шаг B.5).</summary>
+    public static readonly TimeSpan JournalRetention = TimeSpan.FromDays(7);
+
     /// <summary>Обрабатывает готовые заявки забега. Возвращает, сколько заявок получили итог.</summary>
     public async Task<int> ProcessRunAsync(Guid runId, CancellationToken cancellationToken)
     {
@@ -212,6 +215,7 @@ public sealed class CaptureProcessor(
         map.Load(stored.Select(ToParcel));
         var result = map.Apply(area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>()));
 
+        var now = time.GetUtcNow();
         var changedTiles = new List<TileKey>();
         foreach (var tile in result.ChangedTiles)
         {
@@ -227,6 +231,9 @@ public sealed class CaptureProcessor(
             db.Parcels.AddRange(diff.Added.Select(p => ToEntity(p, claim.League)));
         }
 
+        // Журнал — в той же транзакции: земля без записи для отката (или запись без земли) не сохраняется никогда.
+        CaptureJournal.Add(db, claim.Id, claim.League, now, result.Changes);
+
         await db.SaveChangesAsync(cancellationToken);
         foreach (var tile in changedTiles)
         {
@@ -241,7 +248,6 @@ public sealed class CaptureProcessor(
         var appliedSeq = await db.Database.SqlQuery<long>($"SELECT nextval('app.capture_apply_seq') AS \"Value\"").SingleAsync(cancellationToken);
         var areas = result.AreaByOutcome.ToDictionary(kv => JsonNamingPolicy.CamelCase.ConvertName(kv.Key.ToString()), kv => Math.Round(kv.Value, 1));
         var taken = result.Area(PieceOutcome.ClaimedNeutral) + result.Area(PieceOutcome.Transferred);
-        var now = time.GetUtcNow();
         var updated = await db.Captures
             .Where(c => c.Id == claim.Id && c.LeaseToken == token && c.Status == CaptureStatus.Pending)
             .ExecuteUpdateAsync(
@@ -267,6 +273,13 @@ public sealed class CaptureProcessor(
 
         await transaction.CommitAsync(cancellationToken);
         return 1;
+    }
+
+    /// <summary>Стирает журнал захватов старше <see cref="JournalRetention"/> (куски — каскадом). Возвращает, сколько записей стёрто.</summary>
+    public Task<int> PruneJournalAsync(CancellationToken cancellationToken)
+    {
+        var before = time.GetUtcNow() - JournalRetention;
+        return db.CaptureJournal.Where(j => j.AppliedAt < before).ExecuteDeleteAsync(cancellationToken);
     }
 
     /// <summary>Сколько захватов игрока уже применено в те же игровые сутки (по Минску).</summary>
