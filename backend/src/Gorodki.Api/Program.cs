@@ -1,7 +1,12 @@
+using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Me;
+using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -21,6 +26,10 @@ if (Environment.GetEnvironmentVariable("PORT") is { Length: > 0 } port)
 
 // Ошибки отдаём в едином формате ProblemDetails (RFC 9457).
 builder.Services.AddProblemDetails();
+
+// Перечисления в JSON — строками (`"run"`, `"finished"`), как в GameCore; числа не принимаются.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
 builder.Services.AddOpenApi();
 var health = builder.Services.AddHealthChecks();
 
@@ -64,6 +73,22 @@ if (withDatabase)
             };
         });
 
+    // Приём забегов: не больше 60 запросов в минуту на игрока (с запасом 120 — для выгрузки накопленного офлайн).
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddPolicy(RunLimits.RateLimitPolicy, context => RateLimitPartition.GetTokenBucketLimiter(
+            context.User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? "anonymous",
+            _ => new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = 120,
+                TokensPerPeriod = 60,
+                ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            }));
+    });
+
     // Всё закрыто по умолчанию: открытые адреса помечаются явно (AllowAnonymous).
     builder.Services.AddAuthorizationBuilder()
         .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
@@ -85,6 +110,7 @@ if (withDatabase)
 {
     app.UseAuthentication();
     app.UseAuthorization();
+    app.UseRateLimiter();
 }
 
 if (app.Environment.IsDevelopment())
@@ -101,6 +127,7 @@ if (withDatabase)
     app.MapAuthEndpoints();
     app.MapMeEndpoints();
     app.MapConfigEndpoints();
+    app.MapRunEndpoints();
 }
 
 await app.RunAsync();

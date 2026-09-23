@@ -1,4 +1,6 @@
+using Gorodki.Api.Features.Config;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Config;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
 using Microsoft.EntityFrameworkCore;
@@ -105,6 +107,7 @@ public sealed class SchemaTests(DatabaseFixture database)
                 League = League.Run,
                 ConfigVersion = 1,
                 StartedAt = DateTimeOffset.UtcNow,
+                AppVersion = "test",
             });
             db.RunChunks.Add(new RunChunkEntity
             {
@@ -134,13 +137,73 @@ public sealed class SchemaTests(DatabaseFixture database)
         }
     }
 
+    [Fact]
+    public async Task Overlapping_chunks_of_one_run_are_refused_by_the_database()
+    {
+        database.RequireDatabase();
+        var runId = await CreateRunAsync(await CreateUserAsync("overlap"), RunStatus.Finished);
+
+        await AddChunkAsync(runId, 0, 9);
+        var overlap = await Assert.ThrowsAsync<DbUpdateException>(() => AddChunkAsync(runId, 5, 14));
+        await AddChunkAsync(runId, 10, 19); // соседний кусок — можно
+
+        Assert.Equal(Npgsql.PostgresErrorCodes.ExclusionViolation, Assert.IsType<Npgsql.PostgresException>(overlap.InnerException).SqlState);
+    }
+
+    [Fact]
+    public async Task Player_has_at_most_one_active_run()
+    {
+        database.RequireDatabase();
+        var owner = await CreateUserAsync("active");
+        await CreateRunAsync(owner, RunStatus.Active);
+        await CreateRunAsync(owner, RunStatus.Finished);
+
+        var second = await Assert.ThrowsAsync<DbUpdateException>(() => CreateRunAsync(owner, RunStatus.Active));
+
+        Assert.Equal(Npgsql.PostgresErrorCodes.UniqueViolation, Assert.IsType<Npgsql.PostgresException>(second.InnerException).SqlState);
+    }
+
     // MARK: — вспомогательное
+
+    private async Task<Guid> CreateRunAsync(Guid owner, RunStatus status)
+    {
+        await using var db = database.CreateContext();
+        await EnsureConfigAsync(db);
+        var run = new RunEntity
+        {
+            Id = Guid.CreateVersion7(),
+            UserId = owner,
+            League = League.Run,
+            ConfigVersion = 1,
+            StartedAt = DateTimeOffset.UtcNow,
+            Status = status,
+            AppVersion = "test",
+        };
+        db.Runs.Add(run);
+        await db.SaveChangesAsync(Cancel);
+        return run.Id;
+    }
+
+    private async Task AddChunkAsync(Guid runId, int firstSeq, int lastSeq)
+    {
+        await using var db = database.CreateContext();
+        db.RunChunks.Add(new RunChunkEntity
+        {
+            RunId = runId,
+            FirstSeq = firstSeq,
+            LastSeq = lastSeq,
+            ContentHash = Guid.NewGuid().ToByteArray(),
+            Points = [1],
+            ReceivedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(Cancel);
+    }
 
     private async Task<Guid> CreateUserAsync(string name)
     {
         await using var db = database.CreateContext();
         var id = Guid.CreateVersion7();
-        var nick = $"{name}-{id.ToString()[..8]}";
+        var nick = $"{name}-{id.ToString("N")[^8..]}"; // хвост UUIDv7 случайный, начало — время
         db.Users.Add(new UserEntity
         {
             Id = id,
@@ -156,11 +219,12 @@ public sealed class SchemaTests(DatabaseFixture database)
     {
         if (!await db.GameConfigs.AnyAsync(c => c.Version == 1, Cancel))
         {
+            // Так же, как версию 1 создаёт сервер (GameConfigStore): числа по умолчанию, действует «всегда».
             db.GameConfigs.Add(new GameConfigEntity
             {
                 Version = 1,
-                Json = "{}",
-                ActiveFrom = DateTimeOffset.UtcNow,
+                Json = GameConfig.Default.ToJson(),
+                ActiveFrom = GameConfigStore.FirstVersionActiveFrom,
                 CreatedAt = DateTimeOffset.UtcNow,
             });
         }
