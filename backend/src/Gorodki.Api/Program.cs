@@ -65,6 +65,7 @@ if (withDatabase)
     builder.Services.AddSingleton<CaptureSignal>();
     builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<RunRetention>();
+    builder.Services.AddScoped<AccountDeletion>();
     builder.Services.AddScoped<CaptureProcessor>();
     builder.Services.AddScoped<CaptureRollback>();
     builder.Services.AddScoped<VisitProcessor>();

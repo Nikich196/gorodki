@@ -54,6 +54,12 @@ public static class AuthEndpoints
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var user = await db.Users.SingleOrDefaultAsync(u => u.GoogleSubject == identity.Subject, cancellationToken);
+        if (user?.DeletionRequestedAt is not null)
+        {
+            // Аккаунт удаляется — войти в него нельзя; после стирания тот же Google-аккаунт зарегистрируется заново.
+            return Problem(StatusCodes.Status403Forbidden, "account_deleting", "Аккаунт удаляется.");
+        }
+
         var isNew = user is null;
         if (user is null)
         {
