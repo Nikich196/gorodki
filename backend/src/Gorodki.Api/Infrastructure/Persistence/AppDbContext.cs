@@ -66,6 +66,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     {
         model.HasDefaultSchema(Schema);
         model.HasPostgresExtension("extensions", "postgis");
+        // Для запрета пересекающихся кусков забега: EXCLUDE по (run_id, диапазон номеров) — в миграции RunsUpload.
+        model.HasPostgresExtension("extensions", "btree_gist");
 
         model.Entity<UserEntity>(user =>
         {
@@ -111,6 +113,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             run.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
             run.HasOne<GameConfigEntity>().WithMany().HasForeignKey(r => r.ConfigVersion).OnDelete(DeleteBehavior.Restrict);
             run.HasIndex(r => new { r.UserId, r.StartedAt });
+            run.Property(r => r.AppVersion).HasMaxLength(32);
+            // Один активный забег на игрока (PLAN.md, §3.2) — это гарантирует сама база.
+            run.HasIndex(r => r.UserId).IsUnique().HasFilter("status = 0").HasDatabaseName("ux_runs_one_active_per_user");
+            run.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_runs_last_seq", "last_seq IS NULL OR last_seq >= -1");
+                t.HasCheckConstraint("ck_runs_counters", "chunk_count >= 0 AND stored_bytes >= 0");
+            });
         });
 
         model.Entity<RunChunkEntity>(chunk =>

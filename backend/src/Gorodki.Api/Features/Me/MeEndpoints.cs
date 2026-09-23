@@ -1,8 +1,8 @@
 using System.Security.Claims;
+using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace Gorodki.Api.Features.Me;
 
@@ -22,7 +22,7 @@ public static class MeEndpoints
         AppDbContext db,
         CancellationToken cancellationToken)
     {
-        if (!Guid.TryParse(principal.FindFirstValue(JwtRegisteredClaimNames.Sub), out var userId))
+        if (principal.UserId() is not { } userId)
         {
             return TypedResults.NotFound();
         }

@@ -65,6 +65,30 @@ public sealed class GameConfigStore(AppDbContext db, GameConfigCache cache, Time
         return entity is null ? null : cache.GetOrAdd(entity);
     }
 
+    /// <summary>
+    /// Версия, с которой можно начать забег: она уже действует и действовала в момент старта — или её сменили недавно
+    /// (телефон мог начать забег без сети со старым конфигом). Иначе <c>null</c>: взять «удобную» старую или ещё
+    /// не вступившую версию нельзя.
+    /// </summary>
+    public async Task<GameConfigVersion?> GetForRunAsync(
+        int version, DateTimeOffset startedAt, TimeSpan grace, CancellationToken cancellationToken)
+    {
+        await GetCurrentAsync(cancellationToken); // новая база получит версию 1
+        var now = time.GetUtcNow();
+        var config = await GetAsync(version, cancellationToken);
+        if (config is null || config.ActiveFrom > now)
+        {
+            return null;
+        }
+
+        var replacedAt = await db.GameConfigs.AsNoTracking()
+            .Where(c => c.Version > version && c.ActiveFrom <= now)
+            .OrderBy(c => c.ActiveFrom)
+            .Select(c => (DateTimeOffset?)c.ActiveFrom)
+            .FirstOrDefaultAsync(cancellationToken);
+        return replacedAt is null || replacedAt > startedAt || replacedAt >= now - grace ? config : null;
+    }
+
     private Task<GameConfigEntity?> FindCurrentAsync(CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();

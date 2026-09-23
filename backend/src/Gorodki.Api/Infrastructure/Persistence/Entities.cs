@@ -129,7 +129,7 @@ public enum RunStatus : short
 {
     Active = 0,
     Finished = 1,
-    /// <summary>Закрыт сервером: забег дольше 4 часов или брошен.</summary>
+    /// <summary>Закрыт сервером: начат более поздний забег, забег дольше 4 часов или брошен. Телефон ещё может завершить его сам.</summary>
     Abandoned = 2,
 }
 
@@ -154,6 +154,32 @@ public sealed class RunEntity
 
     /// <summary>До какой точки забег уже обработан (непрерывный префикс); −1 — ещё ни одной.</summary>
     public int ProcessedSeq { get; set; } = -1;
+
+    /// <summary>Когда сервер узнал о забеге (по часам сервера). От этого момента считается окно приёма кусков.</summary>
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>
+    /// На сколько часы телефона спешили (плюс) или отставали (минус) при старте забега, мс. Признак для оценки доверия;
+    /// сутки, ночь и устаревание считаются по часам сервера с этой поправкой.
+    /// </summary>
+    public long ClockSkewMs { get; set; }
+
+    /// <summary>Идентификатор установки из Keychain (переживает переустановку приложения).</summary>
+    public Guid DeviceId { get; set; }
+
+    public required string AppVersion { get; set; }
+
+    /// <summary>Разрешено ли приложению «Движение»: без него захват невозможен (PLAN.md, §3.9).</summary>
+    public bool MotionAuthorized { get; set; }
+
+    /// <summary>Номер последней точки — телефон сообщает при завершении; до этого <c>null</c>.</summary>
+    public int? LastSeq { get; set; }
+
+    /// <summary>Сколько кусков принято — для лимита на забег.</summary>
+    public int ChunkCount { get; set; }
+
+    /// <summary>Сколько байт кусков хранится — для лимита на забег и на игрока в сутки.</summary>
+    public int StoredBytes { get; set; }
 }
 
 /// <summary>Кусок точек забега, присланный телефоном. Повтор того же содержимого не сохраняется (идемпотентность).</summary>
