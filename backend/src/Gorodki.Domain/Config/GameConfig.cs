@@ -100,6 +100,12 @@ public sealed record TerritoryConfig
     /// <summary>Визит: столько метров засчитанного следа внутри своего куска (§3.3).</summary>
     public double VisitMinMeters { get; init; } = 50;
 
+    /// <summary>Защита от мультиаккаунтов (§3.3): аккаунт моложе стольких часов чужие уровни не снимает.</summary>
+    public double NewAccountHours { get; init; } = 48;
+
+    /// <summary>…и с засчитанным пробегом (все забеги, обе лиги) меньше стольких метров — тоже.</summary>
+    public double NewAccountMinMeters { get; init; } = 3000;
+
     public TerritoryRules ToRules() => new()
     {
         MaxLevel = MaxLevel,

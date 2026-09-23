@@ -119,6 +119,17 @@ public sealed class VisitsTests
         Assert.DoesNotContain((49, 51), segments);
     }
 
+    [Fact]
+    public void Length_of_the_accepted_path_is_its_meters()
+    {
+        var points = Line(71, spacing: 10);
+        var verdicts = Accepted(71);
+        verdicts[40] = JudgeVerdict.Broken(TrackIssue.Teleport); // скачок 390→400→410 м не в счёт: минус два участка
+
+        Assert.Equal(700, JudgedPath.Length(Pairs(points)), 0.01);
+        Assert.Equal(680, JudgedPath.Length(JudgedPath.Segments(points, verdicts)), 0.01);
+    }
+
     // ── Правило визита ──────────────────────────────────────────────────────
 
     [Fact]

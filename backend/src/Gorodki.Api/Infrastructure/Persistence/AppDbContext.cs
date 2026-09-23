@@ -123,6 +123,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             run.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
             run.HasOne<GameConfigEntity>().WithMany().HasForeignKey(r => r.ConfigVersion).OnDelete(DeleteBehavior.Restrict);
             run.HasIndex(r => new { r.UserId, r.StartedAt });
+            run.HasIndex(r => r.DeviceId); // «один аккаунт на устройство в сутки» (§3.3)
             run.Property(r => r.AppVersion).HasMaxLength(32);
             // Один активный забег на игрока (PLAN.md, §3.2) — это гарантирует сама база.
             run.HasIndex(r => r.UserId).IsUnique().HasFilter("status = 0").HasDatabaseName("ux_runs_one_active_per_user");

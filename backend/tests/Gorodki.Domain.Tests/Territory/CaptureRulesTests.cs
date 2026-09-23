@@ -121,4 +121,24 @@ public sealed class CaptureRulesTests
         Assert.Equal(40_000, map.AreaOf(Owner), 3);
         Assert.Empty(TerritoryInvariants.Check(map));
     }
+
+    [Fact]
+    public void New_account_takes_neutral_land_but_removes_no_levels()
+    {
+        // Аккаунт моложе 48 ч или с пробегом меньше 3 км (§3.3): ничью землю берёт, чужую не трогает, свою освежает.
+        var newcomer = new CaptureContext(Anna, T0, new HashSet<Guid>(), CanRemoveLevels: false);
+
+        var (neutral, neutralOutcome) = CaptureRules.Decide(null, newcomer, Rules);
+        var weak = Land(1);
+        var (afterWeak, weakOutcome) = CaptureRules.Decide(weak, newcomer, Rules);
+        var strong = Land(3);
+        var (afterStrong, strongOutcome) = CaptureRules.Decide(strong, newcomer, Rules);
+        var own = Land(1) with { OwnerId = Anna };
+        var (_, ownOutcome) = CaptureRules.Decide(own, newcomer, Rules);
+
+        Assert.Equal((Anna, PieceOutcome.ClaimedNeutral), (neutral!.OwnerId, neutralOutcome));
+        Assert.Equal((weak, PieceOutcome.NewAccountLimited), (afterWeak, weakOutcome));
+        Assert.Equal((strong, PieceOutcome.NewAccountLimited), (afterStrong, strongOutcome));
+        Assert.Equal(PieceOutcome.Refreshed, ownOutcome);
+    }
 }

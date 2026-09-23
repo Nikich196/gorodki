@@ -1926,7 +1926,9 @@
           "maxLevelsLostPerWindow",
           "decayDaysPerLevel",
           "ghostDays",
-          "visitMinMeters"
+          "visitMinMeters",
+          "newAccountHours",
+          "newAccountMinMeters"
         ],
         "type": "object",
         "properties": {
@@ -1963,6 +1965,14 @@
             "format": "double"
           },
           "visitMinMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "newAccountHours": {
+            "type": "number",
+            "format": "double"
+          },
+          "newAccountMinMeters": {
             "type": "number",
             "format": "double"
           }

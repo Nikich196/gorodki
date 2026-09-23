@@ -30,9 +30,10 @@ internal static class Walks
     ];
 
     public static async Task<StartRunRequest> StartWalkAsync(
-        CancellationToken cancel, ApiFactory api, HttpClient client, bool motionAuthorized = true)
+        CancellationToken cancel, ApiFactory api, HttpClient client, bool motionAuthorized = true, Guid? deviceId = null)
     {
         var start = NewStart(api, startedAgo: TimeSpan.FromMinutes(20)) with { MotionAuthorized = motionAuthorized };
+        start = deviceId is { } device ? start with { DeviceId = device } : start;
         var response = await client.PostAsJsonAsync("/runs", start, Json, cancel);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return start;
@@ -45,9 +46,10 @@ internal static class Walks
         HttpClient client,
         IReadOnlyList<(double X, double Y)> vertices,
         Action<List<TrackPointDto>>? tamper = null,
-        bool motionAuthorized = true)
+        bool motionAuthorized = true,
+        Guid? deviceId = null)
     {
-        var start = await StartWalkAsync(cancel, api, client, motionAuthorized);
+        var start = await StartWalkAsync(cancel, api, client, motionAuthorized, deviceId);
         var points = WalkPoints(start, vertices);
         tamper?.Invoke(points);
         foreach (var chunk in WalkChunks(api, points))

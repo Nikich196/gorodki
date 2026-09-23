@@ -40,7 +40,9 @@ public sealed class VisitsTests(DatabaseFixture database)
         Assert.InRange(piece.LastVisitAt, expected - TimeSpan.FromSeconds(5), expected + TimeSpan.FromSeconds(5));
 
         await using var db = database.CreateContext();
-        Assert.Equal(1, await db.Runs.Where(r => r.Id == run.Id).Select(r => r.VisitedParcels).SingleAsync(Cancel));
+        var stored = await db.Runs.AsNoTracking().SingleAsync(r => r.Id == run.Id, Cancel);
+        Assert.Equal(1, stored.VisitedParcels);
+        Assert.InRange(stored.AcceptedMeters!.Value, 690, 710); // пробег — весь засчитанный путь, без обрезки 200 м
     }
 
     [Fact]

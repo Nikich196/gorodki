@@ -50,7 +50,9 @@ public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, Ga
         var (_, judgement) = await judgements.JudgeAsync(run, cancellationToken);
         var current = (await configs.GetCurrentAsync(cancellationToken)).Rules; // карта общая — правила земли на момент визита
         var rules = current.Territory.ToRules();
-        var path = Visits.TrimmedPath(JudgedPath.Segments(judgement.Points, judgement.Verdicts), current.Privacy.TrimMeters);
+        var segments = JudgedPath.Segments(judgement.Points, judgement.Verdicts).ToList();
+        var acceptedMeters = Math.Round(JudgedPath.Length(segments), 1); // пробег — весь путь, без обрезки
+        var path = Visits.TrimmedPath(segments, current.Privacy.TrimMeters);
 
         // Свои куски в тайлах, которые задевает путь: сколько пути прошло внутри каждого.
         var candidates = new List<(long Id, DateTimeOffset At, TileKey Tile)>();
@@ -123,7 +125,10 @@ public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, Ga
         var marked = await db.Runs
             .Where(r => r.Id == runId && r.VisitsProcessedAt == null)
             .ExecuteUpdateAsync(
-                set => set.SetProperty(r => r.VisitsProcessedAt, now).SetProperty(r => r.VisitedParcels, visitedCount),
+                set => set
+                    .SetProperty(r => r.VisitsProcessedAt, now)
+                    .SetProperty(r => r.VisitedParcels, visitedCount)
+                    .SetProperty(r => r.AcceptedMeters, acceptedMeters),
                 cancellationToken);
         if (marked == 0)
         {
