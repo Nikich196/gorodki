@@ -43,12 +43,23 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
+    /// <summary>Журнал захватов старше недели стирается раз в час.</summary>
+    private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var prunedAt = DateTimeOffset.MinValue;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                if (time.GetUtcNow() - prunedAt >= PruneInterval)
+                {
+                    await using var pruneScope = scopes.CreateAsyncScope();
+                    await pruneScope.ServiceProvider.GetRequiredService<CaptureProcessor>().PruneJournalAsync(stoppingToken);
+                    prunedAt = time.GetUtcNow();
+                }
+
                 foreach (var runId in await RunsWithWorkAsync(stoppingToken))
                 {
                     await using var scope = scopes.CreateAsyncScope();
