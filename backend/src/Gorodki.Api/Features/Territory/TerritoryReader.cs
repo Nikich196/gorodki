@@ -21,8 +21,8 @@ public sealed record TerritoryViewer(Guid? UserId, bool Immediate);
 /// </summary>
 public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, TimeProvider time, ILogger<TerritoryReader> logger)
 {
-    /// <summary>Задержка публичной проекции (<c>public_event_delay_min</c> в PLAN.md, §3.16).</summary>
-    public static readonly TimeSpan PublicDelay = TimeSpan.FromMinutes(20);
+    /// <summary>Задержка публичной проекции по умолчанию (<c>privacy.publicEventDelayMinutes</c> в игровом конфиге, §3.16).</summary>
+    public static readonly TimeSpan PublicDelay = TimeSpan.FromMinutes(Gorodki.Domain.Config.GameConfig.Default.Privacy.PublicEventDelayMinutes);
 
     public async Task<TerritoryResponse> ReadAsync(
         League league,
@@ -31,7 +31,9 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
         CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
-        var rules = (await configs.GetCurrentAsync(cancellationToken)).Rules.Territory.ToRules();
+        var config = (await configs.GetCurrentAsync(cancellationToken)).Rules;
+        var rules = config.Territory.ToRules();
+        var delay = TimeSpan.FromMinutes(config.Privacy.PublicEventDelayMinutes);
         int minX = requested.Min(t => t.Tile.X), maxX = requested.Max(t => t.Tile.X);
         int minY = requested.Min(t => t.Tile.Y), maxY = requested.Max(t => t.Tile.Y);
         var versions = (await db.TileVersions.AsNoTracking()
@@ -62,7 +64,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
         var parcels = await db.Parcels.AsNoTracking()
             .Where(p => p.League == league && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
             .ToListAsync(cancellationToken);
-        var hidden = viewer.Immediate ? [] : await HiddenCapturesAsync(league, viewer.UserId, now, minX, maxX, minY, maxY, cancellationToken);
+        var hidden = viewer.Immediate ? [] : await HiddenCapturesAsync(league, viewer.UserId, now - delay, minX, maxX, minY, maxY, cancellationToken);
 
         var tiles = new List<(TileKey Tile, long Version, List<(long Id, ParcelState State, Polygon Geometry)> Pieces, DateTimeOffset? RevealAt)>();
         foreach (var (tile, version) in changed)
@@ -76,7 +78,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             }
 
             // Версия 0: приложение пришлёт её обратно, она не совпадёт с настоящей — и тайл придёт заново, уже открытым.
-            var revealAt = pending.Max(h => h.AppliedAt) + PublicDelay;
+            var revealAt = pending.Max(h => h.AppliedAt) + delay;
             tiles.Add((tile, 0, await ProjectAsync(tile, stored, pending, cancellationToken), revealAt));
         }
 
@@ -102,11 +104,10 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
 
     private sealed record HiddenCapture(Guid CaptureId, int TileX, int TileY, DateTimeOffset AppliedAt, long AppliedSeq);
 
-    /// <summary>Чужие захваты моложе <see cref="PublicDelay"/> в этих тайлах (откаченные — не в счёт: их земли уже нет).</summary>
+    /// <summary>Чужие захваты, применённые позже <paramref name="since"/>, в этих тайлах (откаченные — не в счёт: их земли уже нет).</summary>
     private async Task<List<HiddenCapture>> HiddenCapturesAsync(
-        League league, Guid? viewerId, DateTimeOffset now, int minX, int maxX, int minY, int maxY, CancellationToken cancellationToken)
+        League league, Guid? viewerId, DateTimeOffset since, int minX, int maxX, int minY, int maxY, CancellationToken cancellationToken)
     {
-        var since = now - PublicDelay;
         var rows = await db.CaptureJournal.AsNoTracking()
             .Where(j => j.League == league && j.AppliedAt > since
                 && j.TileX >= minX && j.TileX <= maxX && j.TileY >= minY && j.TileY <= maxY)

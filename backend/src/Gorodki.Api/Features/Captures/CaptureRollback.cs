@@ -80,7 +80,7 @@ public sealed class CaptureRollback(AppDbContext db, TimeProvider time, ILogger<
 
             try
             {
-                var (outcome, restored, skipped) = await RollBackAsync(captureId, league, changes, rollbackId, cancellationToken);
+                var (outcome, restored, skipped) = await RollBackAsync(captureId, league, changes, rollbackId, job.UserId, cancellationToken);
                 switch (outcome)
                 {
                     case Outcome.RolledBack:
@@ -142,7 +142,7 @@ public sealed class CaptureRollback(AppDbContext db, TimeProvider time, ILogger<
     }
 
     private async Task<(Outcome Outcome, double Restored, double Skipped)> RollBackAsync(
-        Guid captureId, League league, IReadOnlyList<TileChange> changes, Guid rollbackId, CancellationToken cancellationToken)
+        Guid captureId, League league, IReadOnlyList<TileChange> changes, Guid rollbackId, Guid userId, CancellationToken cancellationToken)
     {
         var tiles = changes.Select(c => c.Tile).Distinct().Order().ToList();
         int minX = tiles.Min(t => t.X), maxX = tiles.Max(t => t.X), minY = tiles.Min(t => t.Y), maxY = tiles.Max(t => t.Y);
@@ -164,7 +164,11 @@ public sealed class CaptureRollback(AppDbContext db, TimeProvider time, ILogger<
                 .ToList();
             var map = new TerritoryMap();
             map.Load(stored.Select(CaptureProcessor.ToParcel));
-            var result = map.Restore(changes, state => existing.Contains(state.OwnerId) ? state : null);
+            // Свои визиты нарушителя на отнятую землю касанием не считаются: побегав по ней, он бы её «отмыл».
+            var result = map.Restore(
+                changes,
+                state => existing.Contains(state.OwnerId) ? state : null,
+                (current, after) => current == after || (current?.OwnerId == userId && after?.OwnerId == userId));
 
             if (BeforeWrite is { } hook)
             {

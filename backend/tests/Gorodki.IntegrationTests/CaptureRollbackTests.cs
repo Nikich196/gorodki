@@ -92,6 +92,30 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Cheater_cannot_launder_stolen_land_by_walking_over_it()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var scene = await AnnaThenBorisAsync(api);
+        var (annaId, boris, borisId, area, admin) = (scene.AnnaId, scene.Boris, scene.BorisId, scene.Area, scene.Admin);
+        api.Time.Advance(TimeSpan.FromHours(21));
+
+        // Через сутки Борис прошёл по отнятому: визит поднял уровень — земля «изменилась после захвата».
+        var walk = await WalkAndFinishAsync(Cancel, api, boris, [(area.X - 250, area.Y + 50), (area.X + 450, area.Y + 50)]);
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            Assert.True(await scope.ServiceProvider.GetRequiredService<VisitProcessor>().ProcessRunAsync(walk.Id, Cancel) > 0);
+        }
+
+        var done = await RollBackAsync(api, admin, borisId);
+
+        Assert.InRange(done.SkippedArea, 0, 50); // свои визиты нарушителя — не «касание»
+        Assert.InRange(await LandAreaAsync(annaId), 9_500, 10_500);
+        Assert.Equal(0, await LandAreaAsync(borisId), 1);
+        Assert.Empty(TerritoryInvariants.Check(await MapOfAsync(area)));
+    }
+
+    [Fact]
     public async Task Tiles_changed_between_calculation_and_write_are_recalculated()
     {
         database.RequireDatabase();

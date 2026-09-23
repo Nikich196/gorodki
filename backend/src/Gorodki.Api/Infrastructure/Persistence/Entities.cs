@@ -201,6 +201,12 @@ public sealed class RunEntity
 
     /// <summary>Сколько новых клеток тумана открыл забег — для итога «+N га».</summary>
     public int? FogNewCells { get; set; }
+
+    /// <summary>Когда засчитаны визиты забега (≥50 м следа внутри своего куска, PLAN.md §3.3) — один раз за забег.</summary>
+    public DateTimeOffset? VisitsProcessedAt { get; set; }
+
+    /// <summary>Сколько своих кусков забег освежил визитом.</summary>
+    public int? VisitedParcels { get; set; }
 }
 
 /// <summary>Слой «Исследования»: у пешком и на велосипеде — своя карта тумана (PLAN.md, §3.10).</summary>
