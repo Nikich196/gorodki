@@ -7,6 +7,7 @@
 | [adr/](adr/README.md) | Архитектурные решения (почему выбрано именно так) |
 | [architecture/data-model.md](architecture/data-model.md) | Модель данных: таблицы, ER-диаграмма, проверки |
 | [architecture/sync.md](architecture/sync.md) | Офлайн-синхронизация на телефоне: запись забега и доставка очереди |
+| [architecture/ios-app.md](architecture/ios-app.md) | Приложение: клиент API, токены в Keychain, обновление при 401, адрес сервера |
 | [guides/install-on-iphone.md](guides/install-on-iphone.md) | Установка на iPhone без Mac через Sideloadly |
 | [guides/probe-walk.md](guides/probe-walk.md) | Пробная прогулка: спайки S1 (фоновый трекинг) и S4 (карта, туман) |
 | [guides/getting-started-windows.md](guides/getting-started-windows.md) | Запуск сервера и тестов на Windows |
