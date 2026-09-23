@@ -3,4 +3,9 @@
   <PropertyGroup>
     <RootNamespace>Gorodki.Domain</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Геометрия участков: OverlayNG со snap-rounding, Polygonizer (см. Geo/GeoOps.cs). -->
+    <PackageReference Include="NetTopologySuite" />
+  </ItemGroup>
 </Project>
