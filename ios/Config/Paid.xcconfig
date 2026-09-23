@@ -1,0 +1,10 @@
+// Сборка для платного аккаунта разработчика: TestFlight, push, вход через Apple, NFC.
+// Возможности включаются по чек-листу «Включение платного аккаунта» (PLAN.md, §9).
+
+#include "Shared.xcconfig"
+
+GORODKI_FLAVOR = Paid
+APP_BUNDLE_ID = $(BASE_BUNDLE_ID)
+APP_GROUP_ID = group.$(BASE_BUNDLE_ID)
+// Флаг для кода: #if PAID_SIGNING … #endif (подключается в project.yml)
+GORODKI_SWIFT_FLAG = PAID_SIGNING

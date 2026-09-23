@@ -1,0 +1,10 @@
+// Сборка для бесплатного Apple ID: установка через Sideloadly или Xcode, подпись на 7 дней.
+// Push, вход через Apple, iCloud и NFC здесь недоступны — это ограничение Apple для бесплатных аккаунтов.
+
+#include "Shared.xcconfig"
+
+GORODKI_FLAVOR = Free
+APP_BUNDLE_ID = $(BASE_BUNDLE_ID).dev
+APP_GROUP_ID = group.$(BASE_BUNDLE_ID).dev
+// Флаг для кода: #if FREE_SIGNING … #endif (подключается в project.yml)
+GORODKI_SWIFT_FLAG = FREE_SIGNING

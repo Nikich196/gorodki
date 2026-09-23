@@ -1,0 +1,9 @@
+// Общие настройки сборки для Free и Paid.
+// Подключается из Free.xcconfig и Paid.xcconfig.
+
+APP_DISPLAY_NAME = Городки
+BASE_BUNDLE_ID = io.github.nikich196.gorodki
+
+// Свой Team ID и прочие личные настройки — в Local.xcconfig (он в .gitignore).
+// Пример содержимого: DEVELOPMENT_TEAM = ABCDE12345
+#include? "Local.xcconfig"

@@ -1,0 +1,133 @@
+# Описание Xcode-проекта для XcodeGen (https://github.com/yonaskolb/XcodeGen).
+# Сам Gorodki.xcodeproj в git не хранится: он генерируется командой
+#   xcodegen generate --spec ios/project.yml
+# Так проект можно править на Windows, а собирать на Mac или в GitHub Actions.
+
+name: Gorodki
+
+options:
+  bundleIdPrefix: io.github.nikich196
+  deploymentTarget:
+    iOS: "26.0"
+  developmentLanguage: ru
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+# Четыре конфигурации: Debug/Release × Free/Paid.
+#  Free — бесплатный Apple ID (установка через Sideloadly, подпись на 7 дней).
+#  Paid — платный аккаунт разработчика (TestFlight, push, вход через Apple, NFC).
+configs:
+  Debug-Free: debug
+  Release-Free: release
+  Debug-Paid: debug
+  Release-Paid: release
+
+configFiles:
+  Debug-Free: Config/Free.xcconfig
+  Release-Free: Config/Free.xcconfig
+  Debug-Paid: Config/Paid.xcconfig
+  Release-Paid: Config/Paid.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+
+packages:
+  GameCore:
+    path: Packages/GameCore
+  GorodkiKit:
+    path: Packages/GorodkiKit
+
+targets:
+  Gorodki:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - target: GorodkiWidgets
+      - package: GameCore
+      - package: GorodkiKit
+        product: DesignSystem
+      - package: GorodkiKit
+        product: Platform
+    settings:
+      base:
+        PRODUCT_NAME: Gorodki
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) $(GORODKI_SWIFT_FLAG)
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        Debug-Free:
+          CODE_SIGN_ENTITLEMENTS: App/Gorodki-Free.entitlements
+        Release-Free:
+          CODE_SIGN_ENTITLEMENTS: App/Gorodki-Free.entitlements
+        Debug-Paid:
+          CODE_SIGN_ENTITLEMENTS: App/Gorodki-Paid.entitlements
+        Release-Paid:
+          CODE_SIGN_ENTITLEMENTS: App/Gorodki-Paid.entitlements
+
+  # Расширение: Live Activity (экран блокировки, Dynamic Island) и виджеты.
+  # Приложение обязано работать и без него: на бесплатной подписи расширение может не запуститься.
+  GorodkiWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+    dependencies:
+      - package: GorodkiKit
+        product: DesignSystem
+      - package: GorodkiKit
+        product: Platform
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_NAME: GorodkiWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).widgets
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) $(GORODKI_SWIFT_FLAG)
+        INFOPLIST_FILE: Widgets/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Widgets/GorodkiWidgets.entitlements
+        SKIP_INSTALL: YES
+
+schemes:
+  Gorodki Free:
+    build:
+      targets:
+        Gorodki: all
+    run:
+      config: Debug-Free
+    test:
+      config: Debug-Free
+    profile:
+      config: Release-Free
+    analyze:
+      config: Debug-Free
+    archive:
+      config: Release-Free
+
+  Gorodki Paid:
+    build:
+      targets:
+        Gorodki: all
+    run:
+      config: Debug-Paid
+    test:
+      config: Debug-Paid
+    profile:
+      config: Release-Paid
+    analyze:
+      config: Debug-Paid
+    archive:
+      config: Release-Paid
