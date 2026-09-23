@@ -28,6 +28,7 @@ public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, Ga
         var closedBefore = time.GetUtcNow() - FogProcessor.ClosedRunGrace;
         return db.Runs.AsNoTracking()
             .Where(r => r.VisitsProcessedAt == null
+                && r.PointsPurgedAt == null
                 && r.PrefixEndSeq >= 0
                 && ((r.Status == RunStatus.Finished && r.LastSeq != null && r.PrefixEndSeq >= r.LastSeq)
                     || (r.Status != RunStatus.Active && r.EndedAt < closedBefore)))
@@ -41,7 +42,7 @@ public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, Ga
     public async Task<int?> ProcessRunAsync(Guid runId, CancellationToken cancellationToken)
     {
         var run = await db.Runs.AsNoTracking().SingleOrDefaultAsync(r => r.Id == runId, cancellationToken);
-        if (run is null || run.VisitsProcessedAt is not null || run.PrefixEndSeq < 0)
+        if (run is null || run.VisitsProcessedAt is not null || run.PrefixEndSeq < 0 || run.PointsPurgedAt is not null)
         {
             return null;
         }

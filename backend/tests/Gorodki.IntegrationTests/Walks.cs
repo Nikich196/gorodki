@@ -65,8 +65,8 @@ internal static class Walks
         return (start.Id, (await claim.Content.ReadFromJsonAsync<CaptureResponse>(Json, cancel))!.Id, points[^1].T);
     }
 
-    /// <summary>Прогулка по вершинам с завершением забега (все куски отправлены) — без заявок петель.</summary>
-    public static async Task<StartRunRequest> WalkAndFinishAsync(
+    /// <summary>Прогулка по вершинам: старт забега и все куски — без заявок петель и без завершения.</summary>
+    public static async Task<(StartRunRequest Start, List<TrackPointDto> Points)> WalkAsync(
         CancellationToken cancel, ApiFactory api, HttpClient client, IReadOnlyList<(double X, double Y)> vertices)
     {
         var start = await StartWalkAsync(cancel, api, client);
@@ -77,6 +77,14 @@ internal static class Walks
             Assert.Equal(HttpStatusCode.Created, put.StatusCode);
         }
 
+        return (start, points);
+    }
+
+    /// <summary>Прогулка по вершинам с завершением забега (все куски отправлены) — без заявок петель.</summary>
+    public static async Task<StartRunRequest> WalkAndFinishAsync(
+        CancellationToken cancel, ApiFactory api, HttpClient client, IReadOnlyList<(double X, double Y)> vertices)
+    {
+        var (start, points) = await WalkAsync(cancel, api, client, vertices);
         var finish = await client.PostAsJsonAsync(
             $"/runs/{start.Id}/finish",
             new FinishRunRequest(points[^1].T, points.Count - 1, api.Time.GetUtcNow().ToUnixTimeMilliseconds()),
