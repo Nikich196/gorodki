@@ -19,6 +19,8 @@ public sealed record GameConfig
 
     public ExplorationConfig Exploration { get; init; } = new();
 
+    public PrivacyConfig Privacy { get; init; } = new();
+
     public static GameConfig Default { get; } = new();
 
     /// <summary>Как конфиг хранится в базе и в контракте: имена в camelCase, как в API.</summary>
@@ -38,6 +40,19 @@ public sealed record GameConfig
 
     public static GameConfig FromJson(string json) =>
         JsonSerializer.Deserialize<GameConfig>(json, JsonOptions) ?? throw new JsonException("Пустой игровой конфиг.");
+}
+
+/// <summary>Приватность по умолчанию (PLAN.md, §3.16).</summary>
+public sealed record PrivacyConfig
+{
+    /// <summary>Первые и последние метры забега (чаще всего — у дома) не засчитываются для визитов и начислений и обрезаются в показе.</summary>
+    public double TrimMeters { get; init; } = 200;
+
+    /// <summary>Публичная проекция с задержкой (<c>public_event_delay_min</c>): чужие видят изменения карты через столько минут.</summary>
+    public double PublicEventDelayMinutes { get; init; } = 20;
+
+    /// <summary>Радиус приватной зоны, которую предлагают при первом «Старте», метры.</summary>
+    public double ZoneRadiusMeters { get; init; } = 400;
 }
 
 /// <summary>Захват (PLAN.md, §3.2).</summary>
@@ -81,6 +96,9 @@ public sealed record TerritoryConfig
 
     /// <summary>Сколько дней потерянную землю видно «призраком».</summary>
     public double GhostDays { get; init; } = 3;
+
+    /// <summary>Визит: столько метров засчитанного следа внутри своего куска (§3.3).</summary>
+    public double VisitMinMeters { get; init; } = 50;
 
     public TerritoryRules ToRules() => new()
     {

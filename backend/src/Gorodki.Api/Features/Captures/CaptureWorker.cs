@@ -33,7 +33,7 @@ public sealed class CaptureSignal
 }
 
 /// <summary>
-/// Фоновый обработчик захватов, тумана и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
+/// Фоновый обработчик захватов, визитов, тумана и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
 /// Два экземпляра сервера во время деплоя не мешают друг другу: заявки берутся в аренду.
 /// </summary>
 public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal signal, TimeProvider time, ILogger<CaptureWorker> logger)
@@ -64,6 +64,17 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
                 {
                     await using var scope = scopes.CreateAsyncScope();
                     await scope.ServiceProvider.GetRequiredService<CaptureProcessor>().ProcessRunAsync(runId, stoppingToken);
+                }
+
+                // Визиты — после захватов: забег освежает свою землю один раз, когда завершён и все точки на месте.
+                await using (var visitScope = scopes.CreateAsyncScope())
+                {
+                    var visits = visitScope.ServiceProvider.GetRequiredService<VisitProcessor>();
+                    foreach (var runId in await visits.RunsReadyAsync(20, stoppingToken))
+                    {
+                        await using var scope = scopes.CreateAsyncScope();
+                        await scope.ServiceProvider.GetRequiredService<VisitProcessor>().ProcessRunAsync(runId, stoppingToken);
+                    }
                 }
 
                 // Туман — после захватов: забег открывает его один раз, когда завершён и все точки на месте.

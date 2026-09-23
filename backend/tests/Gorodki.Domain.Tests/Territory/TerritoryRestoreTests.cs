@@ -149,6 +149,30 @@ public sealed class TerritoryRestoreTests
         Assert.Equal(40_000, reset.AreaOf(Boris), 1); // всё, что взял Борис (у Анны и ничьё), осталось у него
     }
 
+    [Fact]
+    public void Own_check_keeps_the_cheater_from_laundering_the_land_by_visiting_it()
+    {
+        // Борис отнял половину у Анны и через сутки прошёл по ней снова — уровень вырос. Для обычной проверки это
+        // «изменение после захвата», и откат оставил бы землю ему. Откат нарушителя свои касания нарушителя не считает.
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(0, 0, 200, 200));
+        var cheat = Capture(map, Boris, T0.AddHours(1), RectanglePolygon(100, 0, 200, 200));
+        Capture(map, Boris, T0.AddHours(22), RectanglePolygon(100, 0, 200, 200));
+        var strict = new TerritoryMap();
+        strict.Load(map.Parcels);
+
+        var skipped = strict.Restore(cheat.Changes);
+        var result = map.Restore(
+            cheat.Changes,
+            untouched: (current, after) => current == after || (current?.OwnerId == Boris && after?.OwnerId == Boris));
+
+        Assert.Equal(40_000, skipped.SkippedArea, 1);
+        Assert.Empty(TerritoryInvariants.Check(map));
+        Assert.Equal(40_000, result.RestoredArea, 1);
+        Assert.Equal(40_000, map.AreaOf(Anna), 1);
+        Assert.Equal(0, map.AreaOf(Boris), 1);
+    }
+
     // ── Property-тесты ───────────────────────────────────────────────────────
 
     private static readonly Guid[] Players = [Anna, Boris, Vera, new("00000000-0000-0000-0000-00000000000d")];

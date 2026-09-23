@@ -1171,7 +1171,8 @@
           "capture",
           "territory",
           "leagues",
-          "exploration"
+          "exploration",
+          "privacy"
         ],
         "type": "object",
         "properties": {
@@ -1186,6 +1187,9 @@
           },
           "exploration": {
             "$ref": "#/components/schemas/ExplorationConfig"
+          },
+          "privacy": {
+            "$ref": "#/components/schemas/PrivacyConfig"
           }
         }
       },
@@ -1563,6 +1567,28 @@
           }
         }
       },
+      "PrivacyConfig": {
+        "required": [
+          "trimMeters",
+          "publicEventDelayMinutes",
+          "zoneRadiusMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "trimMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "publicEventDelayMinutes": {
+            "type": "number",
+            "format": "double"
+          },
+          "zoneRadiusMeters": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "ProblemDetails": {
         "type": "object",
         "properties": {
@@ -1899,7 +1925,8 @@
           "levelLossWindowHours",
           "maxLevelsLostPerWindow",
           "decayDaysPerLevel",
-          "ghostDays"
+          "ghostDays",
+          "visitMinMeters"
         ],
         "type": "object",
         "properties": {
@@ -1932,6 +1959,10 @@
             "format": "double"
           },
           "ghostDays": {
+            "type": "number",
+            "format": "double"
+          },
+          "visitMinMeters": {
             "type": "number",
             "format": "double"
           }

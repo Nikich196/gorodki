@@ -126,6 +126,10 @@ public static class GeoOps
             EndCapStyle = EndCapStyle.Flat,
         }).IsEmpty;
 
+    /// <summary>Длина части линии внутри многоугольника, метры (граница — тоже «внутри»).</summary>
+    public static double LengthInside(Geometry line, Geometry area) =>
+        OverlayNG.Overlay(line, area, SpatialFunction.Intersection).Length;
+
     /// <summary>Длина общей границы двух многоугольников, метры.</summary>
     public static double SharedBoundaryLength(Geometry a, Geometry b) =>
         OverlayNG.Overlay(a.Boundary, b.Boundary, SpatialFunction.Intersection, Grid).Length;

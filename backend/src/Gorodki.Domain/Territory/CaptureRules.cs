@@ -127,17 +127,7 @@ public static class CaptureRules
 
         if (current.OwnerId == context.CapturerId)
         {
-            var besieged = current.SiegeUntil > now;
-            var canLevelUp = !besieged
-                && effective < rules.MaxLevel
-                && now - current.LastLevelUpAt >= rules.LevelUpInterval;
-            var refreshed = current with
-            {
-                LastVisitAt = Max(current.LastVisitAt, now),
-                Level = canLevelUp ? effective + 1 : effective,
-                LastLevelUpAt = canLevelUp ? now : current.LastLevelUpAt,
-            };
-            return (refreshed, PieceOutcome.Refreshed);
+            return (Visit(current, now, rules)!, PieceOutcome.Refreshed);
         }
 
         if (context.ClanMates.Contains(current.OwnerId))
@@ -178,6 +168,31 @@ public static class CaptureRules
             LossAttackers = attackers.With(context.CapturerId),
         };
         return (cracked, PieceOutcome.Cracked);
+    }
+
+    /// <summary>
+    /// Визит владельца на свой кусок (PLAN.md, §3.3: ≥50 м следа внутри или повторный захват): угасание начинается заново,
+    /// +1 уровень не чаще раза в 20 ч и не во время осады. Действующий уровень закрепляется. <c>null</c> — кусок уже угас
+    /// до нуля: визит его не возвращает (вернуть можно только захватом).
+    /// </summary>
+    public static ParcelState? Visit(ParcelState current, DateTimeOffset at, TerritoryRules rules)
+    {
+        var effective = Decay.EffectiveLevel(current, at, rules);
+        if (effective == 0)
+        {
+            return null;
+        }
+
+        var besieged = current.SiegeUntil > at;
+        var canLevelUp = !besieged
+            && effective < rules.MaxLevel
+            && at - current.LastLevelUpAt >= rules.LevelUpInterval;
+        return current with
+        {
+            LastVisitAt = Max(current.LastVisitAt, at),
+            Level = canLevelUp ? effective + 1 : effective,
+            LastLevelUpAt = canLevelUp ? at : current.LastLevelUpAt,
+        };
     }
 
     private static DateTimeOffset Max(DateTimeOffset a, DateTimeOffset b) => a > b ? a : b;

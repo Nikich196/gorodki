@@ -156,8 +156,15 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
     /// <param name="adjust">
     /// Как поправить возвращаемое состояние; <c>null</c> — земля становится ничьей (например, прежнего владельца уже нет).
     /// </param>
+    /// <param name="untouched">
+    /// Считать ли землю нетронутой: (текущее состояние, состояние сразу после захвата). По умолчанию — равенство. Откат нарушителя
+    /// не считает касанием его собственные визиты на отнятую землю — иначе, побегав по ней, он бы её «отмыл».
+    /// </param>
     /// <exception cref="TerritoryEngineException">Самопроверка не сошлась — карта не изменена.</exception>
-    public RestoreResult Restore(IReadOnlyList<TileChange> changes, Func<ParcelState, ParcelState?>? adjust = null)
+    public RestoreResult Restore(
+        IReadOnlyList<TileChange> changes,
+        Func<ParcelState, ParcelState?>? adjust = null,
+        Func<ParcelState?, ParcelState?, bool>? untouched = null)
     {
         var rebuilt = new List<(TileKey Tile, List<Parcel> Pieces)>();
         var restored = 0.0;
@@ -170,7 +177,8 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
                 continue;
             }
 
-            rebuilt.Add((change.Tile, RestoreTile(change, adjust ?? (state => state), ref restored, ref skipped, ref sliverArea)));
+            rebuilt.Add((change.Tile, RestoreTile(
+                change, adjust ?? (state => state), untouched ?? ((current, after) => current == after), ref restored, ref skipped, ref sliverArea)));
         }
 
         Commit(rebuilt);
@@ -242,7 +250,12 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
     }
 
     private List<Parcel> RestoreTile(
-        TileChange change, Func<ParcelState, ParcelState?> adjust, ref double restored, ref double skipped, ref double sliverArea)
+        TileChange change,
+        Func<ParcelState, ParcelState?> adjust,
+        Func<ParcelState?, ParcelState?, bool> untouched,
+        ref double restored,
+        ref double skipped,
+        ref double sliverArea)
     {
         var tile = change.Tile;
         var footprint = GeoOps.Intersection(change.Footprint, tile.ToPolygon());
@@ -267,7 +280,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
 
             var area = face.Geometry.Area;
             insideArea += area;
-            if (face.Old != StateAt(after, face.Point))
+            if (!untouched(face.Old, StateAt(after, face.Point)))
             {
                 skipped += area; // после захвата здесь уже что-то поменялось — не трогаем
                 continue;

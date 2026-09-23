@@ -65,6 +65,7 @@ if (withDatabase)
     builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<CaptureProcessor>();
     builder.Services.AddScoped<CaptureRollback>();
+    builder.Services.AddScoped<VisitProcessor>();
     builder.Services.AddScoped<SeasonStore>();
     builder.Services.AddScoped<FogProcessor>();
     builder.Services.AddScoped<TerritoryReader>();
