@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -19,6 +20,7 @@ namespace Gorodki.Api.Features.Me;
 /// <param name="Captures">Заявки петель и их итог.</param>
 /// <param name="Land">Земля сейчас.</param>
 /// <param name="Fog">Туман «Исследования» по слоям, сезонам и тайлам: биты открытых клеток, как в <c>GET /fog</c>.</param>
+/// <param name="PrivacyZones">Приватные зоны.</param>
 public sealed record AccountExportResponse(
     long ExportedAtMs,
     ExportProfile Profile,
@@ -26,7 +28,8 @@ public sealed record AccountExportResponse(
     IReadOnlyList<ExportRun> Runs,
     IReadOnlyList<ExportCapture> Captures,
     IReadOnlyList<ExportParcel> Land,
-    IReadOnlyList<ExportFogTile> Fog);
+    IReadOnlyList<ExportFogTile> Fog,
+    IReadOnlyList<PrivacyZoneResponse> PrivacyZones);
 
 public sealed record ExportProfile(
     Guid Id,
@@ -86,7 +89,7 @@ public sealed record ExportParcel(
 public sealed record ExportFogTile(FogLayerKind Layer, int Season, int X, int Y, int CellCount, byte[] Bits);
 
 /// <summary>Собирает выгрузку игрока.</summary>
-public sealed class AccountExport(AppDbContext db, TimeProvider time)
+public sealed class AccountExport(AppDbContext db, GameConfigStore configs, TimeProvider time)
 {
     public async Task<AccountExportResponse?> BuildAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -166,6 +169,11 @@ public sealed class AccountExport(AppDbContext db, TimeProvider time)
             .Select(f => new ExportFogTile(f.Layer, f.Season, f.TileX, f.TileY, f.CellCount, f.Bits))
             .ToListAsync(cancellationToken);
 
+        var radius = (await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.ZoneRadiusMeters;
+        var zones = (await db.PrivacyZones.AsNoTracking().Where(z => z.UserId == userId).OrderBy(z => z.CreatedAt).ToListAsync(cancellationToken))
+            .Select(z => PrivacyZoneEndpoints.ToResponse(z, radius))
+            .ToList();
+
         return new AccountExportResponse(
             time.GetUtcNow().ToUnixTimeMilliseconds(),
             new ExportProfile(
@@ -184,6 +192,7 @@ public sealed class AccountExport(AppDbContext db, TimeProvider time)
             runs,
             captures,
             land,
-            fog);
+            fog,
+            zones);
     }
 }

@@ -113,6 +113,7 @@
   "privacy": {
     "trimMeters": 200,
     "publicEventDelayMinutes": 20,
-    "zoneRadiusMeters": 400
+    "zoneRadiusMeters": 400,
+    "maxZones": 3
   }
 }

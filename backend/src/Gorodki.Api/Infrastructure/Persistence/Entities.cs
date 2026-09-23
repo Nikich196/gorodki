@@ -541,3 +541,20 @@ public sealed class TileVersionEntity
 
     public long Version { get; set; }
 }
+
+/// <summary>
+/// Приватная зона игрока (PLAN.md, §3.16): круг вокруг точки, где визиты не засчитываются. Радиус — из игрового конфига.
+/// Видит только сам игрок; удаляется вместе с аккаунтом и входит в «мои данные».
+/// </summary>
+public sealed class PrivacyZoneEntity
+{
+    public Guid Id { get; set; }
+
+    public Guid UserId { get; set; }
+
+    public double Latitude { get; set; }
+
+    public double Longitude { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+}

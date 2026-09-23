@@ -75,6 +75,21 @@ public sealed class VisitsTests
         Assert.Empty(inside);
     }
 
+    [Fact]
+    public void Path_inside_a_privacy_zone_is_not_counted()
+    {
+        // Путь по y = 50 через кусок x ∈ [255, 355]; зона радиусом 30 м с центром на пути срезает 60 м из 100.
+        var path = Visits.TrimmedPath(Pairs(Line(71, spacing: 10, north: 50)), 200);
+        var piece = RectanglePolygon(255, 0, 100, 100);
+
+        var partly = Visits.Inside(path, [piece], PrivacyZones.Area([At(300, 50)], 30));
+        var covered = Visits.Inside(path, [piece], PrivacyZones.Area([At(300, 50)], 100));
+
+        Assert.Equal(40, partly[0].Meters, 0.5);
+        Assert.Empty(covered); // весь путь по куску — в зоне
+        Assert.Null(PrivacyZones.Area([], 400));
+    }
+
     // ── Засчитанный путь ────────────────────────────────────────────────────
 
     [Fact]
