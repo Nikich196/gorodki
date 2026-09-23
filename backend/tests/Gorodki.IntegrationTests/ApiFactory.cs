@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Config;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -32,6 +33,13 @@ internal sealed class ApiFactory(DatabaseFixture database) : WebApplicationFacto
             Role = role,
             CreatedAt = newcomer ? now : now.AddDays(-30),
         };
+        if (!newcomer)
+        {
+            // Старый забег ссылается на версию конфига 1 — в новой базе её заводит хранилище при первом обращении.
+            await using var scope = Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<GameConfigStore>().GetCurrentAsync(CancellationToken.None);
+        }
+
         await using (var db = database.CreateContext())
         {
             db.Users.Add(user);
