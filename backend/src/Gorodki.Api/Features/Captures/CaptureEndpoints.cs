@@ -80,6 +80,7 @@ public static class CaptureEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         GameConfigStore configs,
+        CaptureSignal signal,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
@@ -170,6 +171,7 @@ public static class CaptureEndpoints
                 : Problem(StatusCodes.Status409Conflict, "claim_conflict", "Заявка с этим номером уже есть.");
         }
 
+        signal.Notify(runId);
         return TypedResults.Accepted($"/runs/{runId}/captures", await DescribeAsync(db, capture, now, cancellationToken));
     }
 

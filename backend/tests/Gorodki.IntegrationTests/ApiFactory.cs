@@ -44,6 +44,7 @@ internal sealed class ApiFactory(DatabaseFixture database) : WebApplicationFacto
         builder.UseSetting("ConnectionStrings:Gorodki", database.ConnectionString);
         builder.UseSetting("Auth:SigningKey", Convert.ToBase64String(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray()));
         builder.UseSetting("Auth:GoogleClientIds:0", "test-client-id");
+        builder.UseSetting(Gorodki.Api.Features.Captures.CaptureWorker.EnabledSetting, "false"); // тесты зовут обработчик сами
         builder.ConfigureServices(services =>
         {
             services.AddSingleton<TimeProvider>(Time);

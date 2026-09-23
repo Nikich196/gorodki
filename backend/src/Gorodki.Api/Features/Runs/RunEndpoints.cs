@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Runs;
@@ -200,6 +201,7 @@ public static class RunEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         GameConfigStore configs,
+        CaptureSignal signal,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
@@ -342,6 +344,7 @@ public static class RunEndpoints
                 : await ChunkConflictAsync(db, runId, chunk, cancellationToken);
         }
 
+        signal.Notify(runId); // у забега могли стать готовыми заявки петель
         return TypedResults.Created($"/runs/{runId}", receipt);
     }
 
@@ -351,6 +354,7 @@ public static class RunEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         GameConfigStore configs,
+        CaptureSignal signal,
         CancellationToken cancellationToken)
     {
         if (principal.UserId() is not { } userId)
@@ -409,6 +413,7 @@ public static class RunEndpoints
         run.LastSeq = request.LastSeq;
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        signal.Notify(runId); // забег завершён — заявки, ждавшие датчиков, могут стать готовыми
         return TypedResults.Ok(await ToResponseAsync(db, run, cancellationToken));
     }
 

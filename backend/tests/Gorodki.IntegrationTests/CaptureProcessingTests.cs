@@ -1,0 +1,262 @@
+using System.Net;
+using System.Net.Http.Json;
+using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Geo;
+using Gorodki.Domain.Territory;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using static Gorodki.IntegrationTests.RunRequests;
+
+namespace Gorodki.IntegrationTests;
+
+/// <summary>
+/// Обработка захватов целиком на настоящей базе: прогулка → куски с датчиками → заявка → судья, контур, земля в базе.
+/// Каждый тест гуляет в своём месте (свой тайл), чтобы тесты не делили землю.
+/// </summary>
+[Collection(DatabaseCollection.Name)]
+public sealed class CaptureProcessingTests(DatabaseFixture database)
+{
+    private static int _nextArea;
+
+    private CancellationToken Cancel => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task Walked_block_becomes_the_players_land()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, userId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+
+        var claim = await WalkAndClaimAsync(api, client, Square(area, 0, 0, 100));
+        var decided = await ProcessAsync(api, claim.RunId);
+
+        var capture = await CaptureAsync(client, claim);
+        Assert.Equal(1, decided);
+        Assert.Equal(CaptureStatus.Applied, capture.Status);
+        Assert.InRange(capture.AreaSquareMeters, 9_500, 10_500);
+        Assert.InRange(capture.AreaByOutcome!["claimedNeutral"], 9_500, 10_500);
+        Assert.InRange(await LandAreaAsync(userId), 9_500, 10_500);
+        Assert.NotEmpty(capture.ChangedTiles!);
+        await using var db = database.CreateContext();
+        var tile = capture.ChangedTiles![0];
+        Assert.True(await db.TileVersions.AnyAsync(t => t.TileX == tile.X && t.TileY == tile.Y && t.Version >= 1, Cancel));
+    }
+
+    [Fact]
+    public async Task Second_player_takes_level_one_land_and_the_map_stays_consistent()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+
+        await ProcessAsync(api, (await WalkAndClaimAsync(api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        var borisClaim = await WalkAndClaimAsync(api, boris, Square(area, 50, 0, 100));
+        await ProcessAsync(api, borisClaim.RunId);
+
+        var capture = await CaptureAsync(boris, borisClaim);
+        Assert.Equal(CaptureStatus.Applied, capture.Status);
+        Assert.InRange(capture.AreaByOutcome!["transferred"], 4_700, 5_300);
+        Assert.InRange(await LandAreaAsync(annaId), 4_700, 5_300);
+        Assert.InRange(await LandAreaAsync(borisId), 9_500, 10_500);
+        Assert.Empty(TerritoryInvariants.Check(await MapOfAsync()));
+    }
+
+    [Fact]
+    public async Task Processing_again_or_in_parallel_applies_the_loop_once()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, userId) = await api.CreatePlayerClientAsync();
+        var claim = await WalkAndClaimAsync(api, client, Square(NewArea(), 0, 0, 100));
+
+        var parallel = await Task.WhenAll(ProcessAsync(api, claim.RunId), ProcessAsync(api, claim.RunId), ProcessAsync(api, claim.RunId));
+        var again = await ProcessAsync(api, claim.RunId);
+
+        Assert.Equal(1, parallel.Sum());
+        Assert.Equal(0, again);
+        Assert.InRange(await LandAreaAsync(userId), 9_500, 10_500);
+    }
+
+    [Fact]
+    public async Task Teleport_inside_the_loop_rejects_it_with_the_reason()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, userId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var square = Square(area, 0, 0, 100);
+
+        // На середине пути — скачок на 600 м и обратно (выброс GPS или подмена): след рвётся.
+        var claim = await WalkAndClaimAsync(api, client, square, points =>
+        {
+            var middle = points.Count / 2;
+            var (latitude, longitude) = Utm34.Inverse(WalkOrigin.X + area.X + 600, WalkOrigin.Y + area.Y + 600);
+            points[middle] = points[middle] with { Lat = latitude, Lon = longitude };
+        });
+        await ProcessAsync(api, claim.RunId);
+
+        var capture = await CaptureAsync(client, claim);
+        Assert.Equal((CaptureStatus.Rejected, "segment_broken:teleport"), (capture.Status, capture.RejectCode));
+        Assert.Equal(0, await LandAreaAsync(userId));
+    }
+
+    [Fact]
+    public async Task Without_motion_permission_nothing_is_captured()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, userId) = await api.CreatePlayerClientAsync();
+
+        var claim = await WalkAndClaimAsync(api, client, Square(NewArea(), 0, 0, 100), motionAuthorized: false);
+        await ProcessAsync(api, claim.RunId);
+
+        Assert.Equal("motion_not_authorized", (await CaptureAsync(client, claim)).RejectCode);
+        Assert.Equal(0, await LandAreaAsync(userId));
+    }
+
+    [Fact]
+    public async Task Claim_whose_points_never_arrive_goes_stale_after_3_hours()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, _) = await api.CreatePlayerClientAsync();
+        var start = await StartAsync(api, client);
+        var response = await client.PostAsJsonAsync(
+            $"/runs/{start.Id}/loops", new LoopClaimRequest(0, 0, 300, LoopClosure.Proximity, 10_000, start.StartedAtMs), Json, Cancel);
+        var captureId = (await response.Content.ReadFromJsonAsync<CaptureResponse>(Json, Cancel))!.Id;
+
+        var early = await ProcessAsync(api, start.Id);
+        api.Time.Advance(TimeSpan.FromHours(3) + TimeSpan.FromMinutes(1));
+        var late = await ProcessAsync(api, start.Id);
+
+        // Итог — из базы: после сдвига часов на 3 часа токен клиента для HTTP уже мог бы истечь.
+        Assert.Equal((0, 1), (early, late));
+        await using var db = database.CreateContext();
+        var capture = await db.Captures.SingleAsync(c => c.Id == captureId, Cancel);
+        Assert.Equal((CaptureStatus.Stale, "points_not_received"), (capture.Status, capture.RejectCode));
+    }
+
+    [Fact]
+    public async Task Thirty_captures_a_day_is_the_limit()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, userId) = await api.CreatePlayerClientAsync();
+        var claim = await WalkAndClaimAsync(api, client, Square(NewArea(), 0, 0, 100));
+        await using (var db = database.CreateContext())
+        {
+            // 30 уже применённых захватов за эти игровые сутки (без земли — для лимита важен только счёт).
+            for (var i = 0; i < 30; i++)
+            {
+                db.Captures.Add(new CaptureEntity
+                {
+                    Id = Guid.NewGuid(),
+                    RunId = claim.RunId,
+                    UserId = userId,
+                    ClaimNo = 50 + i,
+                    StartSeq = 0,
+                    EndSeq = 10 + i,
+                    Status = CaptureStatus.Applied,
+                    ReceivedAt = api.Time.GetUtcNow(),
+                    EffectiveAt = DateTimeOffset.FromUnixTimeMilliseconds(claim.EndMs), // те же игровые сутки при любом времени запуска
+                });
+            }
+
+            await db.SaveChangesAsync(Cancel);
+        }
+
+        await ProcessAsync(api, claim.RunId);
+
+        Assert.Equal("daily_limit", (await CaptureAsync(client, claim)).RejectCode);
+    }
+
+    // MARK: — вспомогательное
+
+    /// <summary>Своё место для каждого теста: сдвиг на 1,5 км — отдельный тайл, соседние тесты не делят землю.</summary>
+    private static (double X, double Y) NewArea()
+    {
+        var n = Interlocked.Increment(ref _nextArea);
+        return (-6_000 + (1_500.0 * (n % 8)), -6_000 + (1_500.0 * (n / 8)));
+    }
+
+    private static (double X, double Y)[] Square((double X, double Y) area, double x, double y, double size) =>
+    [
+        (area.X + x, area.Y + y),
+        (area.X + x + size, area.Y + y),
+        (area.X + x + size, area.Y + y + size),
+        (area.X + x, area.Y + y + size),
+        (area.X + x, area.Y + y + 1),
+    ];
+
+    private async Task<StartRunRequest> StartAsync(ApiFactory api, HttpClient client, bool motionAuthorized = true)
+    {
+        var start = NewStart(api, startedAgo: TimeSpan.FromMinutes(20)) with { MotionAuthorized = motionAuthorized };
+        var response = await client.PostAsJsonAsync("/runs", start, Json, Cancel);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return start;
+    }
+
+    /// <summary>Прогулка по вершинам: старт забега, куски с датчиками, заявка петли от первой до последней точки.</summary>
+    private async Task<(Guid RunId, Guid CaptureId, long EndMs)> WalkAndClaimAsync(
+        ApiFactory api,
+        HttpClient client,
+        IReadOnlyList<(double X, double Y)> vertices,
+        Action<List<TrackPointDto>>? tamper = null,
+        bool motionAuthorized = true)
+    {
+        var start = await StartAsync(api, client, motionAuthorized);
+        var points = WalkPoints(start, vertices);
+        tamper?.Invoke(points);
+        foreach (var chunk in WalkChunks(api, points))
+        {
+            var put = await client.PutAsJsonAsync($"/runs/{start.Id}/chunks/{chunk.Points![0].Seq}", chunk, Json, Cancel);
+            Assert.Equal(HttpStatusCode.Created, put.StatusCode);
+        }
+
+        var claim = await client.PostAsJsonAsync(
+            $"/runs/{start.Id}/loops",
+            new LoopClaimRequest(0, 0, points.Count - 1, LoopClosure.Proximity, 10_000, api.Time.GetUtcNow().ToUnixTimeMilliseconds()),
+            Json,
+            Cancel);
+        Assert.Equal(HttpStatusCode.Accepted, claim.StatusCode);
+        return (start.Id, (await claim.Content.ReadFromJsonAsync<CaptureResponse>(Json, Cancel))!.Id, points[^1].T);
+    }
+
+    private static async Task<int> ProcessAsync(ApiFactory api, Guid runId)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<CaptureProcessor>().ProcessRunAsync(runId, CancellationToken.None);
+    }
+
+    private async Task<CaptureResponse> CaptureAsync(HttpClient client, (Guid RunId, Guid CaptureId, long EndMs) claim)
+    {
+        var captures = await client.GetFromJsonAsync<List<CaptureResponse>>($"/runs/{claim.RunId}/captures", Json, Cancel);
+        return captures!.Single(c => c.Id == claim.CaptureId);
+    }
+
+    private async Task<double> LandAreaAsync(Guid userId)
+    {
+        await using var db = database.CreateContext();
+        var parcels = await db.Parcels.Where(p => p.OwnerId == userId).Select(p => p.Geometry).ToListAsync(Cancel);
+        return parcels.Sum(g => g.Area);
+    }
+
+    /// <summary>Вся карта «Бега» из базы — для проверки инвариантов (нет наложений, правильная геометрия, нет осколков).</summary>
+    private async Task<TerritoryMap> MapOfAsync()
+    {
+        await using var db = database.CreateContext();
+        var parcels = await db.Parcels.Where(p => p.League == Gorodki.Domain.Leagues.League.Run).ToListAsync(Cancel);
+        var map = new TerritoryMap();
+        map.Load(parcels.Select(p => new Parcel(
+            new TileKey(p.TileX, p.TileY),
+            p.Geometry,
+            new ParcelState { OwnerId = p.OwnerId, Level = p.Level, LastVisitAt = p.LastVisitAt, LastLevelUpAt = p.LastLevelUpAt })));
+        return map;
+    }
+}
