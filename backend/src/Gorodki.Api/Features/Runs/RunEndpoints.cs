@@ -222,6 +222,7 @@ public static class RunEndpoints
                 r.CreatedAt,
                 r.ConfigVersion,
                 r.LastSeq,
+                Purged = r.PointsPurgedAt != null,
                 Deleting = db.Users.Any(u => u.Id == userId && u.DeletionRequestedAt != null),
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -237,9 +238,9 @@ public static class RunEndpoints
         }
 
         var now = time.GetUtcNow();
-        if (now > run.CreatedAt + RunLimits.UploadWindow)
+        if (now > run.CreatedAt + RunLimits.UploadWindow || run.Purged)
         {
-            return Problem(StatusCodes.Status409Conflict, "upload_window_closed", "Точки этого забега больше не принимаются.");
+            return UploadWindowClosed();
         }
 
         var config = await configs.GetAsync(run.ConfigVersion, cancellationToken)
@@ -301,8 +302,10 @@ public static class RunEndpoints
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
         // Место под кусок резервируется одной командой с условием — лимиты забега не обойти параллельными запросами.
+        // Условие на отметку стирания: кусок, пришедший, пока стираются точки забега, не ляжет после стирания (RunRetention).
         var reserved = await db.Runs
             .Where(r => r.Id == runId
+                && r.PointsPurgedAt == null
                 && r.ChunkCount < RunLimits.MaxChunksPerRun
                 && r.StoredBytes + bytes.Length <= RunLimits.MaxBytesPerRun)
             .ExecuteUpdateAsync(
@@ -312,7 +315,9 @@ public static class RunEndpoints
                 cancellationToken);
         if (reserved == 0)
         {
-            return Problem(StatusCodes.Status413PayloadTooLarge, "run_storage_limit", "Забег слишком большой.");
+            return await db.Runs.AnyAsync(r => r.Id == runId && r.PointsPurgedAt != null, cancellationToken)
+                ? UploadWindowClosed()
+                : Problem(StatusCodes.Status413PayloadTooLarge, "run_storage_limit", "Забег слишком большой.");
         }
 
         db.RunChunks.Add(new RunChunkEntity
@@ -494,6 +499,9 @@ public static class RunEndpoints
             (request.Steps ?? []).Select(s => new StepSample(s.Start, s.End, s.Steps)).ToArray());
         return (chunk, problems);
     }
+
+    private static ProblemHttpResult UploadWindowClosed() =>
+        Problem(StatusCodes.Status409Conflict, "upload_window_closed", "Точки этого забега больше не принимаются.");
 
     private static async Task<ProblemHttpResult> ChunkConflictAsync(
         AppDbContext db, Guid runId, TrackChunk chunk, CancellationToken cancellationToken)

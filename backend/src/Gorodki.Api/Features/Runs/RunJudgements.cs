@@ -17,7 +17,7 @@ public sealed class RunJudgements(AppDbContext db, GameConfigStore configs)
         var config = await configs.GetAsync(run.ConfigVersion, cancellationToken)
             ?? throw new InvalidOperationException($"Нет версии конфига {run.ConfigVersion}, с которой начат забег.");
         var encoded = await db.RunChunks.AsNoTracking()
-            .Where(c => c.RunId == run.Id && c.LastSeq <= run.PrefixEndSeq)
+            .Where(c => c.RunId == run.Id && c.LastSeq <= run.PrefixEndSeq && c.Points.Length > 0) // пустые — точки стёрты (RunRetention)
             .OrderBy(c => c.FirstSeq)
             .Select(c => c.Points)
             .ToListAsync(cancellationToken);
