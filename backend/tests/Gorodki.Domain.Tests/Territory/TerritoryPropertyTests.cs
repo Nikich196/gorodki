@@ -106,9 +106,11 @@ public sealed class TerritoryPropertyTests
                     Math.Abs(decided - capture.Area) <= snapTolerance,
                     $"{step}: решено {decided:0.##} из {capture.Area:0.##} м²");
 
-                // I5: не досталось игроку только то, что под щитом, треснуло или ушло в осколки.
+                // I5: не досталось игроку только то, что под щитом, треснуло, упёрлось в лимит снятия уровней
+                // или ушло в осколки.
                 var notTaken = GeoOps.Difference(capture, LandOf(map, capturer)).Area;
-                var protectedArea = result.Area(PieceOutcome.Shielded) + result.Area(PieceOutcome.Cracked);
+                var protectedArea = result.Area(PieceOutcome.Shielded) + result.Area(PieceOutcome.Cracked)
+                    + result.Area(PieceOutcome.LossLimited) + result.Area(PieceOutcome.Superseded);
                 Assert.True(
                     Math.Abs(notTaken - protectedArea) <= result.SliverArea + snapTolerance,
                     $"{step}: не взято {notTaken:0.##}, защищено {protectedArea:0.##}, осколки {result.SliverArea:0.##} м²");

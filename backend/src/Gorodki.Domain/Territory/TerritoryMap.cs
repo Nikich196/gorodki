@@ -69,6 +69,18 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
 
     public IReadOnlyList<Parcel> ParcelsIn(TileKey tile) => _tiles.GetValueOrDefault(tile) ?? [];
 
+    /// <summary>
+    /// Загружает куски из хранилища: на сервере — из базы, только для тайлов, которые задевает петля.
+    /// Тайлы из списка заменяются целиком, остальные не трогаются.
+    /// </summary>
+    public void Load(IEnumerable<Parcel> parcels)
+    {
+        foreach (var tile in parcels.GroupBy(p => p.Tile))
+        {
+            _tiles[tile.Key] = tile.ToList();
+        }
+    }
+
     /// <summary>Площадь земли игрока, м².</summary>
     public double AreaOf(Guid ownerId) =>
         Parcels.Where(p => p.State.OwnerId == ownerId).Sum(p => p.Geometry.Area);
