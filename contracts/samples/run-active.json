@@ -1,0 +1,19 @@
+{
+  "id": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c",
+  "league": "run",
+  "source": "live",
+  "configVersion": 1,
+  "startedAtMs": 1790000000000,
+  "endedAtMs": null,
+  "status": "active",
+  "lastSeq": null,
+  "processedSeq": -1,
+  "received": [
+    {
+      "firstSeq": 0,
+      "lastSeq": 119
+    }
+  ],
+  "missing": [],
+  "newcomer": true
+}

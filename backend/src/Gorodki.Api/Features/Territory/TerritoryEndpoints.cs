@@ -43,6 +43,7 @@ public static class TerritoryEndpoints
     public static IEndpointRouteBuilder MapTerritoryEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/territory", GetTerritory)
+            .WithName("getTerritory")
             .WithTags("Карта")
             .RequireRateLimiting(CaptureEndpoints.ReadRateLimitPolicy)
             .WithSummary("Земля по тайлам: tiles=x:y или x:y@известная_версия через запятую, не больше 25")

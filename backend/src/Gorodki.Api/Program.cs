@@ -9,6 +9,7 @@ using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Territory;
+using Gorodki.Api.Infrastructure.OpenApi;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -30,9 +31,14 @@ if (Environment.GetEnvironmentVariable("PORT") is { Length: > 0 } port)
 builder.Services.AddProblemDetails();
 
 // Перечисления в JSON — строками (`"run"`, `"finished"`), как в GameCore; числа не принимаются.
+// Числа — только числами: иначе описание API объявляет каждое число «целым или строкой», и клиент для iOS
+// получает неудобный тип-вариант (найдено в спайке S6).
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
-builder.Services.AddOpenApi();
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+    options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+});
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer(SwiftFriendlySchemas.Apply));
 var health = builder.Services.AddHealthChecks();
 
 // Время — только через TimeProvider и GameClock, чтобы тесты могли его подменить.

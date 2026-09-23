@@ -11,8 +11,8 @@ public static class HealthEndpoints
     {
         // «Жив ли процесс». Его вызывают Render и пингер, поэтому в базу он не ходит.
         app.MapGet("/health", GetHealth)
+            .WithName("getHealth")
             .AllowAnonymous()
-            .WithName("GetHealth")
             .WithTags("Служебное")
             .WithSummary("Сервер жив: версия, коммит, игровой день по Минску");
 

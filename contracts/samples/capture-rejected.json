@@ -1,0 +1,13 @@
+{
+  "id": "2cba2ab6-1fb3-5f35-b170-727e301a521c",
+  "claimNo": 2,
+  "startSeq": 700,
+  "endSeq": 900,
+  "status": "rejected",
+  "waitingFor": null,
+  "rejectCode": "segment_broken:vehicle",
+  "areaSquareMeters": 0,
+  "areaByOutcome": null,
+  "changedTiles": null,
+  "effectiveAtMs": 1790000900000
+}

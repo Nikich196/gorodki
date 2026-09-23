@@ -58,6 +58,7 @@ public static class CaptureEndpoints
         var runs = app.MapGroup("/runs/{runId:guid}").WithTags("Захваты");
 
         runs.MapPost("/loops", ClaimLoop)
+            .WithName("claimLoop")
             .RequireRateLimiting(RunLimits.RateLimitPolicy)
             .WithSummary("Заявка петли: сервер засчитает её, когда получит точки и датчики (повтор безопасен)")
             .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -67,6 +68,7 @@ public static class CaptureEndpoints
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
         runs.MapGet("/captures", ListCaptures)
+            .WithName("listCaptures")
             .RequireRateLimiting(ReadRateLimitPolicy)
             .WithSummary("Все заявки забега: статус, итог, чего ждёт ожидающая")
             .ProducesProblem(StatusCodes.Status404NotFound);

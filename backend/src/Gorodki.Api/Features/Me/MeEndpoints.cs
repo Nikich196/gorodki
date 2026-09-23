@@ -13,7 +13,7 @@ public static class MeEndpoints
 {
     public static IEndpointRouteBuilder MapMeEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/me", GetMe).WithTags("Профиль").WithSummary("Кто я: ник, цвет, роль");
+        app.MapGet("/me", GetMe).WithName("getMe").WithTags("Профиль").WithSummary("Кто я: ник, цвет, роль");
         return app;
     }
 

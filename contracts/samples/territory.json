@@ -1,0 +1,73 @@
+{
+  "league": "run",
+  "tiles": [
+    {
+      "x": 684,
+      "y": 5775,
+      "version": 3,
+      "parcels": [
+        {
+          "id": 41,
+          "ownerId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+          "colorIndex": 7,
+          "level": 2,
+          "ghost": false,
+          "lastVisitAtMs": 1790000000000,
+          "shieldUntilMs": 1790043200000,
+          "siegeUntilMs": null,
+          "exterior": [
+            52.0976,
+            23.688,
+            52.0976,
+            23.6895,
+            52.0985,
+            23.6895,
+            52.0985,
+            23.688,
+            52.0976,
+            23.688
+          ],
+          "holes": [
+            [
+              52.0979,
+              23.6884,
+              52.0979,
+              23.6888,
+              52.0982,
+              23.6888,
+              52.0979,
+              23.6884
+            ]
+          ]
+        },
+        {
+          "id": 42,
+          "ownerId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+          "colorIndex": 7,
+          "level": 0,
+          "ghost": true,
+          "lastVisitAtMs": 1789300000000,
+          "shieldUntilMs": null,
+          "siegeUntilMs": null,
+          "exterior": [
+            52.099,
+            23.688,
+            52.099,
+            23.689,
+            52.0995,
+            23.689,
+            52.099,
+            23.688
+          ],
+          "holes": []
+        }
+      ]
+    }
+  ],
+  "unchanged": [
+    {
+      "x": 685,
+      "y": 5775
+    }
+  ]
+}

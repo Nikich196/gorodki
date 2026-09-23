@@ -1,0 +1,13 @@
+{
+  "id": "2e19b697-e397-532d-a6e6-7c0fc1940226",
+  "claimNo": 0,
+  "startSeq": 10,
+  "endSeq": 300,
+  "status": "pending",
+  "waitingFor": "sensors",
+  "rejectCode": null,
+  "areaSquareMeters": 0,
+  "areaByOutcome": null,
+  "changedTiles": null,
+  "effectiveAtMs": null
+}

@@ -28,3 +28,7 @@ jobs:
       - name: Оформление кода (swift-format)
         working-directory: ios
         run: swift format lint --strict --recursive --configuration .swift-format Packages App Widgets
+
+      # После проверки оформления: в .build пакета лежат исходники зависимостей, их проверять не нужно.
+      - name: Клиент API (GorodkiAPI) — генерация из contracts/openapi.v1.json и тесты
+        run: swift test --package-path ios/Packages/GorodkiAPI
