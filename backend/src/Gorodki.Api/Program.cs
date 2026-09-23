@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -36,6 +37,8 @@ if (withDatabase)
 {
     builder.Services.AddDbContext<AppDbContext>(options => AppDbContext.Configure(options, connectionString!));
     health.AddDbContextCheck<AppDbContext>("database");
+    builder.Services.AddSingleton<GameConfigCache>();
+    builder.Services.AddScoped<GameConfigStore>();
 
     var authSection = builder.Configuration.GetSection(AuthOptions.Section);
     var auth = authSection.Get<AuthOptions>() ?? new AuthOptions();
@@ -97,6 +100,7 @@ if (withDatabase)
 {
     app.MapAuthEndpoints();
     app.MapMeEndpoints();
+    app.MapConfigEndpoints();
 }
 
 await app.RunAsync();

@@ -1,0 +1,106 @@
+{
+  "capture": {
+    "loopDetector": {
+      "minPathMeters": 150,
+      "radiusFactor": 1.62,
+      "minRadiusMeters": 20,
+      "maxRadiusMeters": 50,
+      "minEstimatedAreaSquareMeters": 1000
+    },
+    "shape": {
+      "simplifyToleranceMeters": 2,
+      "spurHalfWidthMeters": 4,
+      "thinFaceMinSharedBoundary": 0.25,
+      "spikeMaxAngleDegrees": 20,
+      "minAreaSquareMeters": 2500,
+      "maxAreaSquareMeters": 3500000,
+      "minHalfWidthMeters": 9
+    },
+    "maxCapturesPerDay": 30,
+    "maxDailyAreaSquareMeters": null,
+    "maxRunHours": 4,
+    "newcomerMaxAccuracyMeters": 35
+  },
+  "territory": {
+    "maxLevel": 3,
+    "levelUpIntervalHours": 20,
+    "transferShieldHours": 12,
+    "siegeHours": 24
+  },
+  "leagues": {
+    "run": {
+      "maxAccuracyMeters": 25,
+      "maxFixAgeSeconds": 10,
+      "teleportMetersPerSecond": 50,
+      "speedLimits": [
+        {
+          "windowSeconds": 30,
+          "maxKilometersPerHour": 25
+        },
+        {
+          "windowSeconds": 300,
+          "maxKilometersPerHour": 19
+        }
+      ],
+      "vehicleSeconds": 20,
+      "cyclingSeconds": 30,
+      "vehicleShare": null,
+      "carLaunch": null,
+      "noStepsWindowSeconds": 20,
+      "noStepsMinSpeed": 1,
+      "strideMeters": [
+        0.3,
+        2.2
+      ],
+      "strideWindowSeconds": 30
+    },
+    "bike": {
+      "maxAccuracyMeters": 25,
+      "maxFixAgeSeconds": 10,
+      "teleportMetersPerSecond": 50,
+      "speedLimits": [
+        {
+          "windowSeconds": 5,
+          "maxKilometersPerHour": 60
+        },
+        {
+          "windowSeconds": 30,
+          "maxKilometersPerHour": 48
+        },
+        {
+          "windowSeconds": 60,
+          "maxKilometersPerHour": 42
+        },
+        {
+          "windowSeconds": 300,
+          "maxKilometersPerHour": 36
+        }
+      ],
+      "vehicleSeconds": null,
+      "cyclingSeconds": null,
+      "vehicleShare": {
+        "windowSeconds": 120,
+        "minShare": 0.6,
+        "speedWindowSeconds": 60,
+        "minKilometersPerHour": 25
+      },
+      "carLaunch": {
+        "deltaKilometersPerHour": 25,
+        "withinSeconds": 6,
+        "reachingKilometersPerHour": 35
+      },
+      "noStepsWindowSeconds": null,
+      "noStepsMinSpeed": 1,
+      "strideMeters": null,
+      "strideWindowSeconds": 30
+    }
+  },
+  "exploration": {
+    "revealRadiusMeters": 25,
+    "maxGapMeters": {
+      "run": 100,
+      "bike": 200
+    },
+    "radarMultiplier": 2
+  }
+}

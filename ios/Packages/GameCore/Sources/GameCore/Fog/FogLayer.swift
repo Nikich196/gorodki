@@ -46,7 +46,10 @@ public struct FogLayer: Hashable, Codable, Sendable {
     public var isEmpty: Bool { tiles.isEmpty }
 
     /// Открывает круг радиусом `radius` метров вокруг точки.
-    public mutating func reveal(around coordinate: Coordinate, radius: Double = 25) {
+    public mutating func reveal(
+        around coordinate: Coordinate,
+        radius: Double = ExplorationSettings().revealRadiusMeters
+    ) {
         let size = FogGrid.cellSizeMeters(atLatitude: coordinate.latitude)
         let (px, py) = FogGrid.pixel(of: coordinate)
         let reach = Int((radius / size).rounded(.up)) + 1
@@ -67,7 +70,12 @@ public struct FogLayer: Hashable, Codable, Sendable {
     }
 
     /// Открывает полосу вдоль пути между двумя точками (или только концы, если разрыв длиннее `maxGap`).
-    public mutating func reveal(from a: Coordinate, to b: Coordinate, radius: Double = 25, maxGap: Double = 100) {
+    public mutating func reveal(
+        from a: Coordinate,
+        to b: Coordinate,
+        radius: Double = ExplorationSettings().revealRadiusMeters,
+        maxGap: Double = ExplorationSettings().maxGapMeters.run
+    ) {
         let length = Geodesy.distance(from: a, to: b)
         guard length <= maxGap else {
             reveal(around: a, radius: radius)
