@@ -18,6 +18,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<InviteEntity> Invites => Set<InviteEntity>();
 
+    public DbSet<RefreshTokenEntity> RefreshTokens => Set<RefreshTokenEntity>();
+
     public DbSet<GameConfigEntity> GameConfigs => Set<GameConfigEntity>();
 
     public DbSet<RunEntity> Runs => Set<RunEntity>();
@@ -77,6 +79,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             user.HasIndex(u => u.GoogleSubject).IsUnique().HasFilter("google_subject IS NOT NULL");
             user.HasIndex(u => u.AppleSubject).IsUnique().HasFilter("apple_subject IS NOT NULL");
             user.ToTable(t => t.HasCheckConstraint("ck_users_color_index", "color_index BETWEEN 0 AND 11"));
+        });
+
+        model.Entity<RefreshTokenEntity>(token =>
+        {
+            token.HasKey(t => t.Id);
+            token.HasOne<UserEntity>().WithMany().HasForeignKey(t => t.UserId).OnDelete(DeleteBehavior.Cascade);
+            token.HasIndex(t => t.TokenHash).IsUnique();
+            token.HasIndex(t => t.FamilyId);
         });
 
         model.Entity<InviteEntity>(invite =>

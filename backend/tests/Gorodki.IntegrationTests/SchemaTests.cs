@@ -39,7 +39,7 @@ public sealed class SchemaTests(DatabaseFixture database)
             .ToListAsync(Cancel);
 
         Assert.Equal(
-            ["captures", "ef_migrations_history", "game_configs", "invites", "parcels", "run_chunks", "runs", "tile_versions", "users"],
+            ["captures", "ef_migrations_history", "game_configs", "invites", "parcels", "refresh_tokens", "run_chunks", "runs", "tile_versions", "users"],
             tables);
     }
 
@@ -100,11 +100,20 @@ public sealed class SchemaTests(DatabaseFixture database)
             await EnsureConfigAsync(db);
             db.Runs.Add(new RunEntity
             {
-                Id = runId, UserId = owner, League = League.Run, ConfigVersion = 1, StartedAt = DateTimeOffset.UtcNow,
+                Id = runId,
+                UserId = owner,
+                League = League.Run,
+                ConfigVersion = 1,
+                StartedAt = DateTimeOffset.UtcNow,
             });
             db.RunChunks.Add(new RunChunkEntity
             {
-                RunId = runId, FirstSeq = 0, LastSeq = 9, ContentHash = hash, Points = [1, 2, 3], ReceivedAt = DateTimeOffset.UtcNow,
+                RunId = runId,
+                FirstSeq = 0,
+                LastSeq = 9,
+                ContentHash = hash,
+                Points = [1, 2, 3],
+                ReceivedAt = DateTimeOffset.UtcNow,
             });
             await db.SaveChangesAsync(Cancel);
         }
@@ -114,7 +123,12 @@ public sealed class SchemaTests(DatabaseFixture database)
             // Тот же кусок пришёл повторно (сеть моргнула) под другим номером начала — база не даст сохранить дубль.
             db.RunChunks.Add(new RunChunkEntity
             {
-                RunId = runId, FirstSeq = 10, LastSeq = 19, ContentHash = hash, Points = [1, 2, 3], ReceivedAt = DateTimeOffset.UtcNow,
+                RunId = runId,
+                FirstSeq = 10,
+                LastSeq = 19,
+                ContentHash = hash,
+                Points = [1, 2, 3],
+                ReceivedAt = DateTimeOffset.UtcNow,
             });
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(Cancel));
         }
@@ -129,7 +143,10 @@ public sealed class SchemaTests(DatabaseFixture database)
         var nick = $"{name}-{id.ToString()[..8]}";
         db.Users.Add(new UserEntity
         {
-            Id = id, DisplayName = nick, NormalizedName = nick.ToLowerInvariant(), CreatedAt = DateTimeOffset.UtcNow,
+            Id = id,
+            DisplayName = nick,
+            NormalizedName = nick.ToLowerInvariant(),
+            CreatedAt = DateTimeOffset.UtcNow,
         });
         await db.SaveChangesAsync(Cancel);
         return id;
@@ -141,7 +158,10 @@ public sealed class SchemaTests(DatabaseFixture database)
         {
             db.GameConfigs.Add(new GameConfigEntity
             {
-                Version = 1, Json = "{}", ActiveFrom = DateTimeOffset.UtcNow, CreatedAt = DateTimeOffset.UtcNow,
+                Version = 1,
+                Json = "{}",
+                ActiveFrom = DateTimeOffset.UtcNow,
+                CreatedAt = DateTimeOffset.UtcNow,
             });
         }
     }
@@ -152,8 +172,15 @@ public sealed class SchemaTests(DatabaseFixture database)
         var tile = TileKey.Of(geometry.EnvelopeInternal.MinX, geometry.EnvelopeInternal.MinY);
         return new ParcelEntity
         {
-            League = League.Run, TileX = tile.X, TileY = tile.Y, OwnerId = owner, Level = 1,
-            LastVisitAt = now, LastLevelUpAt = now, CapturedAt = now, Geometry = geometry,
+            League = League.Run,
+            TileX = tile.X,
+            TileY = tile.Y,
+            OwnerId = owner,
+            Level = 1,
+            LastVisitAt = now,
+            LastLevelUpAt = now,
+            CapturedAt = now,
+            Geometry = geometry,
         };
     }
 

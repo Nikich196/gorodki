@@ -11,12 +11,13 @@ public static class HealthEndpoints
     {
         // «Жив ли процесс». Его вызывают Render и пингер, поэтому в базу он не ходит.
         app.MapGet("/health", GetHealth)
+            .AllowAnonymous()
             .WithName("GetHealth")
             .WithTags("Служебное")
             .WithSummary("Сервер жив: версия, коммит, игровой день по Минску");
 
         // «Готов ли обслуживать игроков». Проверку базы данных добавим, когда появится база.
-        app.MapHealthChecks("/health/ready");
+        app.MapHealthChecks("/health/ready").AllowAnonymous();
 
         return app;
     }
