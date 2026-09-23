@@ -56,6 +56,15 @@ struct PlanarRingTests {
         #expect(PlanarRing([PlanarPoint(east: 1, north: 1), PlanarPoint(east: 5, north: 5)]).area == 0)
     }
 
+    @Test("Точка внутри и снаружи контура")
+    func containsPoint() {
+        #expect(square.contains(PlanarPoint(east: 50, north: 50)))
+        #expect(square.contains(PlanarPoint(east: 1, north: 99)))
+        #expect(!square.contains(PlanarPoint(east: 150, north: 50)))
+        #expect(!square.contains(PlanarPoint(east: 50, north: -1)))
+        #expect(!PlanarRing([]).contains(PlanarPoint(east: 0, north: 0)))
+    }
+
     @Test("Сотки и гектары")
     func units() {
         #expect(AreaUnits.sotki(fromSquareMeters: 12_480) == 124.8)
