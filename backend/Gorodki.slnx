@@ -7,4 +7,7 @@
     <Project Path="tests/Gorodki.Api.Tests/Gorodki.Api.Tests.csproj" />
     <Project Path="tests/Gorodki.Domain.Tests/Gorodki.Domain.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Gorodki.GeoBench/Gorodki.GeoBench.csproj" />
+  </Folder>
 </Solution>
