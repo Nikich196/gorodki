@@ -220,7 +220,7 @@ public sealed class FogTileEntity
 
     public FogLayerKind Layer { get; set; }
 
-    /// <summary>0 — за всё время; номер сезона — для рейтинга сезона (появится со сменой сезонов).</summary>
+    /// <summary><c>SeasonCalendar.AllTime</c> (−1) — за всё время; 0, 1, 2… — сезонный слой (со сменой сезонов).</summary>
     public int Season { get; set; }
 
     public int TileX { get; set; }
@@ -296,6 +296,16 @@ public sealed class ParcelEntity
 
     /// <summary>Многоугольник в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
     public required Polygon Geometry { get; set; }
+}
+
+/// <summary>Сезон (PLAN.md, §3.4): номер как в плане, начало — полночь по Минску (хранится в UTC).</summary>
+public sealed class SeasonEntity
+{
+    public int Number { get; set; }
+
+    public required string Name { get; set; }
+
+    public DateTimeOffset StartsAt { get; set; }
 }
 
 /// <summary>

@@ -2,6 +2,7 @@ using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Fog;
 using Gorodki.Domain.Leagues;
+using Gorodki.Domain.Time;
 using Microsoft.EntityFrameworkCore;
 
 namespace Gorodki.Api.Features.Fog;
@@ -59,7 +60,7 @@ public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, Time
             stored = await db.FogTiles
                 .Where(f => f.UserId == run.UserId
                     && f.Layer == layer
-                    && f.Season == 0
+                    && f.Season == SeasonCalendar.AllTime
                     && f.TileX >= minX && f.TileX <= maxX
                     && f.TileY >= minY && f.TileY <= maxY)
                 .ToListAsync(cancellationToken);
@@ -76,7 +77,7 @@ public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, Time
                 {
                     UserId = run.UserId,
                     Layer = layer,
-                    Season = 0,
+                    Season = SeasonCalendar.AllTime,
                     TileX = key.X,
                     TileY = key.Y,
                     Bits = FogTileCodec.Compress(bits),

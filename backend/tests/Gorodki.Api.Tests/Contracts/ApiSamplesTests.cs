@@ -7,12 +7,14 @@ using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
 using Gorodki.Domain.Fog;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Runs;
+using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -99,6 +101,13 @@ public sealed class ApiSamplesTests
             [new FogTileView(9_270, 5_404, 2, 55, FogTileCodec.Compress(SampleFogTile()))],
             [new TileRef(9_271, 5_404)]));
         yield return ("fog-summary", new FogSummaryResponse([new FogLayerSummary(FogLayerKind.Foot, 3, 1_234, 42_580.5)]));
+        yield return ("seasons", SeasonEndpoints.ToResponse(
+            new SeasonCalendar(
+            [
+                new Season(0, "Сезон 0 (бета)", SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 16))),
+                new Season(1, "Сезон 1", SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 30))),
+            ]),
+            SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 20))));
         yield return ("session", new SessionResponse("eyJhbGciOiJIUzI1NiJ9.e30.c2lnbmF0dXJl", "cmVmcmVzaA", 900, IsNewUser: true));
         yield return ("me", new MeResponse(Player, "Бегун-1234", 7, "player", PublicProfile: false));
         yield return ("problem-chunk-invalid", Problem(400, "chunk_invalid", "Кусок забега не прошёл проверку.", "problems",

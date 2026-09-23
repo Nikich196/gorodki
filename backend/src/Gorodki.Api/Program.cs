@@ -10,6 +10,7 @@ using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.OpenApi;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -64,6 +65,7 @@ if (withDatabase)
     builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<CaptureProcessor>();
     builder.Services.AddScoped<CaptureRollback>();
+    builder.Services.AddScoped<SeasonStore>();
     builder.Services.AddScoped<FogProcessor>();
     builder.Services.AddScoped<TerritoryReader>();
     if (builder.Configuration.GetValue(CaptureWorker.EnabledSetting, defaultValue: true))
@@ -164,6 +166,7 @@ if (withDatabase)
     app.MapRunEndpoints();
     app.MapCaptureEndpoints();
     app.MapAdminEndpoints();
+    app.MapSeasonEndpoints();
     app.MapTerritoryEndpoints();
     app.MapFogEndpoints();
 }
