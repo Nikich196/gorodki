@@ -67,6 +67,31 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Two_players_capturing_the_same_block_at_once_leave_a_consistent_map()
+    {
+        // PLAN.md, этап 2: «тест одновременных захватов». Петли пересекаются в одном тайле и обрабатываются параллельно:
+        // блокировки тайлов ставят их в очередь, обе применяются, наложений нет.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var annaClaim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        var borisClaim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 50, 100));
+
+        var decided = await Task.WhenAll(ProcessAsync(api, annaClaim.RunId), ProcessAsync(api, borisClaim.RunId));
+
+        Assert.Equal(new[] { 1, 1 }, decided);
+        Assert.Equal(CaptureStatus.Applied, (await CaptureAsync(anna, annaClaim)).Status);
+        Assert.Equal(CaptureStatus.Applied, (await CaptureAsync(boris, borisClaim)).Status);
+        Assert.Empty(TerritoryInvariants.Check(await MapOfAsync()));
+
+        // Вместе — объединение двух квадратов (2 × 10 000 − 2 500); пересечение досталось тому, кто применился вторым.
+        var total = await LandAreaAsync(annaId) + await LandAreaAsync(borisId);
+        Assert.InRange(total, 17_000, 18_000);
+    }
+
+    [Fact]
     public async Task Processing_again_or_in_parallel_applies_the_loop_once()
     {
         database.RequireDatabase();
