@@ -48,6 +48,29 @@
             "description": "Not Found"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Удалить аккаунт и все данные (необратимо)",
+        "description": "С этого момента забеги, куски и заявки не принимаются, вход и обновление токенов закрыты. Все данные — земля, забеги с точками, захваты, туман — стираются фоновым обработчиком, обычно в течение часа, по закону — не позже 15 дней. Повторный запрос ничего не меняет.",
+        "operationId": "deleteMe",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountDeletionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
       }
     },
     "/config": {
@@ -777,6 +800,23 @@
   },
   "components": {
     "schemas": {
+      "AccountDeletionResponse": {
+        "required": [
+          "requestedAtMs",
+          "deleteByMs"
+        ],
+        "type": "object",
+        "properties": {
+          "requestedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deleteByMs": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "CaptureConfig": {
         "required": [
           "loopDetector",

@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Gorodki.Api.Features.Fog;
+using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -44,7 +45,10 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
-    /// <summary>Раз в час: стирается журнал захватов старше недели и сырые точки старше 14 дней, закрываются забытые забеги.</summary>
+    /// <summary>
+    /// Раз в час: стирается журнал захватов старше недели и сырые точки старше 14 дней, закрываются забытые забеги,
+    /// стираются аккаунты, удаление которых запрошено.
+    /// </summary>
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -61,6 +65,7 @@ public sealed class CaptureWorker(IServiceScopeFactory scopes, CaptureSignal sig
                     var retention = pruneScope.ServiceProvider.GetRequiredService<RunRetention>();
                     await retention.CloseForgottenAsync(stoppingToken); // до тумана и визитов ниже: закрытый забег сразу готов к ним
                     await retention.PurgeRawPointsAsync(stoppingToken);
+                    await pruneScope.ServiceProvider.GetRequiredService<AccountDeletion>().ProcessRequestedAsync(stoppingToken);
                     prunedAt = time.GetUtcNow();
                 }
 

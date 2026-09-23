@@ -93,8 +93,9 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
                 t.Tile.Y,
                 t.Version,
                 t.Pieces
+                    .Where(p => colors.ContainsKey(p.State.OwnerId)) // из журнала мог вернуться кусок уже удалённого аккаунта
                     .OrderBy(p => p.Id)
-                    .Select(p => ToView(p.Id, p.State, p.Geometry, colors.GetValueOrDefault(p.State.OwnerId), viewer, rules, now))
+                    .Select(p => ToView(p.Id, p.State, p.Geometry, colors[p.State.OwnerId], viewer, rules, now))
                     .OfType<ParcelView>()
                     .ToList(),
                 t.RevealAt?.ToUnixTimeMilliseconds()))
