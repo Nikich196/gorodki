@@ -27,7 +27,9 @@
     "transferShieldHours": 12,
     "siegeHours": 24,
     "levelLossWindowHours": 20,
-    "maxLevelsLostPerWindow": 2
+    "maxLevelsLostPerWindow": 2,
+    "decayDaysPerLevel": 6,
+    "ghostDays": 3
   },
   "leagues": {
     "run": {
