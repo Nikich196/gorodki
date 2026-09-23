@@ -38,3 +38,10 @@ jobs:
 
       - name: Сетевой слой (GorodkiNetwork) — токены входа и обновление при 401
         run: swift test --package-path ios/Packages/GorodkiNetwork
+
+      # GRDB на Linux собирается с системной SQLite — нужны её заголовки.
+      - name: Заголовки SQLite для GRDB
+        run: apt-get update -qq && apt-get install -y -qq libsqlite3-dev
+
+      - name: База приложения (GorodkiPersistence) — очередь синхронизации на GRDB
+        run: swift test --package-path ios/Packages/GorodkiPersistence
