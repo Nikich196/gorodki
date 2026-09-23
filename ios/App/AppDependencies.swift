@@ -4,6 +4,7 @@ import Networking
 import Persistence
 import Sync
 import Synchronization
+import UIKit
 
 /// Зависимости приложения (PLAN.md, §7.2 «Паттерны»): адрес сервера, клиент API, токены входа и очередь
 /// синхронизации. Создаются один раз при запуске (`shared`), экраны получают их параметром.
@@ -24,7 +25,7 @@ final class AppDependencies: Sendable {
     let syncStore: any SyncStore
     /// «Сейчас» для синхронизации, секунды Unix: часы внедряются, чтобы их можно было подменить в проверках.
     private let now: @Sendable () -> Double
-    private let engine = Mutex<(ownerId: String, engine: SyncEngine)?>(nil)
+    private let engine = Mutex<(ownerId: String, engine: SyncEngine, scheduler: SyncScheduler)?>(nil)
 
     init(
         serverURL: URL?, tokenStorage: any TokenStorage, syncStore: any SyncStore = InMemorySyncStore(),
@@ -60,14 +61,29 @@ final class AppDependencies: Sendable {
     /// Синхронизация вошедшего игрока; `nil` — адрес сервера не задан или никто не вошёл. Движок один на игрока:
     /// два движка над одной очередью шли бы проходами вперемешку и задваивали бы запросы.
     func syncEngine() async -> SyncEngine? {
+        await sync()?.engine
+    }
+
+    /// Расписание синхронизации вошедшего игрока (`SyncScheduler`): когда запускать проход — по событиям приложения
+    /// и таймеру повторов. Одно на игрока, как и движок.
+    func syncScheduler() async -> SyncScheduler? {
+        await sync()?.scheduler
+    }
+
+    private func sync() async -> (engine: SyncEngine, scheduler: SyncScheduler)? {
         guard let api, let ownerId = await tokens.current()?.playerId else { return nil }
+        let store = syncStore
         return engine.withLock { cached in
             if let cached, cached.ownerId == ownerId {
-                return cached.engine
+                return (cached.engine, cached.scheduler)
             }
-            let created = SyncEngine(store: syncStore, api: api, ownerId: ownerId, now: now)
-            cached = (ownerId, created)
-            return created
+            let created = SyncEngine(store: store, api: api, ownerId: ownerId, now: now)
+            let scheduler = SyncScheduler(
+                engine: created,
+                backlog: { (try? await SyncBacklog.of(store, ownerId: ownerId)) ?? SyncBacklog() },
+                appActive: { await MainActor.run { UIApplication.shared.applicationState == .active } })
+            cached = (ownerId, created, scheduler)
+            return (created, scheduler)
         }
     }
 }

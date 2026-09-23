@@ -51,6 +51,9 @@ actor FakeServer: APIProtocol {
         startAnswers[SyncEngine.string(runId)] = (status, code)
     }
 
+    /// Снять отказ старта этого забега.
+    func clearStartAnswer(of runId: UUID) { startAnswers[SyncEngine.string(runId)] = nil }
+
     /// Запрос с таким именем (как в `log`) получает отказ, пока его не снимут (`code` пустой — снять).
     func answer(_ request: String, status: Int, code: String) {
         answers[request] = code.isEmpty ? nil : (status, code)
