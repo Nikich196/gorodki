@@ -37,8 +37,44 @@ public sealed class DatabaseFixture : IAsyncLifetime
         }
 
         ConnectionString = AppDbContext.WithSearchPath(_container.GetConnectionString());
+        await WaitUntilStableAsync(ConnectionString, TimeSpan.FromMinutes(2));
         await using var db = CreateContext();
         await db.Database.MigrateAsync();
+    }
+
+    /// <summary>
+    /// Образ Supabase при первом запуске выполняет свои скрипты и перезапускает сервер: <c>pg_isready</c> может
+    /// ответить «готово» до перезапуска (так и было в CI — первое подключение оборвалось). Поэтому ждём
+    /// три успешных запроса подряд.
+    /// </summary>
+    private static async Task WaitUntilStableAsync(string connectionString, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        var successes = 0;
+        Exception? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                await using var connection = new Npgsql.NpgsqlConnection(connectionString);
+                await connection.OpenAsync();
+                await using var command = new Npgsql.NpgsqlCommand("SELECT 1", connection);
+                await command.ExecuteScalarAsync();
+                if (++successes >= 3)
+                {
+                    return;
+                }
+            }
+            catch (Exception e) when (e is Npgsql.NpgsqlException or IOException or TimeoutException)
+            {
+                successes = 0;
+                last = e;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+
+        throw new TimeoutException("База в контейнере так и не стала стабильно отвечать.", last);
     }
 
     public AppDbContext CreateContext()
