@@ -156,6 +156,24 @@ public sealed class TerritoryMapScenarioTests
     }
 
     [Fact]
+    public void Thin_wedge_at_a_tile_edge_gets_a_decision()
+    {
+        // Кусок петли в тайле — клин ~5 см шириной на высоте внутренней точки. Раньше грань считалась «вне петли»
+        // из-за округления внутренней точки до сетки, и самопроверка отклоняла захват (seed 6DWzKFVPPhQo).
+        var wedge = GeoOps.Factory.CreatePolygon(
+        [
+            new Coordinate(683993, 5774584.8), new Coordinate(683984.1, 5774574.9), new Coordinate(684000, 5774592.8),
+            new Coordinate(684000, 5774587.8), new Coordinate(683993, 5774584.8),
+        ]);
+        var map = new TerritoryMap();
+
+        var result = Capture(map, Anna, T0, wedge);
+
+        Assert.Equal(wedge.Area, result.Area(PieceOutcome.ClaimedNeutral), 3);
+        Assert.Equal(wedge.Area, map.AreaOf(Anna), 3);
+    }
+
+    [Fact]
     public void Same_history_gives_the_same_map()
     {
         TerritoryMap Play()

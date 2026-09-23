@@ -1,3 +1,4 @@
+using NetTopologySuite.Algorithm;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Geometries.Utilities;
 using NetTopologySuite.Operation.Buffer;
@@ -30,14 +31,11 @@ public static class GeoOps
 
     public static GeometryFactory Factory { get; } = new(Grid, Utm34.Srid);
 
-    public static Polygon EmptyPolygon { get; } = Factory.CreatePolygon();
-
-    private static readonly BufferParameters MitreBuffer = new()
-    {
-        JoinStyle = JoinStyle.Mitre,
-        MitreLimit = 2.0,
-        EndCapStyle = EndCapStyle.Flat,
-    };
+    /// <summary>
+    /// Новый пустой многоугольник. Каждый раз новый, а не общий: геометрии NTS изменяемы
+    /// (например, кэшируют рамку), и общий объект между потоками — лишний риск.
+    /// </summary>
+    public static Polygon EmptyPolygon() => Factory.CreatePolygon();
 
     // ── Площадные операции: результат — только многоугольники ────────────────
 
@@ -54,7 +52,7 @@ public static class GeoOps
     public static Geometry UnionAll(IEnumerable<Geometry> geometries)
     {
         var collection = Factory.BuildGeometry(geometries.ToList());
-        return collection.IsEmpty ? EmptyPolygon : Polygonal(UnaryUnionNG.Union(collection, Grid));
+        return collection.IsEmpty ? EmptyPolygon() : Polygonal(UnaryUnionNG.Union(collection, Grid));
     }
 
     // ── Линии: узлование и сборка граней ─────────────────────────────────────
@@ -85,11 +83,21 @@ public static class GeoOps
         var polygons = PolygonExtracter.GetPolygons(geometry).OfType<Polygon>().Where(p => !p.IsEmpty).ToList();
         return polygons.Count switch
         {
-            0 => EmptyPolygon,
+            0 => EmptyPolygon(),
             1 => polygons[0],
             _ => Factory.CreateMultiPolygon(polygons.ToArray()),
         };
     }
+
+    /// <summary>
+    /// Точка строго внутри многоугольника — без округления до сетки.
+    /// </summary>
+    /// <remarks>
+    /// Встроенное <c>Geometry.InteriorPoint</c> в NTS (как и в JTS) округляет найденную точку до сетки фабрики,
+    /// у нас — до 0,1 м. Для клина уже ~14 см округлённая точка может оказаться снаружи, и грань получает
+    /// чужого хозяина. Найдено property-тестом (ADR 0003), поэтому <c>.InteriorPoint</c> в обход фасада запрещён.
+    /// </remarks>
+    public static Coordinate InteriorPoint(Geometry area) => InteriorPointArea.GetInteriorPoint(area);
 
     /// <summary>Отдельные многоугольники из (мульти)многоугольника.</summary>
     public static IEnumerable<Polygon> Polygons(Geometry geometry) =>
@@ -111,7 +119,12 @@ public static class GeoOps
     /// Соединения «митра» сохраняют углы, поэтому проверка не зависит от скруглений.
     /// </summary>
     public static bool IsNarrowerThan(Geometry area, double halfWidth) =>
-        BufferOp.Buffer(area, -halfWidth, MitreBuffer).IsEmpty;
+        BufferOp.Buffer(area, -halfWidth, new BufferParameters
+        {
+            JoinStyle = JoinStyle.Mitre,
+            MitreLimit = 2.0,
+            EndCapStyle = EndCapStyle.Flat,
+        }).IsEmpty;
 
     /// <summary>Длина общей границы двух многоугольников, метры.</summary>
     public static double SharedBoundaryLength(Geometry a, Geometry b) =>

@@ -92,9 +92,9 @@ public sealed class TerritoryPropertyTests
 
                 var result = map.Apply(capture, new CaptureContext(capturer, time, new HashSet<Guid>()));
 
-                // Snap-rounding изгибает отрезок к чужой вершине ближе 5 см: площадь меняется не больше
-                // чем на ≈0,035 × длину границы (треугольник высотой ≤0,07 м). Это доказуемая граница, не «на глаз».
-                var snapTolerance = 0.04 * capture.Boundary.Length;
+                // Snap-rounding сдвигает любую точку не дальше полудиагонали клетки сетки (0,0707 м), поэтому
+                // площадь меняется не больше чем на 0,0707 × длину границы. Это доказуемая граница, не «на глаз».
+                var snapTolerance = TerritoryMap.SnapTolerance(capture);
 
                 // I1, I2, I6: правильная геометрия, без наложений, без осколков.
                 var errors = TerritoryInvariants.Check(map);

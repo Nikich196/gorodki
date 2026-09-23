@@ -141,7 +141,7 @@ public static class CaptureShapeBuilder
         return new CaptureShape(area, CaptureRejection.None);
     }
 
-    private static CaptureShape Rejected(CaptureRejection reason) => new(GeoOps.EmptyPolygon, reason);
+    private static CaptureShape Rejected(CaptureRejection reason) => new(GeoOps.EmptyPolygon(), reason);
 
     /// <summary>
     /// Широкие грани входят всегда. Узкая грань входит, если достаточная доля её границы общая

@@ -46,6 +46,21 @@ public sealed class GeoOpsTests
     }
 
     [Fact]
+    public void Interior_point_stays_inside_a_thin_wedge()
+    {
+        // Клин ~5 см шириной там, где ищется внутренняя точка (найден property-тестом, seed 6DWzKFVPPhQo).
+        var wedge = GeoOps.Factory.CreatePolygon(
+        [
+            new Coordinate(683993, 5774584.8), new Coordinate(683984.1, 5774574.9), new Coordinate(684000, 5774592.8),
+            new Coordinate(684000, 5774587.8), new Coordinate(683993, 5774584.8),
+        ]);
+
+        // Встроенная точка NTS округляется до сетки 0,1 м и вылетает из клина — поэтому она под запретом.
+        Assert.False(wedge.Contains(wedge.InteriorPoint));
+        Assert.True(wedge.Contains(GeoOps.Factory.CreatePoint(GeoOps.InteriorPoint(wedge))));
+    }
+
+    [Fact]
     public void Narrowness_uses_half_width()
     {
         var strip = TestGeometry.RectanglePolygon(0, 0, 100, 10); // ширина 10 м → полуширина 5 м
@@ -83,12 +98,17 @@ public sealed class GeoOpsTests
 public sealed class GeoOpsArchitectureTests
 {
     // Вызовы вида GeoOps.Difference(...) разрешены — запрещены только методы самой геометрии.
-    private static readonly Regex ForbiddenCall = new(@"(?<!GeoOps)\.(Intersection|Difference|Union|SymmetricDifference)\(", RegexOptions.Compiled);
+    // .InteriorPoint запрещён: NTS округляет точку до сетки, и у тонкого клина она выходит наружу.
+    private static readonly Regex ForbiddenCall = new(
+        @"(?<!GeoOps)\.(Intersection|Difference|Union|SymmetricDifference)\(|(?<!GeoOps)\.InteriorPoint\b",
+        RegexOptions.Compiled);
 
     [Theory]
     [InlineData("var x = parcel.Geometry.Difference(capture);", true)]
     [InlineData("var x = a.Union(b);", true)]
     [InlineData("var x = GeoOps.Difference(a, b);", false)]
+    [InlineData("var p = face.InteriorPoint.Coordinate;", true)]
+    [InlineData("var p = GeoOps.InteriorPoint(face);", false)]
     [InlineData("var ok = a.EnvelopeInternal.Intersects(b.EnvelopeInternal);", false)]
     public void Rule_catches_direct_calls_and_allows_the_facade(string line, bool forbidden)
     {

@@ -7,6 +7,12 @@ using NetTopologySuite.IO;
 
 namespace Gorodki.Domain.Territory;
 
+/// <summary>
+/// Движок участков нашёл у себя несходящийся результат. Захват отклоняется целиком, карта не меняется;
+/// на сервере транзакция откатывается, захват повторяется один раз, событие уходит в журнал ошибок.
+/// </summary>
+public sealed class TerritoryEngineException(string message) : Exception(message);
+
 /// <summary>Кусок земли: один простой многоугольник внутри одного тайла и его состояние.</summary>
 public sealed record Parcel(TileKey Tile, Polygon Geometry, ParcelState State);
 
@@ -67,11 +73,15 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
     public double AreaOf(Guid ownerId) =>
         Parcels.Where(p => p.State.OwnerId == ownerId).Sum(p => p.Geometry.Area);
 
-    /// <summary>Применяет захват: <paramref name="capture"/> — контур P из шага A.</summary>
+    /// <summary>
+    /// Применяет захват: <paramref name="capture"/> — контур P из шага A.
+    /// Всё или ничего: сначала считаются новые куски всех тайлов, и только потом карта меняется.
+    /// </summary>
+    /// <exception cref="TerritoryEngineException">Самопроверка не сошлась — карта не изменена.</exception>
     public CaptureResult Apply(Geometry capture, CaptureContext context)
     {
         var areas = new Dictionary<PieceOutcome, double>();
-        var changed = new List<TileKey>();
+        var rebuilt = new List<(TileKey Tile, List<Parcel> Pieces)>();
         var sliverArea = 0.0;
 
         foreach (var tile in TileKey.Covering(capture.EnvelopeInternal))
@@ -83,7 +93,11 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
                 continue;
             }
 
-            var pieces = RebuildTile(tile, captureInTile, context, areas, ref sliverArea);
+            rebuilt.Add((tile, RebuildTile(tile, captureInTile, context, areas, ref sliverArea)));
+        }
+
+        foreach (var (tile, pieces) in rebuilt)
+        {
             if (pieces.Count == 0)
             {
                 _tiles.Remove(tile);
@@ -92,11 +106,9 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
             {
                 _tiles[tile] = pieces;
             }
-
-            changed.Add(tile);
         }
 
-        return new CaptureResult(areas, changed, sliverArea);
+        return new CaptureResult(areas, rebuilt.Select(r => r.Tile).ToList(), sliverArea);
     }
 
     private List<Parcel> RebuildTile(
@@ -116,10 +128,11 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         var captureLocator = new IndexedPointInAreaLocator(captureInTile);
         var oldLocators = old.Select(p => (Parcel: p, Locator: new IndexedPointInAreaLocator(p.Geometry))).ToList();
         var groups = new Dictionary<ParcelState, List<Geometry>>();
+        var decidedInTile = 0.0;
 
         foreach (var face in faces)
         {
-            var point = face.InteriorPoint.Coordinate;
+            var point = GeoOps.InteriorPoint(face);
             var owner = oldLocators
                 .FirstOrDefault(o => o.Parcel.Geometry.EnvelopeInternal.Contains(point)
                     && o.Locator.Locate(point) == Location.Interior)
@@ -132,6 +145,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
             if (outcome != PieceOutcome.Untouched)
             {
                 areas[outcome] = areas.GetValueOrDefault(outcome) + face.Area;
+                decidedInTile += face.Area;
             }
 
             if (state is null)
@@ -145,6 +159,17 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
             }
 
             group.Add(face);
+        }
+
+        // Самопроверка: каждый квадратный метр петли в тайле получил решение. Расхождение допустимо только
+        // от snap-rounding: он сдвигает любую точку не дальше полудиагонали клетки сетки (0,0707 м), поэтому
+        // площадь меняется не больше чем на 0,0707 × длину границы. Сюда входят и изгибы отрезков к соседним
+        // вершинам, и полоски уже ~14 см, которые на сетке схлопываются в линию.
+        var tolerance = SnapTolerance(captureInTile);
+        if (Math.Abs(decidedInTile - captureInTile.Area) > tolerance)
+        {
+            throw new TerritoryEngineException(
+                $"Тайл {tile}: решено {decidedInTile:0.##} м² из {captureInTile.Area:0.##} м² петли (допуск {tolerance:0.##}).");
         }
 
         // 4. Сливаем грани с одинаковым состоянием, убираем осколки.
@@ -217,6 +242,12 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
 
         return total;
     }
+
+    /// <summary>
+    /// Насколько snap-rounding на сетке 0,1 м может изменить площадь фигуры: 0,075 × длину её границы
+    /// (полудиагональ клетки 0,0707 м с запасом), м².
+    /// </summary>
+    public static double SnapTolerance(Geometry area) => 0.075 * area.Boundary.Length + 0.01;
 
     /// <summary>Осколок ли кусок по порогам <see cref="Slivers"/>.</summary>
     public bool IsSliver(Geometry piece) =>
