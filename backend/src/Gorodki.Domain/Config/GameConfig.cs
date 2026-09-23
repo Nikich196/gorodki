@@ -53,6 +53,9 @@ public sealed record PrivacyConfig
 
     /// <summary>Радиус приватной зоны, которую предлагают при первом «Старте», метры.</summary>
     public double ZoneRadiusMeters { get; init; } = 400;
+
+    /// <summary>Сколько приватных зон может быть у игрока (план числа не называет: дом, работа, учёба).</summary>
+    public int MaxZones { get; init; } = 3;
 }
 
 /// <summary>Захват (PLAN.md, §3.2).</summary>

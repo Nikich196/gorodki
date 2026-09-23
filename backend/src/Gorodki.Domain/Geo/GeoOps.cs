@@ -126,6 +126,10 @@ public static class GeoOps
             EndCapStyle = EndCapStyle.Flat,
         }).IsEmpty;
 
+    /// <summary>Часть линии вне области (без сетки: длины и так считаются в метрах).</summary>
+    public static Geometry LineOutside(Geometry line, Geometry area) =>
+        OverlayNG.Overlay(line, area, SpatialFunction.Difference);
+
     /// <summary>Длина части линии внутри многоугольника, метры (граница — тоже «внутри»).</summary>
     public static double LengthInside(Geometry line, Geometry area) =>
         OverlayNG.Overlay(line, area, SpatialFunction.Intersection).Length;

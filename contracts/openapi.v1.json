@@ -273,6 +273,108 @@
         }
       }
     },
+    "/me/privacy-zones": {
+      "get": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Мои приватные зоны",
+        "operationId": "listPrivacyZones",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PrivacyZoneResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Сделать место приватной зоной",
+        "description": "Круг радиусом privacy.zoneRadiusMeters вокруг точки; зон не больше privacy.maxZones (409 zone_limit).",
+        "operationId": "createPrivacyZone",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivacyZoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacyZoneResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/privacy-zones/{id}": {
+      "delete": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Убрать приватную зону",
+        "operationId": "deletePrivacyZone",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/runs": {
       "post": {
         "tags": [
@@ -850,7 +952,8 @@
           "runs",
           "captures",
           "land",
-          "fog"
+          "fog",
+          "privacyZones"
         ],
         "type": "object",
         "properties": {
@@ -889,6 +992,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExportFogTile"
+            }
+          },
+          "privacyZones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PrivacyZoneResponse"
             }
           }
         }
@@ -2011,7 +2120,8 @@
         "required": [
           "trimMeters",
           "publicEventDelayMinutes",
-          "zoneRadiusMeters"
+          "zoneRadiusMeters",
+          "maxZones"
         ],
         "type": "object",
         "properties": {
@@ -2026,6 +2136,59 @@
           "zoneRadiusMeters": {
             "type": "number",
             "format": "double"
+          },
+          "maxZones": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PrivacyZoneRequest": {
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "PrivacyZoneResponse": {
+        "required": [
+          "id",
+          "lat",
+          "lon",
+          "radiusMeters",
+          "createdAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "radiusMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "createdAtMs": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

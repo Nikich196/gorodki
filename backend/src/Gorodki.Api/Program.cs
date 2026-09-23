@@ -167,6 +167,7 @@ if (withDatabase)
 {
     app.MapAuthEndpoints();
     app.MapMeEndpoints();
+    app.MapPrivacyZoneEndpoints();
     app.MapConfigEndpoints();
     app.MapRunEndpoints();
     app.MapCaptureEndpoints();
