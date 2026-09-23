@@ -193,6 +193,15 @@ public sealed class CaptureProcessor(
 
         var userKey = claim.UserId.ToString();
         await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(1, hashtext({userKey}))", cancellationToken);
+
+        // Заморозка проверяется под той же блокировкой, что берёт откат: после неё захваты игрока на карту не ложатся.
+        var frozenUntil = await db.Users.Where(u => u.Id == claim.UserId).Select(u => u.FrozenUntil).SingleOrDefaultAsync(cancellationToken);
+        if (frozenUntil > time.GetUtcNow())
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return await FinishAsync(claim.Id, token, CaptureStatus.Rejected, "account_frozen", cancellationToken, timing: (effectiveAt, evidenceAt));
+        }
+
         if (await AppliedOnGameDayAsync(claim.UserId, effectiveAt, cancellationToken) >= current.Rules.Capture.MaxCapturesPerDay)
         {
             await transaction.RollbackAsync(cancellationToken);
@@ -349,7 +358,7 @@ public sealed class CaptureProcessor(
 
     private static string Truncate(string text) => text.Length <= 500 ? text : text[..500];
 
-    private static Parcel ToParcel(ParcelEntity p) => new(
+    internal static Parcel ToParcel(ParcelEntity p) => new(
         new TileKey(p.TileX, p.TileY),
         p.Geometry,
         new ParcelState
@@ -364,7 +373,7 @@ public sealed class CaptureProcessor(
             LossAttackers = AttackerSet.Of(p.LossAttackers),
         });
 
-    private static ParcelEntity ToEntity(Parcel p, Gorodki.Domain.Leagues.League league) => new()
+    internal static ParcelEntity ToEntity(Parcel p, Gorodki.Domain.Leagues.League league) => new()
     {
         League = league,
         TileX = p.Tile.X,

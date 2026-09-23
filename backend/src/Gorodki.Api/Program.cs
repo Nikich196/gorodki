@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
@@ -62,6 +63,7 @@ if (withDatabase)
     builder.Services.AddSingleton<CaptureSignal>();
     builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<CaptureProcessor>();
+    builder.Services.AddScoped<CaptureRollback>();
     builder.Services.AddScoped<FogProcessor>();
     builder.Services.AddScoped<TerritoryReader>();
     if (builder.Configuration.GetValue(CaptureWorker.EnabledSetting, defaultValue: true))
@@ -161,6 +163,7 @@ if (withDatabase)
     app.MapConfigEndpoints();
     app.MapRunEndpoints();
     app.MapCaptureEndpoints();
+    app.MapAdminEndpoints();
     app.MapTerritoryEndpoints();
     app.MapFogEndpoints();
 }

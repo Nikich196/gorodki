@@ -38,6 +38,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<CaptureJournalPieceEntity> CaptureJournalPieces => Set<CaptureJournalPieceEntity>();
 
+    public DbSet<CaptureRollbackEntity> CaptureRollbacks => Set<CaptureRollbackEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -195,6 +197,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 .HasForeignKey(p => new { p.CaptureId, p.TileX, p.TileY })
                 .OnDelete(DeleteBehavior.Cascade);
             piece.ToTable(t => t.HasCheckConstraint("ck_capture_journal_pieces_level", "level BETWEEN 1 AND 3"));
+        });
+
+        model.Entity<CaptureRollbackEntity>(rollback =>
+        {
+            rollback.HasKey(r => r.Id);
+            rollback.Property(r => r.Id).ValueGeneratedNever();
+            rollback.Property(r => r.Reason).HasMaxLength(200);
+            rollback.Property(r => r.LastError).HasMaxLength(500);
+            rollback.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
+            rollback.HasIndex(r => r.RequestedAt).HasFilter("status = 0");
         });
 
         model.Entity<TileVersionEntity>(tile =>

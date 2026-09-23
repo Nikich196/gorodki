@@ -153,9 +153,11 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
     /// Всё или ничего, как у захвата.
     /// </summary>
     /// <param name="changes">Записи журнала захвата по тайлам.</param>
-    /// <param name="adjust">Как поправить возвращаемое состояние (например, не засчитать жертве угасание, пока земля была отнята).</param>
+    /// <param name="adjust">
+    /// Как поправить возвращаемое состояние; <c>null</c> — земля становится ничьей (например, прежнего владельца уже нет).
+    /// </param>
     /// <exception cref="TerritoryEngineException">Самопроверка не сошлась — карта не изменена.</exception>
-    public RestoreResult Restore(IReadOnlyList<TileChange> changes, Func<ParcelState, ParcelState>? adjust = null)
+    public RestoreResult Restore(IReadOnlyList<TileChange> changes, Func<ParcelState, ParcelState?>? adjust = null)
     {
         var rebuilt = new List<(TileKey Tile, List<Parcel> Pieces)>();
         var restored = 0.0;
@@ -240,7 +242,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
     }
 
     private List<Parcel> RestoreTile(
-        TileChange change, Func<ParcelState, ParcelState> adjust, ref double restored, ref double skipped, ref double sliverArea)
+        TileChange change, Func<ParcelState, ParcelState?> adjust, ref double restored, ref double skipped, ref double sliverArea)
     {
         var tile = change.Tile;
         var footprint = GeoOps.Intersection(change.Footprint, tile.ToPolygon());

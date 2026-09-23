@@ -55,6 +55,9 @@ public sealed class UserEntity
 
     /// <summary>Запрос на удаление: данные стираются в течение 15 дней (PLAN.md, §3.16).</summary>
     public DateTimeOffset? DeletionRequestedAt { get; set; }
+
+    /// <summary>Заморозка (PLAN.md, §3.9, слой 5): до этого момента захваты игрока не применяются.</summary>
+    public DateTimeOffset? FrozenUntil { get; set; }
 }
 
 /// <summary>
@@ -439,6 +442,64 @@ public sealed class CaptureEntity
     public int? TerritoryConfigVersion { get; set; }
 
     /// <summary>Последняя ошибка обработки — для разбора.</summary>
+    public string? LastError { get; set; }
+
+    /// <summary>
+    /// Когда захват откачен (PLAN.md, §3.9, слой 5). Статус остаётся «применён»: захват был, его земля возвращена
+    /// прежним хозяевам; для суточного лимита он по-прежнему считается.
+    /// </summary>
+    public DateTimeOffset? RolledBackAt { get; set; }
+
+    /// <summary>Сколько земли вернул откат, м² (остальное после захвата уже изменили — оно не тронуто).</summary>
+    public double? RolledBackArea { get; set; }
+
+    /// <summary>Каким заданием откачен.</summary>
+    public Guid? RollbackId { get; set; }
+}
+
+public enum CaptureRollbackStatus : short
+{
+    Pending = 0,
+    Done = 1,
+}
+
+/// <summary>
+/// Задание «откатить захваты игрока» и его итог — заодно журнал решений: кто, кого, почему (PLAN.md, §3.9, слой 5).
+/// Выполняет фоновый обработчик захватов — движок участков работает в одном потоке (ADR 0003).
+/// </summary>
+public sealed class CaptureRollbackEntity
+{
+    public Guid Id { get; set; }
+
+    /// <summary>Чьи захваты откатываются.</summary>
+    public Guid UserId { get; set; }
+
+    /// <summary>Кто решил (администратор).</summary>
+    public Guid RequestedBy { get; set; }
+
+    public required string Reason { get; set; }
+
+    public DateTimeOffset RequestedAt { get; set; }
+
+    public CaptureRollbackStatus Status { get; set; }
+
+    public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>Захватов откачено.</summary>
+    public int RolledBack { get; set; }
+
+    /// <summary>Захватов без журнала (старше недели или применены до журнала) — не откачены.</summary>
+    public int WithoutJournal { get; set; }
+
+    /// <summary>Захватов, которые движок не смог откатить (ошибка самопроверки или постоянные конфликты).</summary>
+    public int Failed { get; set; }
+
+    /// <summary>Сколько земли возвращено прежним хозяевам, м².</summary>
+    public double RestoredArea { get; set; }
+
+    /// <summary>Земля в следах, которую после захватов уже изменили, — не тронута, м².</summary>
+    public double SkippedArea { get; set; }
+
     public string? LastError { get; set; }
 }
 
