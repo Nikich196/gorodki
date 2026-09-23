@@ -14,6 +14,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 {
     public const string Schema = "app";
 
+    /// <summary>Потолок пула соединений приложения (PLAN.md, §7: «пулы соединений: приложение 8»).</summary>
+    public const int MaxPoolSize = 8;
+
     public DbSet<UserEntity> Users => Set<UserEntity>();
 
     public DbSet<InviteEntity> Invites => Set<InviteEntity>();
@@ -55,7 +58,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     /// <summary>
     /// Тип <c>geometry</c> живёт в схеме <c>extensions</c>: без неё в пути поиска PostgreSQL его не найдёт.
-    /// Если путь не задан в строке подключения, ставим свой.
+    /// Если путь не задан в строке подключения, ставим свой. Там же — потолок пула: 8 соединений (PLAN.md, §7), а не 100
+    /// по умолчанию: у бесплатной базы Supabase соединений мало.
     /// </summary>
     public static string WithSearchPath(string connectionString)
     {
@@ -63,6 +67,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         if (string.IsNullOrWhiteSpace(builder.SearchPath))
         {
             builder.SearchPath = $"{Schema},extensions,public";
+        }
+
+        if (!connectionString.Contains("Pool Size", StringComparison.OrdinalIgnoreCase)
+            && !connectionString.Contains("MaxPoolSize", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.MaxPoolSize = MaxPoolSize;
         }
 
         return builder.ConnectionString;

@@ -11,7 +11,9 @@ using Microsoft.EntityFrameworkCore;
 namespace Gorodki.Api.Features.Territory;
 
 /// <summary>Кусок земли для карты.</summary>
-/// <param name="Id">Номер куска; отрицательный — временный кусок из публичной проекции (см. <c>RevealAtMs</c> тайла).</param>
+/// <param name="Id">
+/// Номер куска — от его содержимого: тот же кусок — тот же номер, любое видимое изменение — новый (положительный, до 2^53).
+/// </param>
 /// <param name="LastVisitAtMs">Последний визит владельца; у чужих кусков — с точностью до часа (приватность).</param>
 /// <param name="Level">Действующий уровень с учётом угасания (§3.3); 0 — у «призрака».</param>
 /// <param name="Ghost">Земля уже потеряна (угасла), но ещё 3 дня видна «призраком».</param>
@@ -31,13 +33,10 @@ public sealed record ParcelView(
 
 /// <summary>Тайл и все его куски.</summary>
 /// <param name="Version">
-/// Версия тайла: растёт при каждом изменении; 0 — в тайле ещё ничего не было или часть изменений ещё не публична
-/// (тогда приложение перезапросит тайл — с версией 0 он придёт заново).
+/// Версия тайла, какой её видит этот игрок: растёт с каждым видимым ему изменением, никогда не убывает; 0 — в тайле
+/// ничего не было. Чужой захват меняет её только через 20 минут (PLAN.md, §3.16) — у разных игроков версии разные.
 /// </param>
-/// <param name="RevealAtMs">
-/// Когда станут видны чужие захваты, которые пока скрыты публичной задержкой (PLAN.md, §3.16: 20 минут); <c>null</c> — скрытого нет.
-/// </param>
-public sealed record TileTerritory(int X, int Y, long Version, IReadOnlyList<ParcelView> Parcels, long? RevealAtMs);
+public sealed record TileTerritory(int X, int Y, long Version, IReadOnlyList<ParcelView> Parcels);
 
 /// <summary>Земля по тайлам.</summary>
 /// <param name="Tiles">Тайлы, которые изменились (или все запрошенные, если версии не переданы).</param>
@@ -81,7 +80,7 @@ public static class TerritoryEndpoints
 
         var userId = principal.UserId();
         var role = await db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => (UserRole?)u.Role).SingleOrDefaultAsync(cancellationToken);
-        var viewer = new TerritoryViewer(userId, role is UserRole.Demo or UserRole.Admin);
+        var viewer = new TerritoryViewer(userId, role is UserRole.Admin);
         return TypedResults.Ok(await reader.ReadAsync(parsedLeague, requested, viewer, cancellationToken));
     }
 

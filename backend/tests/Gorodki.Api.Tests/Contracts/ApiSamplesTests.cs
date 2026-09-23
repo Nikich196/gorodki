@@ -92,9 +92,7 @@ public sealed class ApiSamplesTests
                     new ParcelView(
                         42, Player, 7, 0, Ghost: true, Start - 700_000_000, null, null,
                         [52.099, 23.688, 52.099, 23.689, 52.0995, 23.689, 52.099, 23.688], []),
-                ],
-                null),
-                new TileTerritory(684, 5776, 0, [], Start + 1_200_000), // чужой захват ещё скрыт публичной задержкой
+                ]),
             ],
             [new TileRef(685, 5775)]));
         yield return ("config", new ConfigResponse(1, 0, GameConfig.Default));

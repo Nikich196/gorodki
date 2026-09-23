@@ -102,6 +102,7 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
 
         // Через сутки Борис прошёл по отнятому: визит поднял уровень — земля «изменилась после захвата».
         var walk = await WalkAndFinishAsync(Cancel, api, boris, [(area.X - 250, area.Y + 50), (area.X + 450, area.Y + 50)]);
+        api.Time.Advance(Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay); // визит — через 20 минут после забега
         await using (var scope = api.Services.CreateAsyncScope())
         {
             Assert.True(await scope.ServiceProvider.GetRequiredService<VisitProcessor>().ProcessRunAsync(walk.Id, Cancel) > 0);
@@ -113,6 +114,32 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
         Assert.InRange(await LandAreaAsync(annaId), 9_500, 10_500);
         Assert.Equal(0, await LandAreaAsync(borisId), 1);
         Assert.Empty(TerritoryInvariants.Check(await MapOfAsync(area)));
+    }
+
+    [Fact]
+    public async Task Rollback_never_moves_a_visible_version_back()
+    {
+        // Вера смотрит на тайл, пока захват Бориса ещё скрыт; откат захвата — изменение, и её версия только растёт.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var scene = await AnnaThenBorisAsync(api);
+        var tile = TileKey.Of(WalkOrigin.X + scene.Area.X + 50, WalkOrigin.Y + scene.Area.Y + 50);
+        var before = await VisibleVersionAsync(scene.Vera, tile);
+
+        await RollBackAsync(api, scene.Admin, scene.BorisId);
+        var after = await scene.Vera.GetFromJsonAsync<Gorodki.Api.Features.Territory.TerritoryResponse>(
+            $"/territory?league=run&tiles={tile.X}:{tile.Y}@{before}", Json, Cancel);
+
+        var changed = Assert.Single(after!.Tiles);
+        Assert.True(changed.Version > before);
+        Assert.InRange(changed.Parcels.Where(p => p.OwnerId == scene.AnnaId).Sum(p => p.Exterior.Count), 1, int.MaxValue);
+    }
+
+    private async Task<long> VisibleVersionAsync(HttpClient client, TileKey tile)
+    {
+        var response = await client.GetFromJsonAsync<Gorodki.Api.Features.Territory.TerritoryResponse>(
+            $"/territory?league=run&tiles={tile.X}:{tile.Y}", Json, Cancel);
+        return response!.Tiles.Single().Version;
     }
 
     [Fact]

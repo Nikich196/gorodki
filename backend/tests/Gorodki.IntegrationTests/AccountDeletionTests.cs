@@ -33,7 +33,7 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         var area = NewArea();
         var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
 
-        // У Анны есть всё: земля, забег с точками, туман, токен обновления. Борис отнял у неё половину квадрата.
+        // У Анны есть всё: земля, забег с точками, туман, токен обновления.
         await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
         var walk = await WalkAndFinishAsync(Cancel, api, anna, Square(area, 0, 0, 100));
         await using (var scope = api.Services.CreateAsyncScope())
@@ -43,10 +43,6 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
             db.RefreshTokens.Add(scope.ServiceProvider.GetRequiredService<TokenService>().CreateRefreshToken(annaId, Guid.CreateVersion7()).Entity);
             await db.SaveChangesAsync(Cancel);
         }
-
-        api.Time.Advance(TimeSpan.FromMinutes(30));
-        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
-        var versionBefore = await TileVersionAsync(tile);
 
         // Запрос: принят, повтор не сдвигает срок, вход в удаляемый аккаунт закрыт.
         var first = await anna.DeleteAsync("/me", Cancel);
@@ -60,20 +56,31 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         Assert.Equal(HttpStatusCode.Forbidden, signIn.StatusCode);
         Assert.Contains("account_deleting", await signIn.Content.ReadAsStringAsync(Cancel));
 
-        await using (var scope = api.Services.CreateAsyncScope())
-        {
-            Assert.True(await scope.ServiceProvider.GetRequiredService<AccountDeletion>().ProcessRequestedAsync(Cancel) >= 1);
-        }
+        // Раньше 20 минут после запроса аккаунт не стирается: стёртая земля проступила бы контуром недавней петли.
+        Assert.Equal(0, await DeleteRequestedAsync(api));
+        Assert.True(await LandAreaAsync(annaId) > 0);
+
+        // Через 25 минут Борис отнимает у Анны половину квадрата (его захват ещё скрыт), и аккаунт стирается.
+        api.Time.Advance(TimeSpan.FromMinutes(25));
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
+        var versionBefore = await TileVersionAsync(tile);
+        Assert.True(await DeleteRequestedAsync(api) >= 1);
 
         // Полнота: номер Анны остался только в журнале чужого захвата — «земля до» захвата Бориса.
         Assert.Equal(["capture_journal_pieces.owner_id"], await TablesMentioningAsync(annaId));
         Assert.InRange(await LandAreaAsync(borisId), 9_700, 10_300); // земля Бориса не тронута
         Assert.True(await TileVersionAsync(tile) > versionBefore); // у соседей карта обновится
 
-        // Захват Бориса ещё скрыт задержкой (20 минут), но и в публичной проекции земля удалённой Анны не возвращается.
+        // Захват Бориса ещё скрыт задержкой (20 минут): проекция вернула бы Вере землю Анны — но удалённый на карте
+        // не появляется.
         var seen = await vera.GetFromJsonAsync<TerritoryResponse>($"/territory?league=run&tiles={tile.X}:{tile.Y}", Json, Cancel);
-        Assert.NotNull(Assert.Single(seen!.Tiles).RevealAtMs);
-        Assert.DoesNotContain(seen.Tiles.Single().Parcels, p => p.OwnerId == annaId);
+        Assert.DoesNotContain(Assert.Single(seen!.Tiles).Parcels, p => p.OwnerId == annaId);
+    }
+
+    private static async Task<int> DeleteRequestedAsync(ApiFactory api)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AccountDeletion>().ProcessRequestedAsync(CancellationToken.None);
     }
 
     [Fact]

@@ -22,27 +22,46 @@ namespace Gorodki.Api.Features.Captures;
 /// </remarks>
 public sealed class VisitProcessor(AppDbContext db, RunJudgements judgements, GameConfigStore configs, TimeProvider time)
 {
-    /// <summary>Забеги, готовые к подсчёту визитов, — сначала закончившиеся раньше.</summary>
-    public Task<List<Guid>> RunsReadyAsync(int take, CancellationToken cancellationToken)
+    /// <summary>
+    /// Забеги, готовые к подсчёту визитов, — сначала закончившиеся раньше. Не раньше чем через 20 минут после конца
+    /// забега (публичная задержка, §3.16): визит меняет землю и версию тайла, и сразу он выдал бы «игрок только что пробежал
+    /// здесь». Забеги демо-аккаунта — сразу, как его захваты.
+    /// </summary>
+    public async Task<List<Guid>> RunsReadyAsync(int take, CancellationToken cancellationToken)
     {
-        var closedBefore = time.GetUtcNow() - FogProcessor.ClosedRunGrace;
-        return db.Runs.AsNoTracking()
+        var now = time.GetUtcNow();
+        var closedBefore = now - FogProcessor.ClosedRunGrace;
+        var publicBefore = now - await DelayAsync(cancellationToken);
+        return await db.Runs.AsNoTracking()
             .Where(r => r.VisitsProcessedAt == null
                 && r.PointsPurgedAt == null
                 && r.PrefixEndSeq >= 0
                 && ((r.Status == RunStatus.Finished && r.LastSeq != null && r.PrefixEndSeq >= r.LastSeq)
-                    || (r.Status != RunStatus.Active && r.EndedAt < closedBefore)))
+                    || (r.Status != RunStatus.Active && r.EndedAt < closedBefore))
+                && (r.EndedAt <= publicBefore || db.Users.Any(u => u.Id == r.UserId && u.Role == UserRole.Demo)))
             .OrderBy(r => r.EndedAt)
             .Select(r => r.Id)
             .Take(take)
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>Засчитывает визиты забега. Возвращает, сколько кусков освежено, или null, если забег уже обработан.</summary>
+    private async Task<TimeSpan> DelayAsync(CancellationToken cancellationToken) =>
+        TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
+
+    /// <summary>
+    /// Засчитывает визиты забега. Возвращает, сколько кусков освежено, или null — забег уже обработан или ещё рано
+    /// (не прошла публичная задержка после его конца).
+    /// </summary>
     public async Task<int?> ProcessRunAsync(Guid runId, CancellationToken cancellationToken)
     {
         var run = await db.Runs.AsNoTracking().SingleOrDefaultAsync(r => r.Id == runId, cancellationToken);
         if (run is null || run.VisitsProcessedAt is not null || run.PrefixEndSeq < 0 || run.PointsPurgedAt is not null)
+        {
+            return null;
+        }
+
+        var demo = await db.Users.AnyAsync(u => u.Id == run.UserId && u.Role == UserRole.Demo, cancellationToken);
+        if (!demo && (run.EndedAt is not { } endedAt || endedAt > time.GetUtcNow() - await DelayAsync(cancellationToken)))
         {
             return null;
         }

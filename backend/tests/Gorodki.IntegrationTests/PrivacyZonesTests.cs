@@ -71,6 +71,7 @@ public sealed class PrivacyZonesTests(DatabaseFixture database)
 
         // Та же прогулка, что засчитывается визитом без зоны (VisitsTests): 700 м по прямой через квадрат.
         var run = await WalkAndFinishAsync(Cancel, api, anna, [(area.X - 300, area.Y + 50), (area.X + 400, area.Y + 50)]);
+        api.Time.Advance(Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay);
         await using var scope = api.Services.CreateAsyncScope();
 
         Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<VisitProcessor>().ProcessRunAsync(run.Id, Cancel));
