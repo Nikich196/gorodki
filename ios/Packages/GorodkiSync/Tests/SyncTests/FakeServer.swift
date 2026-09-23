@@ -297,6 +297,9 @@ actor FakeServer: APIProtocol {
     func getFogSummary(_ input: Operations.getFogSummary.Input) async throws -> Operations.getFogSummary.Output {
         throw Unused()
     }
+    func getSeasons(_ input: Operations.getSeasons.Input) async throws -> Operations.getSeasons.Output {
+        throw Unused()
+    }
 
     // MARK: - Общее
 

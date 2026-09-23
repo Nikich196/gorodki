@@ -97,6 +97,16 @@ struct SampleDecodingTests {
         #expect(me.displayName == "Бегун-1234" && !me.publicProfile)
         #expect(receipt.duplicate && receipt.lastSeq == 119)
     }
+
+    @Test("Сезоны: у последнего нет конца, текущий — номер")
+    func seasons() throws {
+        let seasons = try Samples.decode(Components.Schemas.SeasonsResponse.self, "seasons")
+
+        #expect(seasons.current == 0 && seasons.seasons.count == 2)
+        #expect(
+            seasons.seasons[0].name == "Сезон 0 (бета)" && seasons.seasons[0].endsAtMs == seasons.seasons[1].startsAtMs)
+        #expect(seasons.seasons[1].endsAtMs == nil)
+    }
 }
 
 /// Образцы из `contracts/samples` (путь — от этого файла вверх до корня репозитория).

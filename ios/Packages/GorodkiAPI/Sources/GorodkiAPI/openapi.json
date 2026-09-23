@@ -71,6 +71,27 @@
         }
       }
     },
+    "/seasons": {
+      "get": {
+        "tags": [
+          "Сезоны"
+        ],
+        "summary": "Сезоны: номера, названия, начало и конец; какой идёт сейчас",
+        "operationId": "getSeasons",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeasonsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/territory": {
       "get": {
         "tags": [
@@ -1668,6 +1689,55 @@
         ],
         "type": "string"
       },
+      "SeasonsResponse": {
+        "required": [
+          "seasons"
+        ],
+        "type": "object",
+        "properties": {
+          "seasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeasonView"
+            }
+          },
+          "current": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "SeasonView": {
+        "required": [
+          "number",
+          "name",
+          "startsAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "startsAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "endsAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "SeqRange": {
         "required": [
           "firstSeq",
@@ -2042,6 +2112,9 @@
     },
     {
       "name": "Конфиг"
+    },
+    {
+      "name": "Сезоны"
     },
     {
       "name": "Карта"

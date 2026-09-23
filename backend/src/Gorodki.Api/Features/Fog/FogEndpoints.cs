@@ -4,6 +4,7 @@ using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Fog;
+using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
@@ -56,7 +57,7 @@ public static class FogEndpoints
                 extensions: new Dictionary<string, object?> { ["code"] = "fog_query_invalid" });
         }
 
-        var query = db.FogTiles.AsNoTracking().Where(f => f.UserId == userId && f.Layer == kind && f.Season == 0);
+        var query = db.FogTiles.AsNoTracking().Where(f => f.UserId == userId && f.Layer == kind && f.Season == SeasonCalendar.AllTime);
         if (requested is not null)
         {
             int minX = requested.Min(t => t.Tile.X), maxX = requested.Max(t => t.Tile.X);
@@ -95,7 +96,7 @@ public static class FogEndpoints
     {
         var userId = principal.UserId();
         var tiles = await db.FogTiles.AsNoTracking()
-            .Where(f => f.UserId == userId && f.Season == 0)
+            .Where(f => f.UserId == userId && f.Season == SeasonCalendar.AllTime)
             .Select(f => new { f.Layer, f.TileX, f.TileY, f.CellCount })
             .ToListAsync(cancellationToken);
         var layers = tiles

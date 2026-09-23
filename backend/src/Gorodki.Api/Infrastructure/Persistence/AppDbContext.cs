@@ -40,6 +40,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<CaptureRollbackEntity> CaptureRollbacks => Set<CaptureRollbackEntity>();
 
+    public DbSet<SeasonEntity> Seasons => Set<SeasonEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -207,6 +209,20 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             rollback.Property(r => r.LastError).HasMaxLength(500);
             rollback.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
             rollback.HasIndex(r => r.RequestedAt).HasFilter("status = 0");
+        });
+
+        model.Entity<SeasonEntity>(season =>
+        {
+            season.HasKey(s => s.Number);
+            season.Property(s => s.Number).ValueGeneratedNever();
+            season.Property(s => s.Name).HasMaxLength(40);
+            season.ToTable(t => t.HasCheckConstraint("ck_seasons_number", "number >= 0"));
+
+            // Даты — из плана (PLAN.md, §3.4): С0 16–29.11 (бета), С1 30.11–13.12, С2 14.12 → показ. Полночь по Минску.
+            season.HasData(
+                new SeasonEntity { Number = 0, Name = "Сезон 0 (бета)", StartsAt = new DateTimeOffset(2026, 11, 15, 21, 0, 0, TimeSpan.Zero) },
+                new SeasonEntity { Number = 1, Name = "Сезон 1", StartsAt = new DateTimeOffset(2026, 11, 29, 21, 0, 0, TimeSpan.Zero) },
+                new SeasonEntity { Number = 2, Name = "Сезон 2", StartsAt = new DateTimeOffset(2026, 12, 13, 21, 0, 0, TimeSpan.Zero) });
         });
 
         model.Entity<TileVersionEntity>(tile =>
