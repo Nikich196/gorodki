@@ -209,6 +209,12 @@ public sealed class RunEntity
     public int? VisitedParcels { get; set; }
 
     /// <summary>
+    /// Засчитанный путь забега, метры (судья отрезков, без обрезки) — пробег для защиты от мультиаккаунтов (§3.3).
+    /// Считается вместе с визитами; null — ещё не посчитан.
+    /// </summary>
+    public double? AcceptedMeters { get; set; }
+
+    /// <summary>
     /// Когда стёрты сырые точки забега (через 14 дней, PLAN.md §3.16): содержимое кусков пустое, номера и время остались.
     /// </summary>
     public DateTimeOffset? PointsPurgedAt { get; set; }

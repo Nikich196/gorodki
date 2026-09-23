@@ -179,12 +179,55 @@ public sealed class CaptureProcessor(
             return await FinishAsync(claim.Id, token, CaptureStatus.Rejected, LoopRing.Code(shape.Rejection), cancellationToken, timing: timing);
         }
 
-        return await ApplyAsync(claim, shape.Area, effectiveAt, evidenceAt, token, cancellationToken);
+        var canRemoveLevels = await CanRemoveLevelsAsync(run, claim, rules, judgement, effectiveAt, cancellationToken);
+        return await ApplyAsync(claim, run.DeviceId, shape.Area, effectiveAt, evidenceAt, canRemoveLevels, token, cancellationToken);
     }
 
-    /// <summary>Шаг B — одна короткая транзакция: блокировка игрока (суточный лимит), тайлов по порядку, движок, разница.</summary>
+    /// <summary>
+    /// Защита от мультиаккаунтов (PLAN.md, §3.3): аккаунт моложе 48 ч или с пробегом меньше 3 км чужие уровни не снимает.
+    /// Пробег — засчитанный путь прежних забегов (все лиги) и этого забега до конца петли. Забег, у которого путь ещё не
+    /// посчитан (визиты не прошли), в пробег не входит — в худшем случае игрок на минуты дольше считается новым.
+    /// </summary>
+    private async Task<bool> CanRemoveLevelsAsync(
+        RunEntity run,
+        CaptureEntity claim,
+        GameConfig rules,
+        TrackJudging.RunJudgement judgement,
+        DateTimeOffset effectiveAt,
+        CancellationToken cancellationToken)
+    {
+        var territory = rules.Territory;
+        var createdAt = await db.Users.Where(u => u.Id == claim.UserId).Select(u => u.CreatedAt).SingleAsync(cancellationToken);
+        if (effectiveAt - createdAt < TimeSpan.FromHours(territory.NewAccountHours))
+        {
+            return false;
+        }
+
+        var earlier = await db.Runs
+            .Where(r => r.UserId == claim.UserId && r.Id != run.Id)
+            .SumAsync(r => r.AcceptedMeters ?? 0, cancellationToken);
+        if (earlier >= territory.NewAccountMinMeters)
+        {
+            return true;
+        }
+
+        var thisRun = JudgedPath.Length(
+            JudgedPath.Segments(judgement.Points, judgement.Verdicts).Where(s => s.To.Seq <= claim.EndSeq));
+        return earlier + thisRun >= territory.NewAccountMinMeters;
+    }
+
+    /// <summary>
+    /// Шаг B — одна короткая транзакция: блокировки игрока (суточный лимит) и устройства, тайлов по порядку, движок, разница.
+    /// </summary>
     private async Task<int> ApplyAsync(
-        CaptureEntity claim, Geometry area, DateTimeOffset effectiveAt, DateTimeOffset evidenceAt, Guid token, CancellationToken cancellationToken)
+        CaptureEntity claim,
+        Guid deviceId,
+        Geometry area,
+        DateTimeOffset effectiveAt,
+        DateTimeOffset evidenceAt,
+        bool canRemoveLevels,
+        Guid token,
+        CancellationToken cancellationToken)
     {
         var current = await configs.GetCurrentAsync(cancellationToken); // карта общая — правила земли на момент применения
         db.ChangeTracker.Clear(); // куски прошлой заявки прохода не должны попасть в эту запись
@@ -208,6 +251,16 @@ public sealed class CaptureProcessor(
             return await FinishAsync(claim.Id, token, CaptureStatus.Rejected, "daily_limit", cancellationToken, timing: (effectiveAt, evidenceAt));
         }
 
+        // «Захват засчитывается одному аккаунту на устройство в сутки» (§3.3). Блокировка устройства — после блокировки
+        // игрока: два аккаунта одного телефона не проскочат одновременно, а взаимной блокировки нет (порядок всегда один).
+        var deviceKey = deviceId.ToString();
+        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(3, hashtext({deviceKey}))", cancellationToken);
+        if (await DeviceUsedByOtherOnGameDayAsync(deviceId, claim.UserId, effectiveAt, cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return await FinishAsync(claim.Id, token, CaptureStatus.Rejected, "device_shared", cancellationToken, timing: (effectiveAt, evidenceAt));
+        }
+
         var tiles = TileKey.Covering(area.EnvelopeInternal);
         var lockSpace = 100 + (int)claim.League; // у каждой лиги своя карта — свои блокировки
         foreach (var tile in tiles)
@@ -222,7 +275,7 @@ public sealed class CaptureProcessor(
 
         var map = new TerritoryMap(current.Rules.Territory.ToRules(), new SliverSettings());
         map.Load(stored.Select(ToParcel));
-        var result = map.Apply(area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>()));
+        var result = map.Apply(area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels));
 
         var now = time.GetUtcNow();
         var changedTiles = new List<TileKey>();
@@ -303,6 +356,24 @@ public sealed class CaptureProcessor(
             .Select(c => c.EffectiveAt)
             .ToListAsync(cancellationToken);
         return nearby.Count(e => e is { } at && GameClock.GameDayOf(at) == day);
+    }
+
+    /// <summary>Был ли в те же игровые сутки применён захват другого аккаунта с этого устройства.</summary>
+    private async Task<bool> DeviceUsedByOtherOnGameDayAsync(
+        Guid deviceId, Guid userId, DateTimeOffset effectiveAt, CancellationToken cancellationToken)
+    {
+        var day = GameClock.GameDayOf(effectiveAt);
+        var nearby = await db.Runs.AsNoTracking()
+            .Where(r => r.DeviceId == deviceId && r.UserId != userId)
+            .Join(
+                db.Captures.Where(c => c.Status == CaptureStatus.Applied
+                    && c.EffectiveAt > effectiveAt.AddDays(-2)
+                    && c.EffectiveAt < effectiveAt.AddDays(2)),
+                r => r.Id,
+                c => c.RunId,
+                (r, c) => c.EffectiveAt)
+            .ToListAsync(cancellationToken);
+        return nearby.Any(e => e is { } at && GameClock.GameDayOf(at) == day);
     }
 
     /// <summary>Берёт заявку в аренду. Возвращает номер попытки или null, если заявку уже держит другой проход.</summary>

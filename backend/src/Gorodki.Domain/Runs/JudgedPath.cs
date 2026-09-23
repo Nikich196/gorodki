@@ -1,3 +1,5 @@
+using Gorodki.Domain.Geo;
+
 namespace Gorodki.Domain.Runs;
 
 /// <summary>
@@ -40,6 +42,15 @@ public static class JudgedPath
 
         return excluded;
     }
+
+    /// <summary>Длина пути, метры — в UTM 34N, как и всё на карте.</summary>
+    public static double Length(IEnumerable<(TrackPoint From, TrackPoint To)> segments) =>
+        segments.Sum(s =>
+        {
+            var (fromX, fromY) = Utm34.Forward(s.From.Latitude, s.From.Longitude);
+            var (toX, toY) = Utm34.Forward(s.To.Latitude, s.To.Longitude);
+            return Math.Sqrt(((toX - fromX) * (toX - fromX)) + ((toY - fromY) * (toY - fromY)));
+        });
 
     /// <summary>Засчитанные участки пути: пары соседних (без точек с плохой точностью) точек без разрыва между ними.</summary>
     public static IEnumerable<(TrackPoint From, TrackPoint To)> Segments(IReadOnlyList<TrackPoint> points, IReadOnlyList<JudgeVerdict> verdicts)
