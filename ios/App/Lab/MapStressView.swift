@@ -229,8 +229,10 @@ private struct MapStressMap: UIViewRepresentable {
         map.delegate = context.coordinator
         map.addOverlays(model.parcels, level: .aboveRoads)
         map.addOverlay(model.fogOverlay, level: .aboveRoads)
-        let center = CLLocationCoordinate2D(latitude: MapStressModel.center.latitude, longitude: MapStressModel.center.longitude)
-        map.setRegion(MKCoordinateRegion(center: center, latitudinalMeters: 3_000, longitudinalMeters: 3_000), animated: false)
+        let center = CLLocationCoordinate2D(
+            latitude: MapStressModel.center.latitude, longitude: MapStressModel.center.longitude)
+        map.setRegion(
+            MKCoordinateRegion(center: center, latitudinalMeters: 3_000, longitudinalMeters: 3_000), animated: false)
         return map
     }
 
@@ -259,7 +261,7 @@ private struct MapStressMap: UIViewRepresentable {
             if let multi = overlay as? MKMultiPolygon {
                 let renderer = MKMultiPolygonRenderer(multiPolygon: multi)
                 renderer.fillColor = model.colors[ObjectIdentifier(multi)] ?? .systemBlue.withAlphaComponent(0.4)
-                renderer.lineWidth = 0 // заливки без обводки: так не видно швов на краях тайлов (PLAN.md, D4)
+                renderer.lineWidth = 0  // заливки без обводки: так не видно швов на краях тайлов (PLAN.md, D4)
                 return renderer
             }
             return MKOverlayRenderer(overlay: overlay)
