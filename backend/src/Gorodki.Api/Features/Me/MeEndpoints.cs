@@ -19,6 +19,13 @@ public static class MeEndpoints
     public static IEndpointRouteBuilder MapMeEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/me", GetMe).WithName("getMe").WithTags("Профиль").WithSummary("Кто я: ник, цвет, роль");
+        app.MapGet("/me/export", Export)
+            .WithName("exportMyData")
+            .WithTags("Профиль")
+            .WithSummary("Мои данные: всё, что сервер хранит об игроке, одним JSON")
+            .WithDescription(
+                "Профиль и согласия, входы, забеги (точки и датчики — пока хранятся, 14 дней), заявки петель, земля, туман. "
+                + "Закон 99-З: право на выгрузку своих данных.");
         app.MapDelete("/me", RequestDeletion)
             .WithName("deleteMe")
             .WithTags("Профиль")
@@ -28,6 +35,23 @@ public static class MeEndpoints
                 + "забеги с точками, захваты, туман — стираются фоновым обработчиком, обычно в течение часа, по закону — "
                 + "не позже 15 дней. Повторный запрос ничего не меняет.");
         return app;
+    }
+
+    private static async Task<Results<Ok<AccountExportResponse>, NotFound>> Export(
+        ClaimsPrincipal principal,
+        AccountExport export,
+        HttpContext context,
+        TimeProvider time,
+        CancellationToken cancellationToken)
+    {
+        if (principal.UserId() is not { } userId || await export.BuildAsync(userId, cancellationToken) is not { } data)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var day = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        context.Response.Headers.ContentDisposition = $"attachment; filename=\"gorodki-my-data-{day}.json\"";
+        return TypedResults.Ok(data);
     }
 
     private static async Task<Results<Accepted<AccountDeletionResponse>, NotFound>> RequestDeletion(

@@ -73,6 +73,31 @@
         }
       }
     },
+    "/me/export": {
+      "get": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Мои данные: всё, что сервер хранит об игроке, одним JSON",
+        "description": "Профиль и согласия, входы, забеги (точки и датчики — пока хранятся, 14 дней), заявки петель, земля, туман. Закон 99-З: право на выгрузку своих данных.",
+        "operationId": "exportMyData",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountExportResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/config": {
       "get": {
         "tags": [
@@ -817,6 +842,57 @@
           }
         }
       },
+      "AccountExportResponse": {
+        "required": [
+          "exportedAtMs",
+          "profile",
+          "sessions",
+          "runs",
+          "captures",
+          "land",
+          "fog"
+        ],
+        "type": "object",
+        "properties": {
+          "exportedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ExportProfile"
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportSession"
+            }
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportRun"
+            }
+          },
+          "captures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportCapture"
+            }
+          },
+          "land": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportParcel"
+            }
+          },
+          "fog": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportFogTile"
+            }
+          }
+        }
+      },
       "CaptureConfig": {
         "required": [
           "loopDetector",
@@ -1062,6 +1138,330 @@
           "radarMultiplier": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "ExportCapture": {
+        "required": [
+          "id",
+          "runId",
+          "league",
+          "status",
+          "receivedAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaptureStatus"
+          },
+          "rejectCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "receivedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "effectiveAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "areaSquareMeters": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "rolledBackAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "ExportFogTile": {
+        "required": [
+          "layer",
+          "season",
+          "x",
+          "y",
+          "cellCount",
+          "bits"
+        ],
+        "type": "object",
+        "properties": {
+          "layer": {
+            "$ref": "#/components/schemas/FogLayerKind"
+          },
+          "season": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "x": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cellCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "bits": {
+            "contentEncoding": "base64",
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "ExportParcel": {
+        "required": [
+          "league",
+          "level",
+          "lastVisitAtMs",
+          "exterior",
+          "holes"
+        ],
+        "type": "object",
+        "properties": {
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "level": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "lastVisitAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "exterior": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "holes": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          }
+        }
+      },
+      "ExportProfile": {
+        "required": [
+          "id",
+          "displayName",
+          "colorIndex",
+          "role",
+          "publicProfile",
+          "createdAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "colorIndex": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "role": {
+            "type": "string"
+          },
+          "publicProfile": {
+            "type": "boolean"
+          },
+          "createdAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ageConfirmedAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "consentVersion": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "consentedAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "inviteCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deletionRequestedAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "ExportRun": {
+        "required": [
+          "id",
+          "league",
+          "source",
+          "startedAtMs",
+          "status",
+          "deviceId",
+          "appVersion",
+          "motionAuthorized",
+          "points",
+          "motion",
+          "steps"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RunSource"
+          },
+          "startedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "endedAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersion": {
+            "type": "string"
+          },
+          "motionAuthorized": {
+            "type": "boolean"
+          },
+          "acceptedMeters": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "fogNewCells": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "visitedParcels": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "pointsErasedAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackPointDto"
+            }
+          },
+          "motion": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MotionSampleDto"
+            }
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepSampleDto"
+            }
+          }
+        }
+      },
+      "ExportSession": {
+        "required": [
+          "createdAtMs",
+          "expiresAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "createdAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expiresAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "revokedAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
           }
         }
       },

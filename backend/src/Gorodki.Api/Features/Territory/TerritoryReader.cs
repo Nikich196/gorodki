@@ -186,7 +186,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
     }
 
     /// <summary>Кольцо из UTM 34N в широту и долготу; 7 знаков после запятой — около 1 см.</summary>
-    private static IReadOnlyList<double> LatLon(LineString ring)
+    internal static IReadOnlyList<double> LatLon(LineString ring)
     {
         var result = new double[ring.NumPoints * 2];
         for (var i = 0; i < ring.NumPoints; i++)
