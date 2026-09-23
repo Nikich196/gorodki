@@ -153,6 +153,8 @@ public static class RunEndpoints
             DeviceId = request.DeviceId,
             AppVersion = request.AppVersion,
             MotionAuthorized = request.MotionAuthorized,
+            Newcomer = !await db.Captures.AnyAsync(
+                c => c.UserId == userId && c.Status == CaptureStatus.Applied, cancellationToken),
         };
 
         // Активен только самый поздний забег игрока. Если уже есть забег, начатый позже (этот пришёл с опозданием
@@ -315,10 +317,14 @@ public static class RunEndpoints
             ContentHash = hash,
             Points = bytes,
             ReceivedAt = now,
+            FirstPointMs = chunk.Points[0].TimeMs,
+            LastPointMs = chunk.Points[^1].TimeMs,
+            SensorsCompleteThroughMs = chunk.SensorsCompleteThroughMs,
         });
         try
         {
             await db.SaveChangesAsync(cancellationToken);
+            await UpdatePrefixAsync(db, runId, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException e) when (e.InnerException is PostgresException
@@ -496,6 +502,25 @@ public static class RunEndpoints
             extensions: new Dictionary<string, object?> { ["code"] = "chunk_conflict", ["overlaps"] = overlaps });
     }
 
+    /// <summary>
+    /// Пересчитывает непрерывное начало следа и отметку полноты датчиков по нему. Вызывается под той же блокировкой
+    /// строки забега, что и резервирование места под кусок, поэтому одновременные куски считаются по очереди.
+    /// </summary>
+    private static async Task UpdatePrefixAsync(AppDbContext db, Guid runId, CancellationToken cancellationToken)
+    {
+        var chunks = await db.RunChunks.AsNoTracking()
+            .Where(c => c.RunId == runId)
+            .Select(c => new { c.FirstSeq, c.LastSeq, c.SensorsCompleteThroughMs })
+            .ToListAsync(cancellationToken);
+        var prefixEnd = SeqRange.ContiguousPrefixEnd(chunks.Select(c => new SeqRange(c.FirstSeq, c.LastSeq)));
+        var sensors = chunks.Where(c => c.LastSeq <= prefixEnd).Select(c => c.SensorsCompleteThroughMs).DefaultIfEmpty(0).Max();
+        await db.Runs
+            .Where(r => r.Id == runId)
+            .ExecuteUpdateAsync(
+                set => set.SetProperty(r => r.PrefixEndSeq, prefixEnd).SetProperty(r => r.PrefixSensorsMs, sensors),
+                cancellationToken);
+    }
+
     private static async Task<RunResponse> ToResponseAsync(AppDbContext db, RunEntity run, CancellationToken cancellationToken)
     {
         var chunks = await db.RunChunks.AsNoTracking()
@@ -514,7 +539,8 @@ public static class RunEndpoints
             run.LastSeq,
             run.ProcessedSeq,
             received,
-            run.LastSeq is { } last ? SeqRange.Missing(received, last) : []);
+            run.LastSeq is { } last ? SeqRange.Missing(received, last) : [],
+            run.Newcomer);
     }
 
     private static bool IsSameStart(RunEntity run, StartRunRequest request) =>

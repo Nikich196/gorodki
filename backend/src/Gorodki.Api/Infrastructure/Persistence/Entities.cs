@@ -180,6 +180,18 @@ public sealed class RunEntity
 
     /// <summary>Сколько байт кусков хранится — для лимита на забег и на игрока в сутки.</summary>
     public int StoredBytes { get; set; }
+
+    /// <summary>Последний номер непрерывного начала следа (от точки 0 без дыр), −1 — точки 0 ещё нет. Обновляется при приёме кусков.</summary>
+    public int PrefixEndSeq { get; set; } = -1;
+
+    /// <summary>
+    /// До какого момента (часы телефона, мс) переданы все данные датчиков — только по кускам непрерывного начала:
+    /// кусок за дырой не может объявить, что всё отправлено.
+    /// </summary>
+    public long PrefixSensorsMs { get; set; }
+
+    /// <summary>Первый забег новичка: точность до 35 м вместо 25 (§3.9). Решает сервер при старте, телефон судит так же.</summary>
+    public bool Newcomer { get; set; }
 }
 
 /// <summary>Кусок точек забега, присланный телефоном. Повтор того же содержимого не сохраняется (идемпотентность).</summary>
@@ -198,6 +210,14 @@ public sealed class RunChunkEntity
     public required byte[] Points { get; set; }
 
     public DateTimeOffset ReceivedAt { get; set; }
+
+    /// <summary>Время первой и последней точки (часы телефона, мс) — чтобы решать о готовности петли без чтения точек.</summary>
+    public long FirstPointMs { get; set; }
+
+    public long LastPointMs { get; set; }
+
+    /// <summary>До какого момента, по словам телефона, отправлены все данные датчиков (мс).</summary>
+    public long SensorsCompleteThroughMs { get; set; }
 }
 
 /// <summary>

@@ -26,6 +26,16 @@ public sealed record GameConfig
 
     public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
 
+    /// <summary>
+    /// Правила судьи отрезков для забега. В первом забеге новичка допустима точность хуже (§3.9: 35 м вместо 25):
+    /// сервер решает это при старте и сообщает телефону, и обе стороны судят весь забег одними числами.
+    /// </summary>
+    public LeagueRules JudgeRulesFor(League league, bool newcomer)
+    {
+        var rules = Leagues.For(league);
+        return newcomer ? rules with { MaxAccuracyMeters = Math.Max(rules.MaxAccuracyMeters, Capture.NewcomerMaxAccuracyMeters) } : rules;
+    }
+
     public static GameConfig FromJson(string json) =>
         JsonSerializer.Deserialize<GameConfig>(json, JsonOptions) ?? throw new JsonException("Пустой игровой конфиг.");
 }

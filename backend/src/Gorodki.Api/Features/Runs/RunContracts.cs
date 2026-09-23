@@ -62,6 +62,10 @@ public sealed record ChunkReceipt(int FirstSeq, int LastSeq, bool Duplicate);
 /// <summary>Забег, каким его видит сервер.</summary>
 /// <param name="Received">Какие точки уже есть (соседние куски склеены).</param>
 /// <param name="Missing">Каких точек не хватает до <c>LastSeq</c> — их нужно дослать (пусто, пока забег не завершён).</param>
+/// <param name="Newcomer">
+/// Первый забег новичка: весь забег судится с порогом точности <c>capture.newcomerMaxAccuracyMeters</c> из конфига (35 м)
+/// вместо порога лиги — так же должен судить и телефон.
+/// </param>
 public sealed record RunResponse(
     Guid Id,
     League League,
@@ -73,7 +77,8 @@ public sealed record RunResponse(
     int? LastSeq,
     int ProcessedSeq,
     IReadOnlyList<SeqRange> Received,
-    IReadOnlyList<SeqRange> Missing);
+    IReadOnlyList<SeqRange> Missing,
+    bool Newcomer);
 
 /// <summary>
 /// Лимиты приёма забегов: защищают бесплатную базу (500 МБ; при переполнении она только для чтения — встанет вся игра)

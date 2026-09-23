@@ -37,4 +37,12 @@ public sealed class SeqRangeTests
     {
         Assert.Equal(new SeqRange[] { new(0, 5) }, SeqRange.Missing([], lastSeq: 5));
     }
+
+    [Fact]
+    public void Contiguous_prefix_stops_at_the_first_hole()
+    {
+        Assert.Equal(119, SeqRange.ContiguousPrefixEnd([new(60, 119), new(0, 59), new(200, 260)]));
+        Assert.Equal(-1, SeqRange.ContiguousPrefixEnd([new(1, 59)]));
+        Assert.Equal(-1, SeqRange.ContiguousPrefixEnd([]));
+    }
 }

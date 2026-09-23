@@ -42,12 +42,39 @@ public sealed class TrackJudgingTests
     }
 
     [Fact]
+    public void Sensor_records_only_append_they_cannot_rewrite_the_past()
+    {
+        // Кусок 0…29 объявил: датчики до 29-й секунды отправлены полностью. Кусок 30…59 «дослал» «транспорт» с 5-й секунды —
+        // так нельзя переписать уже вынесенные вердикты: запись отброшена и посчитана.
+        var first = new TrackChunk(0, Start + 29_000, Points(0, 30), [new(Start, MotionActivity.Walking)], []);
+        var second = new TrackChunk(30, Start + 59_000, Points(30, 30), [new(Start + 5_000, MotionActivity.Automotive)], []);
+
+        var judgement = TrackJudging.JudgeRun(Run, [first, second]);
+
+        Assert.Equal(1, judgement.LateSensorRecords);
+        Assert.Equal(60, judgement.Points.Count);
+        Assert.All(judgement.Verdicts, v => Assert.Equal(JudgeVerdict.Accepted, v));
+    }
+
+    [Fact]
+    public void Newcomer_run_is_judged_with_the_newcomer_accuracy()
+    {
+        var config = GameConfig.Default;
+
+        Assert.Equal(35, config.JudgeRulesFor(Gorodki.Domain.Leagues.League.Run, newcomer: true).MaxAccuracyMeters);
+        Assert.Equal(25, config.JudgeRulesFor(Gorodki.Domain.Leagues.League.Run, newcomer: false).MaxAccuracyMeters);
+    }
+
+    [Fact]
     public void Verdicts_are_written_like_the_phone_writes_them()
     {
         Assert.Equal("accepted", JudgeVerdict.Accepted.ToString());
         Assert.Equal("ignored:poorAccuracy", JudgeVerdict.Ignored(TrackIssue.PoorAccuracy).ToString());
         Assert.Equal("broken:strideOutOfRange", JudgeVerdict.Broken(TrackIssue.StrideOutOfRange).ToString());
     }
+
+    private static TrackPoint[] Points(int firstSeq, int count) =>
+        Enumerable.Range(firstSeq, count).Select(i => Point(i, Start + (i * 1_000L), east: 2.0 * i)).ToArray();
 
     /// <summary>Точка в <paramref name="east"/> метрах к востоку от центра Бреста (градус долготы здесь ≈ 68,4 км).</summary>
     private static TrackPoint Point(int seq, long timeMs, double east) =>
