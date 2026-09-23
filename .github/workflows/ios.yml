@@ -2,6 +2,8 @@
 #  ios-build        — Xcode 27 (раннер xcode-27, public preview): Debug для симулятора и Release для iPhone;
 #  ios-build-xcode26 — раз в неделю резервная сборка на Xcode 26 (раннер macos-26),
 #                      чтобы не зависеть только от preview-раннера.
+# -skipPackagePluginValidation: клиент API (пакет GorodkiAPI) генерируется плагином при сборке, а xcodebuild
+# из командной строки без этого флага требует вручную подтвердить доверие плагину (docs/adr/0004-openapi-swift.md).
 name: ios
 
 on:
@@ -65,6 +67,7 @@ jobs:
             -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Debug-Free \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet
 
       - name: Release-Free для iPhone (без подписи)
@@ -73,6 +76,7 @@ jobs:
             -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Release-Free \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet
 
       - name: Release-Paid для iPhone (без подписи)
@@ -81,6 +85,7 @@ jobs:
             -project ios/Gorodki.xcodeproj -scheme "Gorodki Paid" -configuration Release-Paid \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet
 
   ios-build-xcode26:
@@ -105,4 +110,5 @@ jobs:
             -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Debug-Free \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
+            -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet

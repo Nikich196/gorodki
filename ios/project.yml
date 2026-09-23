@@ -44,6 +44,14 @@ packages:
     path: Packages/GameCore
   GorodkiKit:
     path: Packages/GorodkiKit
+  # Клиент API генерируется плагином при сборке: xcodebuild из командной строки запускать
+  # с -skipPackagePluginValidation (docs/adr/0004-openapi-swift.md).
+  GorodkiAPI:
+    path: Packages/GorodkiAPI
+  GorodkiSync:
+    path: Packages/GorodkiSync
+  GorodkiNetwork:
+    path: Packages/GorodkiNetwork
 
 targets:
   Gorodki:
@@ -58,6 +66,11 @@ targets:
         product: DesignSystem
       - package: GorodkiKit
         product: Platform
+      - package: GorodkiAPI
+      - package: GorodkiSync
+        product: Sync
+      - package: GorodkiNetwork
+        product: Networking
     settings:
       base:
         PRODUCT_NAME: Gorodki

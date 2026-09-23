@@ -12,7 +12,8 @@ gorodki/
 │  ├─ Config/      настройки сборок Free и Paid (.xcconfig)
 │  ├─ App/         код приложения
 │  ├─ Widgets/     расширение: Live Activity и виджеты
-│  └─ Packages/    GameCore — игровая логика (тесты на любой ОС), GorodkiKit — общий код iOS
+│  └─ Packages/    GameCore — игровая логика (тесты на любой ОС), GorodkiKit — общий код iOS,
+│                  GorodkiAPI — клиент API, GorodkiSync — синхронизация, GorodkiNetwork — сеть и вход
 ├─ backend/        сервер на C# (ASP.NET Core 10)
 │  ├─ src/         Gorodki.Api — веб-сервер, Gorodki.Domain — правила игры
 │  └─ tests/       тесты (xUnit v3)
