@@ -66,6 +66,7 @@ if (withDatabase)
     builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<RunRetention>();
     builder.Services.AddScoped<AccountDeletion>();
+    builder.Services.AddScoped<AccountExport>();
     builder.Services.AddScoped<CaptureProcessor>();
     builder.Services.AddScoped<CaptureRollback>();
     builder.Services.AddScoped<VisitProcessor>();
