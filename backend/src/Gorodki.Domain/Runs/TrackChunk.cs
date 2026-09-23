@@ -28,6 +28,8 @@ public enum MotionActivity : byte
 /// Точка GPS-следа в том виде, в каком её хранит сервер: координаты с шагом 1e-7° (около 1 см), точность в дециметрах,
 /// скорость в см/с. Всё приводится к этим шагам сразу при создании, поэтому точка после записи и чтения — та же самая,
 /// а повторная отправка тех же измерений даёт тот же хэш куска.
+/// Округление середины — «от нуля», как <c>rounded()</c> в Swift: телефон приводит точку к тем же шагам
+/// (<c>quantizedForStorage</c> в GameCore) и судит те же числа, что потом сервер.
 /// </summary>
 public readonly record struct TrackPoint
 {
@@ -88,8 +90,8 @@ public readonly record struct TrackPoint
         return new TrackPoint(
             seq,
             timeMs,
-            (int)Math.Round(latitude * 1e7),
-            (int)Math.Round(longitude * 1e7),
+            (int)Math.Round(latitude * 1e7, MidpointRounding.AwayFromZero),
+            (int)Math.Round(longitude * 1e7, MidpointRounding.AwayFromZero),
             Saturate(accuracyMeters * 10),
             speedMetersPerSecond is { } speed && speed >= 0 ? Saturate(speed * 100) : NoSpeed,
             flags);
@@ -101,7 +103,7 @@ public readonly record struct TrackPoint
         new(seq, timeMs, latitudeE7, longitudeE7, accuracyDm, speedCmPerSecond, flags);
 
     /// <summary>Округление в диапазон 0…65534 (65535 занято под «скорость неизвестна»).</summary>
-    private static ushort Saturate(double value) => (ushort)Math.Clamp(Math.Round(value), 0, NoSpeed - 1);
+    private static ushort Saturate(double value) => (ushort)Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0, NoSpeed - 1);
 }
 
 /// <summary>С этого момента CoreMotion считает, что владелец движется так-то (до следующей записи).</summary>
