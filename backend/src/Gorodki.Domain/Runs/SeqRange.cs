@@ -25,6 +25,13 @@ public readonly record struct SeqRange(int FirstSeq, int LastSeq)
         return merged;
     }
 
+    /// <summary>
+    /// Последний номер непрерывного начала следа (от точки 0 без дыр) или −1, если точки 0 ещё нет.
+    /// Обрабатывается только это начало: за дырой может оказаться что угодно.
+    /// </summary>
+    public static int ContiguousPrefixEnd(IEnumerable<SeqRange> received) =>
+        Merge(received) is [{ FirstSeq: 0 } first, ..] ? first.LastSeq : -1;
+
     /// <summary>Каких номеров от 0 до <paramref name="lastSeq"/> нет среди <paramref name="received"/> — их телефону нужно дослать.</summary>
     public static IReadOnlyList<SeqRange> Missing(IEnumerable<SeqRange> received, int lastSeq)
     {

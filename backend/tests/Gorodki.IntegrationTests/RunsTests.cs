@@ -65,6 +65,37 @@ public sealed class RunsTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Server_tracks_the_contiguous_start_and_sensor_mark_only_up_to_the_first_hole()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, _) = await api.CreatePlayerClientAsync();
+        var start = await StartAsync(api, client);
+
+        await PutChunkAsync(api, client, start, firstSeq: 120, count: 60); // за дырой: её отметка датчиков не в счёт
+        var afterGap = await ReadinessAsync(start.Id);
+        await PutChunkAsync(api, client, start, firstSeq: 0, count: 60);
+        var afterFirst = await ReadinessAsync(start.Id);
+        await PutChunkAsync(api, client, start, firstSeq: 60, count: 60);
+        var afterAll = await ReadinessAsync(start.Id);
+
+        Assert.Equal((-1, 0L), afterGap);
+        Assert.Equal((59, start.StartedAtMs + 60_000), afterFirst);
+        Assert.Equal((179, start.StartedAtMs + 180_000), afterAll);
+    }
+
+    [Fact]
+    public async Task First_run_of_a_new_player_is_a_newcomer_run()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, _) = await api.CreatePlayerClientAsync();
+        var start = await StartAsync(api, client);
+
+        Assert.True((await GetRunAsync(client, start.Id)).Newcomer);
+    }
+
+    [Fact]
     public async Task Identical_chunks_sent_at_once_are_stored_once()
     {
         database.RequireDatabase();
@@ -328,6 +359,13 @@ public sealed class RunsTests(DatabaseFixture database)
 
     private async Task<RunResponse> GetRunAsync(HttpClient client, Guid id) =>
         (await client.GetFromJsonAsync<RunResponse>($"/runs/{id}", Json, Cancel))!;
+
+    private async Task<(int PrefixEndSeq, long PrefixSensorsMs)> ReadinessAsync(Guid runId)
+    {
+        await using var db = database.CreateContext();
+        var run = await db.Runs.Where(r => r.Id == runId).Select(r => new { r.PrefixEndSeq, r.PrefixSensorsMs }).SingleAsync(Cancel);
+        return (run.PrefixEndSeq, run.PrefixSensorsMs);
+    }
 
     private async Task<string?> CodeOf(HttpResponseMessage response)
     {
