@@ -243,7 +243,6 @@ public sealed class SchemaTests(DatabaseFixture database)
             Level = 1,
             LastVisitAt = now,
             LastLevelUpAt = now,
-            CapturedAt = now,
             Geometry = geometry,
         };
     }

@@ -246,7 +246,10 @@ public sealed class ParcelEntity
 
     public DateTimeOffset? SiegeUntil { get; set; }
 
-    public DateTimeOffset CapturedAt { get; set; }
+    /// <summary>Окно лимита снятия уровней и кто уже снял уровень (<c>ParcelState</c>).</summary>
+    public DateTimeOffset? LossWindowSince { get; set; }
+
+    public Guid[] LossAttackers { get; set; } = [];
 
     /// <summary>Многоугольник в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
     public required Polygon Geometry { get; set; }
@@ -254,13 +257,26 @@ public sealed class ParcelEntity
 
 public enum CaptureStatus : short
 {
-    Applied = 0,
-    Rejected = 1,
-    /// <summary>Пришёл позже 3 часов после петли — не применяется.</summary>
-    Stale = 2,
+    /// <summary>Ждёт точек, данных датчиков или своей очереди. Ноль — чтобы забытый статус не означал «применено».</summary>
+    Pending = 0,
+    Applied = 1,
+    Rejected = 2,
+    /// <summary>Петля слишком старая: от неё до получения всего нужного прошло больше 3 часов (PLAN.md, §7.3).</summary>
+    Stale = 3,
+    /// <summary>Движок не смог применить петлю и после повтора — земля не изменилась, ошибка записана.</summary>
+    Failed = 4,
 }
 
-/// <summary>Заявка петли и её итог.</summary>
+/// <summary>Как замкнулась петля на телефоне. Имена совпадают с <c>LoopClosure</c> в GameCore.</summary>
+public enum LoopClosure : short
+{
+    /// <summary>След пересёк сам себя.</summary>
+    Crossing = 0,
+    /// <summary>След вернулся ближе R к прежней точке.</summary>
+    Proximity = 1,
+}
+
+/// <summary>Заявка петли и её итог (PLAN.md, §3.2, §7.3).</summary>
 public sealed class CaptureEntity
 {
     /// <summary>UUIDv5 от (забег, номер последней точки): повторная заявка не применяется дважды.</summary>
@@ -272,21 +288,61 @@ public sealed class CaptureEntity
 
     public League League { get; set; }
 
+    /// <summary>Номер заявки в забеге (0, 1, 2…): заявки забега обрабатываются по порядку.</summary>
+    public int ClaimNo { get; set; }
+
     public int StartSeq { get; set; }
 
     public int EndSeq { get; set; }
 
+    public LoopClosure Closure { get; set; }
+
+    /// <summary>Грубая площадь на телефоне, м² — для сравнения с точной.</summary>
+    public double EstimatedArea { get; set; }
+
     public CaptureStatus Status { get; set; }
 
-    /// <summary>Причина отказа (<c>CaptureRejection</c> из шага A) — показывается игроку.</summary>
-    public short? RejectReason { get; set; }
+    /// <summary>Причина отказа — стабильный код для приложения (<c>too_small</c>, <c>segment_broken:vehicle</c>…).</summary>
+    public string? RejectCode { get; set; }
 
+    /// <summary>Сколько земли взято, м² (у применённых).</summary>
     public double AreaSquareMeters { get; set; }
 
-    /// <summary>Контур P из шага A (может быть мультимногоугольником).</summary>
+    /// <summary>Площадь по видам последствий, JSON <c>{"claimedNeutral": 1234.5, …}</c>.</summary>
+    public string? AreaByOutcome { get; set; }
+
+    /// <summary>Изменённые тайлы, JSON <c>[[x, y], …]</c>: их версии выросли, приложение их перезапросит.</summary>
+    public string? ChangedTiles { get; set; }
+
+    /// <summary>Контур P из шага A — только у применённых (у отказов бывает до 3,5 км² и тысяч вершин).</summary>
     public Geometry? Shape { get; set; }
 
-    public DateTimeOffset CreatedAt { get; set; }
+    /// <summary>Когда заявка пришла на сервер.</summary>
+    public DateTimeOffset ReceivedAt { get; set; }
+
+    /// <summary>Время петли по часам сервера: конец петли с поправкой на сдвиг часов телефона, но не позже прихода заявки.</summary>
+    public DateTimeOffset? EffectiveAt { get; set; }
+
+    /// <summary>Когда у сервера появилось всё нужное для решения — по нему считается «старше 3 часов».</summary>
+    public DateTimeOffset? EvidenceAt { get; set; }
+
+    public int Attempts { get; set; }
+
+    /// <summary>Аренда обработчика: до этого момента заявку обрабатывает владелец <see cref="LeaseToken"/>.</summary>
+    public DateTimeOffset? LeaseUntil { get; set; }
+
+    public Guid? LeaseToken { get; set; }
+
+    /// <summary>Порядковый номер применения к карте (последовательность в базе): по нему карту можно переиграть.</summary>
+    public long? AppliedSeq { get; set; }
+
+    public DateTimeOffset? AppliedAt { get; set; }
+
+    /// <summary>Версия конфига, правилами земли которой применена петля (карта общая — правила на момент применения).</summary>
+    public int? TerritoryConfigVersion { get; set; }
+
+    /// <summary>Последняя ошибка обработки — для разбора.</summary>
+    public string? LastError { get; set; }
 }
 
 /// <summary>Версия тайла: растёт при каждом изменении земли в нём. Клиенты перезапрашивают только изменившиеся тайлы.</summary>

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Me;
@@ -87,6 +88,18 @@ if (withDatabase)
                 QueueLimit = 0,
                 AutoReplenishment = true,
             }));
+
+        // Чтение (опрос заявок) — отдельный, более щедрый лимит: не должен съедать лимит выгрузки кусков после офлайна.
+        options.AddPolicy(CaptureEndpoints.ReadRateLimitPolicy, context => RateLimitPartition.GetTokenBucketLimiter(
+            context.User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? "anonymous",
+            _ => new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = 240,
+                TokensPerPeriod = 120,
+                ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            }));
     });
 
     // Всё закрыто по умолчанию: открытые адреса помечаются явно (AllowAnonymous).
@@ -128,6 +141,7 @@ if (withDatabase)
     app.MapMeEndpoints();
     app.MapConfigEndpoints();
     app.MapRunEndpoints();
+    app.MapCaptureEndpoints();
 }
 
 await app.RunAsync();
