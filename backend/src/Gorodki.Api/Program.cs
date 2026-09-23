@@ -8,6 +8,7 @@ using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -150,6 +151,7 @@ if (withDatabase)
     app.MapConfigEndpoints();
     app.MapRunEndpoints();
     app.MapCaptureEndpoints();
+    app.MapTerritoryEndpoints();
 }
 
 await app.RunAsync();

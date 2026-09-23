@@ -8,6 +8,7 @@ using Gorodki.Domain.Territory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using static Gorodki.IntegrationTests.RunRequests;
+using static Gorodki.IntegrationTests.Walks;
 
 namespace Gorodki.IntegrationTests;
 
@@ -18,8 +19,6 @@ namespace Gorodki.IntegrationTests;
 [Collection(DatabaseCollection.Name)]
 public sealed class CaptureProcessingTests(DatabaseFixture database)
 {
-    private static int _nextArea;
-
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -30,7 +29,7 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         var (client, userId) = await api.CreatePlayerClientAsync();
         var area = NewArea();
 
-        var claim = await WalkAndClaimAsync(api, client, Square(area, 0, 0, 100));
+        var claim = await WalkAndClaimAsync(Cancel, api, client, Square(area, 0, 0, 100));
         var decided = await ProcessAsync(api, claim.RunId);
 
         var capture = await CaptureAsync(client, claim);
@@ -54,9 +53,9 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         var (boris, borisId) = await api.CreatePlayerClientAsync();
         var area = NewArea();
 
-        await ProcessAsync(api, (await WalkAndClaimAsync(api, anna, Square(area, 0, 0, 100))).RunId);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
         api.Time.Advance(TimeSpan.FromMinutes(30));
-        var borisClaim = await WalkAndClaimAsync(api, boris, Square(area, 50, 0, 100));
+        var borisClaim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100));
         await ProcessAsync(api, borisClaim.RunId);
 
         var capture = await CaptureAsync(boris, borisClaim);
@@ -73,7 +72,7 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (client, userId) = await api.CreatePlayerClientAsync();
-        var claim = await WalkAndClaimAsync(api, client, Square(NewArea(), 0, 0, 100));
+        var claim = await WalkAndClaimAsync(Cancel, api, client, Square(NewArea(), 0, 0, 100));
 
         var parallel = await Task.WhenAll(ProcessAsync(api, claim.RunId), ProcessAsync(api, claim.RunId), ProcessAsync(api, claim.RunId));
         var again = await ProcessAsync(api, claim.RunId);
@@ -93,7 +92,7 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         var square = Square(area, 0, 0, 100);
 
         // На середине пути — скачок на 600 м и обратно (выброс GPS или подмена): след рвётся.
-        var claim = await WalkAndClaimAsync(api, client, square, points =>
+        var claim = await WalkAndClaimAsync(Cancel, api, client, square, points =>
         {
             var middle = points.Count / 2;
             var (latitude, longitude) = Utm34.Inverse(WalkOrigin.X + area.X + 600, WalkOrigin.Y + area.Y + 600);
@@ -113,7 +112,7 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         await using var api = new ApiFactory(database);
         var (client, userId) = await api.CreatePlayerClientAsync();
 
-        var claim = await WalkAndClaimAsync(api, client, Square(NewArea(), 0, 0, 100), motionAuthorized: false);
+        var claim = await WalkAndClaimAsync(Cancel, api, client, Square(NewArea(), 0, 0, 100), motionAuthorized: false);
         await ProcessAsync(api, claim.RunId);
 
         Assert.Equal("motion_not_authorized", (await CaptureAsync(client, claim)).RejectCode);
@@ -126,7 +125,7 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (client, _) = await api.CreatePlayerClientAsync();
-        var start = await StartAsync(api, client);
+        var start = await StartWalkAsync(Cancel, api, client);
         var response = await client.PostAsJsonAsync(
             $"/runs/{start.Id}/loops", new LoopClaimRequest(0, 0, 300, LoopClosure.Proximity, 10_000, start.StartedAtMs), Json, Cancel);
         var captureId = (await response.Content.ReadFromJsonAsync<CaptureResponse>(Json, Cancel))!.Id;
@@ -148,7 +147,7 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (client, userId) = await api.CreatePlayerClientAsync();
-        var claim = await WalkAndClaimAsync(api, client, Square(NewArea(), 0, 0, 100));
+        var claim = await WalkAndClaimAsync(Cancel, api, client, Square(NewArea(), 0, 0, 100));
         await using (var db = database.CreateContext())
         {
             // 30 уже применённых захватов за эти игровые сутки (без земли — для лимита важен только счёт).
@@ -177,62 +176,6 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
     }
 
     // MARK: — вспомогательное
-
-    /// <summary>Своё место для каждого теста: сдвиг на 1,5 км — отдельный тайл, соседние тесты не делят землю.</summary>
-    private static (double X, double Y) NewArea()
-    {
-        var n = Interlocked.Increment(ref _nextArea);
-        return (-6_000 + (1_500.0 * (n % 8)), -6_000 + (1_500.0 * (n / 8)));
-    }
-
-    private static (double X, double Y)[] Square((double X, double Y) area, double x, double y, double size) =>
-    [
-        (area.X + x, area.Y + y),
-        (area.X + x + size, area.Y + y),
-        (area.X + x + size, area.Y + y + size),
-        (area.X + x, area.Y + y + size),
-        (area.X + x, area.Y + y + 1),
-    ];
-
-    private async Task<StartRunRequest> StartAsync(ApiFactory api, HttpClient client, bool motionAuthorized = true)
-    {
-        var start = NewStart(api, startedAgo: TimeSpan.FromMinutes(20)) with { MotionAuthorized = motionAuthorized };
-        var response = await client.PostAsJsonAsync("/runs", start, Json, Cancel);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return start;
-    }
-
-    /// <summary>Прогулка по вершинам: старт забега, куски с датчиками, заявка петли от первой до последней точки.</summary>
-    private async Task<(Guid RunId, Guid CaptureId, long EndMs)> WalkAndClaimAsync(
-        ApiFactory api,
-        HttpClient client,
-        IReadOnlyList<(double X, double Y)> vertices,
-        Action<List<TrackPointDto>>? tamper = null,
-        bool motionAuthorized = true)
-    {
-        var start = await StartAsync(api, client, motionAuthorized);
-        var points = WalkPoints(start, vertices);
-        tamper?.Invoke(points);
-        foreach (var chunk in WalkChunks(api, points))
-        {
-            var put = await client.PutAsJsonAsync($"/runs/{start.Id}/chunks/{chunk.Points![0].Seq}", chunk, Json, Cancel);
-            Assert.Equal(HttpStatusCode.Created, put.StatusCode);
-        }
-
-        var claim = await client.PostAsJsonAsync(
-            $"/runs/{start.Id}/loops",
-            new LoopClaimRequest(0, 0, points.Count - 1, LoopClosure.Proximity, 10_000, api.Time.GetUtcNow().ToUnixTimeMilliseconds()),
-            Json,
-            Cancel);
-        Assert.Equal(HttpStatusCode.Accepted, claim.StatusCode);
-        return (start.Id, (await claim.Content.ReadFromJsonAsync<CaptureResponse>(Json, Cancel))!.Id, points[^1].T);
-    }
-
-    private static async Task<int> ProcessAsync(ApiFactory api, Guid runId)
-    {
-        await using var scope = api.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<CaptureProcessor>().ProcessRunAsync(runId, CancellationToken.None);
-    }
 
     private async Task<CaptureResponse> CaptureAsync(HttpClient client, (Guid RunId, Guid CaptureId, long EndMs) claim)
     {
