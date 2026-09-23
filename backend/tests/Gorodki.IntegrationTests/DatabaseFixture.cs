@@ -36,7 +36,14 @@ public sealed class DatabaseFixture : IAsyncLifetime
             return;
         }
 
-        ConnectionString = AppDbContext.WithSearchPath(_container.GetConnectionString());
+        // Контейнер локальный: шифрование не нужно. Сервер в образе Supabase сбрасывает запрос SSL/GSS
+        // (в CI соединение рвалось именно на согласовании шифрования). На настоящем Supabase SSL, конечно, включён.
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            SslMode = Npgsql.SslMode.Disable,
+            GssEncryptionMode = Npgsql.GssEncryptionMode.Disable,
+        };
+        ConnectionString = AppDbContext.WithSearchPath(builder.ConnectionString);
         await WaitUntilStableAsync(ConnectionString, TimeSpan.FromMinutes(2));
         await using var db = CreateContext();
         await db.Database.MigrateAsync();
