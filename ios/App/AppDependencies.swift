@@ -1,6 +1,7 @@
 import Foundation
 import GorodkiAPI
 import Networking
+import Persistence
 import Sync
 import Synchronization
 
@@ -18,8 +19,8 @@ final class AppDependencies: Sendable {
     let tokens: TokenStore
     /// Клиент API: подписывает запросы и обновляет токен при 401. `nil`, пока адрес сервера не задан.
     let api: Client?
-    /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). Пока в памяти и живёт
-    /// до выгрузки приложения; хранилище на GRDB, переживающее перезапуск, — отдельная задача (PLAN.md, §7.2 «Хранение»).
+    /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). В приложении — в базе
+    /// GRDB (`GRDBSyncStore`): неотправленные забеги переживают выгрузку приложения и перезапуск телефона.
     let syncStore: any SyncStore
     /// «Сейчас» для синхронизации, секунды Unix: часы внедряются, чтобы их можно было подменить в проверках.
     private let now: @Sendable () -> Double
@@ -42,7 +43,18 @@ final class AppDependencies: Sendable {
         AppDependencies(
             serverURL: ServerURL.parse(bundle.object(forInfoDictionaryKey: ServerURL.infoPlistKey) as? String),
             // Bundle ID у приложения есть всегда; запасное имя — только чтобы не падать.
-            tokenStorage: KeychainTokenStorage(bundleIdentifier: bundle.bundleIdentifier ?? "gorodki"))
+            tokenStorage: KeychainTokenStorage(bundleIdentifier: bundle.bundleIdentifier ?? "gorodki"),
+            syncStore: liveSyncStore())
+    }
+
+    /// Очередь в базе приложения (Application Support). Если базу не открыть (например, нет места), — в памяти:
+    /// приложение не падает, забеги этого запуска уйдут, пока его не выгрузили.
+    private static func liveSyncStore() -> any SyncStore {
+        do {
+            return GRDBSyncStore(try AppDatabase.live())
+        } catch {
+            return InMemorySyncStore()
+        }
     }
 
     /// Синхронизация вошедшего игрока; `nil` — адрес сервера не задан или никто не вошёл. Движок один на игрока:
