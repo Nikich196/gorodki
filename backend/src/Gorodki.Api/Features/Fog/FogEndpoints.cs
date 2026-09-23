@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Fog;
@@ -15,10 +16,12 @@ namespace Gorodki.Api.Features.Fog;
 public sealed record FogTileView(int X, int Y, long Version, int CellCount, byte[] Bits);
 
 /// <summary>Туман игрока по тайлам веб-меркатора уровня 14.</summary>
-public sealed record FogResponse(FogLayerKind Layer, IReadOnlyList<FogTileView> Tiles, IReadOnlyList<TileRef> Unchanged);
+/// <param name="Season">Номер сезона; <c>null</c> — за всё время.</param>
+public sealed record FogResponse(FogLayerKind Layer, int? Season, IReadOnlyList<FogTileView> Tiles, IReadOnlyList<TileRef> Unchanged);
 
 /// <summary>Сколько открыто в слое.</summary>
-public sealed record FogLayerSummary(FogLayerKind Layer, int Tiles, int CellCount, double AreaSquareMeters);
+/// <param name="Season">Номер сезона; <c>null</c> — за всё время.</param>
+public sealed record FogLayerSummary(FogLayerKind Layer, int? Season, int Tiles, int CellCount, double AreaSquareMeters);
 
 public sealed record FogSummaryResponse(IReadOnlyList<FogLayerSummary> Layers);
 
@@ -36,28 +39,29 @@ public static class FogEndpoints
         var fog = app.MapGroup("/fog").WithTags("Исследование").RequireRateLimiting(CaptureEndpoints.ReadRateLimitPolicy);
         fog.MapGet("", GetFog)
             .WithName("getFog")
-            .WithSummary("Свой туман: layer=foot|bike, tiles=x:y@версия через запятую (без tiles — все тайлы слоя)")
+            .WithSummary("Свой туман: layer=foot|bike, season=номер (без него — за всё время), tiles=x:y@версия через запятую (без tiles — все тайлы слоя)")
             .ProducesProblem(StatusCodes.Status400BadRequest);
         fog.MapGet("/summary", GetSummary)
             .WithName("getFogSummary")
-            .WithSummary("Сколько открыто: клетки и площадь по слоям");
+            .WithSummary("Сколько открыто: клетки и площадь по слоям — за всё время и за текущий сезон");
         return app;
     }
 
     private static async Task<Results<Ok<FogResponse>, ProblemHttpResult>> GetFog(
-        string? layer, string? tiles, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
+        string? layer, string? tiles, int? season, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
         var userId = principal.UserId();
         var requested = tiles is null ? null : TerritoryEndpoints.ParseTiles(tiles);
-        if (ParseLayer(layer) is not { } kind || (tiles is not null && requested is null))
+        if (ParseLayer(layer) is not { } kind || (tiles is not null && requested is null) || season < 0)
         {
             return TypedResults.Problem(
-                title: "Нужен слой (foot или bike) и, если есть, от 1 до 25 тайлов вида x:y или x:y@версия.",
+                title: "Нужен слой (foot или bike), сезон — номер от 0 и, если есть, от 1 до 25 тайлов вида x:y или x:y@версия.",
                 statusCode: StatusCodes.Status400BadRequest,
                 extensions: new Dictionary<string, object?> { ["code"] = "fog_query_invalid" });
         }
 
-        var query = db.FogTiles.AsNoTracking().Where(f => f.UserId == userId && f.Layer == kind && f.Season == SeasonCalendar.AllTime);
+        var seasonNumber = season ?? SeasonCalendar.AllTime;
+        var query = db.FogTiles.AsNoTracking().Where(f => f.UserId == userId && f.Layer == kind && f.Season == seasonNumber);
         if (requested is not null)
         {
             int minX = requested.Min(t => t.Tile.X), maxX = requested.Max(t => t.Tile.X);
@@ -88,22 +92,25 @@ public static class FogEndpoints
             }
         }
 
-        return TypedResults.Ok(new FogResponse(kind, result, unchanged));
+        return TypedResults.Ok(new FogResponse(kind, season, result, unchanged));
     }
 
     private static async Task<Ok<FogSummaryResponse>> GetSummary(
-        ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
+        ClaimsPrincipal principal, AppDbContext db, SeasonStore seasons, TimeProvider time, CancellationToken cancellationToken)
     {
         var userId = principal.UserId();
+        var current = (await seasons.CalendarAsync(cancellationToken)).At(time.GetUtcNow())?.Number;
         var tiles = await db.FogTiles.AsNoTracking()
-            .Where(f => f.UserId == userId && f.Season == SeasonCalendar.AllTime)
-            .Select(f => new { f.Layer, f.TileX, f.TileY, f.CellCount })
+            .Where(f => f.UserId == userId && (f.Season == SeasonCalendar.AllTime || f.Season == current))
+            .Select(f => new { f.Layer, f.Season, f.TileX, f.TileY, f.CellCount })
             .ToListAsync(cancellationToken);
         var layers = tiles
-            .GroupBy(t => t.Layer)
-            .OrderBy(g => g.Key)
+            .GroupBy(t => (t.Layer, t.Season))
+            .OrderBy(g => g.Key.Season)
+            .ThenBy(g => g.Key.Layer)
             .Select(g => new FogLayerSummary(
-                g.Key,
+                g.Key.Layer,
+                g.Key.Season == SeasonCalendar.AllTime ? null : g.Key.Season,
                 g.Count(),
                 g.Sum(t => t.CellCount),
                 Math.Round(g.Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY))), 1)))

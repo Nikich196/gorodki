@@ -66,11 +66,12 @@ struct SampleDecodingTests {
         let summary = try Samples.decode(Components.Schemas.FogSummaryResponse.self, "fog-summary")
         let run = try Samples.decode(Components.Schemas.RunResponse.self, "run-finished")
 
-        #expect(fog.layer == .foot && fog.unchanged.map(\.x) == [9_271])
+        #expect(fog.layer == .foot && fog.season == 0 && fog.unchanged.map(\.x) == [9_271])
         let tile = try #require(fog.tiles.first)
         #expect(tile.cellCount == 55 && tile.version == 2)
         #expect(!tile.bits.data.isEmpty)
-        #expect(summary.layers.first?.areaSquareMeters == 42_580.5)
+        #expect(summary.layers.first?.areaSquareMeters == 42_580.5 && summary.layers.first?.season == nil)
+        #expect(summary.layers.last?.season == 0)  // сезонный слой; nil — за всё время
         #expect(run.fogNewCells == 1_234)
     }
 
