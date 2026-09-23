@@ -1,0 +1,30 @@
+# Игровое ядро GameCore на Linux (быстро и без Mac) и проверка оформления Swift-кода.
+name: ios-core
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-core-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ios-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Тесты GameCore
+        run: swift test --package-path ios/Packages/GameCore
+
+      - name: Оформление кода (swift-format)
+        working-directory: ios
+        run: swift format lint --strict --recursive --configuration .swift-format Packages App Widgets

@@ -1,0 +1,41 @@
+# Сервер: сборка, тесты и проверка, что Docker-образ для Render собирается.
+name: backend
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: backend/global.json
+
+      - name: Восстановление пакетов
+        run: dotnet restore Gorodki.slnx
+
+      - name: Сборка (предупреждения = ошибки)
+        run: dotnet build Gorodki.slnx --configuration Release --no-restore
+
+      - name: Тесты
+        run: dotnet test --solution Gorodki.slnx --configuration Release --no-build
+
+      - name: Docker-образ для Render
+        run: docker build --tag gorodki-api:ci .

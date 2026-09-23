@@ -1,0 +1,54 @@
+# IPA для установки на iPhone через Sideloadly (сборка Free, без Mac и без платного аккаунта).
+# Запуск: вкладка Actions → ipa → Run workflow, или автоматически после изменений iOS-кода в main.
+# Результат — во вкладке запуска, раздел Artifacts: два IPA (без подписи и с ad-hoc подписью).
+name: ipa
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ipa.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  XCODEGEN_VERSION: "2.46.0"
+
+jobs:
+  ipa:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Установка XcodeGen ${{ env.XCODEGEN_VERSION }}
+        run: ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$RUNNER_TEMP/xcodegen"
+
+      - name: Генерация Gorodki.xcodeproj
+        run: "$RUNNER_TEMP/xcodegen/bin/xcodegen generate --spec ios/project.yml"
+
+      - name: Release-Free для iPhone (без подписи)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Release-Free \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+      - name: Упаковка IPA
+        run: ios/scripts/package-ipa.sh "$RUNNER_TEMP/dd/Build/Products/Release-Free-iphoneos/Gorodki.app" "$RUNNER_TEMP/ipa"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gorodki-free-ipa-${{ github.run_number }}
+          path: ${{ runner.temp }}/ipa/*.ipa
+          retention-days: 14
+          if-no-files-found: error

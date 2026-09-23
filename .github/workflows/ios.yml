@@ -1,0 +1,112 @@
+# Сборка iOS-приложения на Mac в GitHub Actions (своего Mac пока нет).
+#  ios-build        — Xcode 27 (раннер xcode-27, public preview): Debug для симулятора и Release для iPhone;
+#  ios-build-xcode26 — раз в неделю резервная сборка на Xcode 26 (раннер macos-26),
+#                      чтобы не зависеть только от preview-раннера.
+name: ios
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1" # понедельник, 06:00 по Минску
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  XCODEGEN_VERSION: "2.46.0"
+
+jobs:
+  # Mac-раннер дорогой по времени, поэтому собираем только если менялся iOS-код.
+  # Пропущенная задача GitHub считает успешной, так что обязательная проверка не зависает.
+  changes:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            ios:
+              - 'ios/**'
+              - '.github/workflows/ios.yml'
+
+  ios-build:
+    needs: changes
+    # always(): задача оценивается, даже когда changes пропущена (запуск кнопкой).
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.ios == 'true')
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Версия Xcode
+        run: xcodebuild -version
+
+      - name: Установка XcodeGen ${{ env.XCODEGEN_VERSION }}
+        run: ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$RUNNER_TEMP/xcodegen"
+
+      - name: Генерация Gorodki.xcodeproj
+        run: "$RUNNER_TEMP/xcodegen/bin/xcodegen generate --spec ios/project.yml"
+
+      - name: Debug-Free для симулятора
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Debug-Free \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+      - name: Release-Free для iPhone (без подписи)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Release-Free \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+      - name: Release-Paid для iPhone (без подписи)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/Gorodki.xcodeproj -scheme "Gorodki Paid" -configuration Release-Paid \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+  ios-build-xcode26:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Версия Xcode
+        run: xcodebuild -version
+
+      - name: Установка XcodeGen ${{ env.XCODEGEN_VERSION }}
+        run: ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$RUNNER_TEMP/xcodegen"
+
+      - name: Генерация Gorodki.xcodeproj
+        run: "$RUNNER_TEMP/xcodegen/bin/xcodegen generate --spec ios/project.yml"
+
+      - name: Debug-Free для симулятора на Xcode 26
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Debug-Free \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
