@@ -30,6 +30,7 @@
 
 - [План проекта](docs/PLAN.md) — правила игры, архитектура, этапы.
 - [Журнал работ](docs/JOURNAL.md) — что сделано и что дальше.
+- [Контракты сервера и телефона](contracts/README.md) — игровой конфиг, который проверяют обе стороны.
 - [Как мы работаем](CONTRIBUTING.md) — ветки, коммиты, задачи, безопасность.
 - [Установка на iPhone без Mac](docs/guides/install-on-iphone.md) · [Сервер на Windows](docs/guides/getting-started-windows.md)
 

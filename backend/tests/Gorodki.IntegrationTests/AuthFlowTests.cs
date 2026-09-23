@@ -5,11 +5,7 @@ using System.Text.Json;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 
 namespace Gorodki.IntegrationTests;
 
@@ -223,32 +219,5 @@ public sealed class AuthFlowTests(DatabaseFixture database)
     {
         await using var db = database.CreateContext();
         return await db.Invites.Where(i => i.Code == code).Select(i => i.UsedCount).SingleAsync(Cancel);
-    }
-}
-
-/// <summary>Сервер в памяти, подключённый к базе в контейнере; время и Google — подставные.</summary>
-internal sealed class ApiFactory(DatabaseFixture database) : WebApplicationFactory<Program>
-{
-    public FakeTimeProvider Time { get; } = new(DateTimeOffset.UtcNow);
-
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseSetting("ConnectionStrings:Gorodki", database.ConnectionString);
-        builder.UseSetting("Auth:SigningKey", Convert.ToBase64String(Enumerable.Range(1, 32).Select(i => (byte)i).ToArray()));
-        builder.UseSetting("Auth:GoogleClientIds:0", "test-client-id");
-        builder.ConfigureServices(services =>
-        {
-            services.AddSingleton<TimeProvider>(Time);
-            services.AddSingleton<IGoogleTokenValidator, FakeGoogle>();
-        });
-    }
-
-    /// <summary>Подставной Google: «токен» вида <c>google:…</c> — это и есть идентификатор пользователя.</summary>
-    private sealed class FakeGoogle : IGoogleTokenValidator
-    {
-        public Task<GoogleIdentity?> ValidateAsync(string idToken, CancellationToken cancellationToken) =>
-            Task.FromResult(idToken.StartsWith("google:", StringComparison.Ordinal)
-                ? new GoogleIdentity(idToken, null, false)
-                : null);
     }
 }
