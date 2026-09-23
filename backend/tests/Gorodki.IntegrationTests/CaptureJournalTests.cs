@@ -36,8 +36,10 @@ public sealed class CaptureJournalTests(DatabaseFixture database)
         var geometry = new WKTReader(GeoOps.Factory.GeometryServices).Read(wkt);
         await using var db = database.CreateContext();
 
+        // Фигура передаётся текстом: объект NTS Npgsql отправил бы пустой многоугольник трёхмерным, и PostGIS добавил бы
+        // к нему байт размерности Z — сравнение было бы не того же самого.
         var postgis = await db.Database
-            .SqlQuery<byte[]>($"SELECT extensions.st_astwkb({geometry}, 1) AS \"Value\"")
+            .SqlQuery<byte[]>($"SELECT extensions.st_astwkb(extensions.st_geomfromtext({wkt}), 1) AS \"Value\"")
             .SingleAsync(Cancel);
         var ours = Twkb.Write(geometry);
         var readByPostgis = await db.Database
