@@ -55,6 +55,12 @@ public sealed record TerritoryRules
 
     /// <summary>Сколько уровней все нападающие вместе могут снять с куска за окно (в рейде — 3, рейды позже).</summary>
     public int MaxLevelsLostPerWindow { get; init; } = 2;
+
+    /// <summary>Угасание: −1 уровень за столько времени без визита (на семестр — 6 дней).</summary>
+    public TimeSpan DecayInterval { get; init; } = TimeSpan.FromDays(6);
+
+    /// <summary>Сколько потерянную землю ещё видно «призраком».</summary>
+    public TimeSpan GhostDuration { get; init; } = TimeSpan.FromDays(3);
 }
 
 /// <summary>Что захват сделал с куском земли.</summary>
@@ -92,7 +98,7 @@ public enum PieceOutcome
 /// </summary>
 /// <remarks>
 /// Реализованы: ничья земля, своя земля (+1 уровень не чаще 20 ч, не во время осады), соклановцы, щит, переход L1,
-/// «трещина» L2/L3 с осадой, лимиты снятия уровней, опоздавшая петля.
+/// «трещина» L2/L3 с осадой, лимиты снятия уровней, опоздавшая петля, угасание (по действующему уровню).
 /// Ослабление большой петли, рейды и защита от мультиаккаунтов — следующий шаг (этап 2).
 /// <para>
 /// Петли могут обрабатываться не в том порядке, в каком их пробежали (телефон был без сети). Правила устроены так,
@@ -110,7 +116,11 @@ public static class CaptureRules
     {
         var now = context.At;
 
-        if (current is null)
+        // Угасание — ленивое: решаем по действующему уровню, а храним уровень на момент визита. Поэтому там, где кусок
+        // не меняется, возвращается исходное состояние, «трещина» снимает уровень с хранимого, а визит закрепляет
+        // действующий уровень (часы угасания начинаются заново). Угасшая до нуля земля — ничья, даже для бывшего владельца.
+        var effective = current is null ? 0 : Decay.EffectiveLevel(current, now, rules);
+        if (current is null || effective == 0)
         {
             return (NewLand(context.CapturerId, now), PieceOutcome.ClaimedNeutral);
         }
@@ -119,12 +129,12 @@ public static class CaptureRules
         {
             var besieged = current.SiegeUntil > now;
             var canLevelUp = !besieged
-                && current.Level < rules.MaxLevel
+                && effective < rules.MaxLevel
                 && now - current.LastLevelUpAt >= rules.LevelUpInterval;
             var refreshed = current with
             {
                 LastVisitAt = Max(current.LastVisitAt, now),
-                Level = canLevelUp ? current.Level + 1 : current.Level,
+                Level = canLevelUp ? effective + 1 : effective,
                 LastLevelUpAt = canLevelUp ? now : current.LastLevelUpAt,
             };
             return (refreshed, PieceOutcome.Refreshed);
@@ -132,7 +142,8 @@ public static class CaptureRules
 
         if (context.ClanMates.Contains(current.OwnerId))
         {
-            return (current with { LastVisitAt = Max(current.LastVisitAt, now) }, PieceOutcome.RefreshedForClanMate);
+            var visited = current with { LastVisitAt = Max(current.LastVisitAt, now), Level = effective };
+            return (visited, PieceOutcome.RefreshedForClanMate);
         }
 
         if (current.LastVisitAt > now)
@@ -153,7 +164,7 @@ public static class CaptureRules
             return (current, PieceOutcome.LossLimited);
         }
 
-        if (current.Level <= 1)
+        if (effective <= 1)
         {
             var taken = NewLand(context.CapturerId, now) with { ShieldUntil = now + rules.TransferShield };
             return (taken, PieceOutcome.Transferred);

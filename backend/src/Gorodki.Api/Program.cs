@@ -54,6 +54,7 @@ if (withDatabase)
     // Обработка захватов: заявки петель → проверка → земля. Фоновый обработчик можно выключить (так делают тесты).
     builder.Services.AddSingleton<CaptureSignal>();
     builder.Services.AddScoped<CaptureProcessor>();
+    builder.Services.AddScoped<TerritoryReader>();
     if (builder.Configuration.GetValue(CaptureWorker.EnabledSetting, defaultValue: true))
     {
         builder.Services.AddHostedService<CaptureWorker>();

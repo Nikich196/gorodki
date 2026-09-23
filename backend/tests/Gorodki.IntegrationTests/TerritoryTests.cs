@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Domain.Geo;
+using Microsoft.Extensions.DependencyInjection;
 using NetTopologySuite.Geometries;
 using static Gorodki.IntegrationTests.RunRequests;
 using static Gorodki.IntegrationTests.Walks;
@@ -36,6 +37,34 @@ public sealed class TerritoryTests(DatabaseFixture database)
         Assert.InRange(AreaOf(parcel.Exterior), 9_500, 10_500);
         Assert.Empty(again!.Tiles);
         Assert.Equal(new TileRef(tile.X, tile.Y), Assert.Single(again.Unchanged));
+    }
+
+    [Fact]
+    public async Task Land_decays_to_a_ghost_and_then_disappears_from_the_map()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, userId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var claim = await WalkAndClaimAsync(Cancel, api, client, Square(area, 0, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+
+        // Чтение — напрямую через сервис: после сдвига часов на неделю токен для HTTP мог бы истечь.
+        api.Time.Advance(TimeSpan.FromDays(7));
+        var ghost = (await ReadAsync(api, tile)).Parcels.Single();
+        api.Time.Advance(TimeSpan.FromDays(3));
+        var gone = (await ReadAsync(api, tile)).Parcels;
+
+        Assert.Equal((userId, (short)0, true), (ghost.OwnerId, ghost.Level, ghost.Ghost));
+        Assert.Empty(gone);
+    }
+
+    private static async Task<TileTerritory> ReadAsync(ApiFactory api, TileKey tile)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        var reader = scope.ServiceProvider.GetRequiredService<TerritoryReader>();
+        return (await reader.ReadAsync(Gorodki.Domain.Leagues.League.Run, [(tile, null)], CancellationToken.None)).Tiles.Single();
     }
 
     [Fact]

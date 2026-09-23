@@ -72,6 +72,7 @@ public sealed class GameConfigContractTests
         Assert.Equal(3, config.Territory.MaxLevel);
         Assert.Equal(20, config.Territory.LevelUpIntervalHours);
         Assert.Equal((20.0, 2), (config.Territory.LevelLossWindowHours, config.Territory.MaxLevelsLostPerWindow));
+        Assert.Equal((6.0, 3.0), (config.Territory.DecayDaysPerLevel, config.Territory.GhostDays));
         Assert.Equal(25, config.Exploration.RevealRadiusMeters);
         Assert.Equal(2, config.Exploration.RadarMultiplier);
 

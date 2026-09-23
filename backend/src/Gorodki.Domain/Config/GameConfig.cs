@@ -76,6 +76,12 @@ public sealed record TerritoryConfig
 
     public int MaxLevelsLostPerWindow { get; init; } = 2;
 
+    /// <summary>Угасание: −1 уровень за столько дней без визита.</summary>
+    public double DecayDaysPerLevel { get; init; } = 6;
+
+    /// <summary>Сколько дней потерянную землю видно «призраком».</summary>
+    public double GhostDays { get; init; } = 3;
+
     public TerritoryRules ToRules() => new()
     {
         MaxLevel = MaxLevel,
@@ -84,6 +90,8 @@ public sealed record TerritoryConfig
         Siege = TimeSpan.FromHours(SiegeHours),
         LevelLossWindow = TimeSpan.FromHours(LevelLossWindowHours),
         MaxLevelsLostPerWindow = MaxLevelsLostPerWindow,
+        DecayInterval = TimeSpan.FromDays(DecayDaysPerLevel),
+        GhostDuration = TimeSpan.FromDays(GhostDays),
     };
 }
 

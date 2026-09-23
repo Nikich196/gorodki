@@ -1,15 +1,14 @@
 using System.Globalization;
 using Gorodki.Api.Features.Captures;
-using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.EntityFrameworkCore;
-using NetTopologySuite.Geometries;
 
 namespace Gorodki.Api.Features.Territory;
 
 /// <summary>Кусок земли для карты.</summary>
+/// <param name="Level">Действующий уровень с учётом угасания (§3.3); 0 — у «призрака».</param>
+/// <param name="Ghost">Земля уже потеряна (угасла), но ещё 3 дня видна «призраком».</param>
 /// <param name="Exterior">Внешний контур: <c>[широта, долгота, широта, долгота, …]</c>, первая точка повторяется в конце.</param>
 /// <param name="Holes">Дыры (чужая земля внутри), в том же виде.</param>
 public sealed record ParcelView(
@@ -17,6 +16,7 @@ public sealed record ParcelView(
     Guid OwnerId,
     short ColorIndex,
     short Level,
+    bool Ghost,
     long LastVisitAtMs,
     long? ShieldUntilMs,
     long? SiegeUntilMs,
@@ -51,7 +51,7 @@ public static class TerritoryEndpoints
     }
 
     private static async Task<Results<Ok<TerritoryResponse>, ProblemHttpResult>> GetTerritory(
-        string? league, string? tiles, AppDbContext db, CancellationToken cancellationToken)
+        string? league, string? tiles, TerritoryReader reader, CancellationToken cancellationToken)
     {
         if (ParseLeague(league) is not { } parsedLeague || ParseTiles(tiles) is not { } requested)
         {
@@ -61,47 +61,7 @@ public static class TerritoryEndpoints
                 extensions: new Dictionary<string, object?> { ["code"] = "territory_query_invalid" });
         }
 
-        int minX = requested.Min(t => t.Tile.X), maxX = requested.Max(t => t.Tile.X);
-        int minY = requested.Min(t => t.Tile.Y), maxY = requested.Max(t => t.Tile.Y);
-        var versions = (await db.TileVersions.AsNoTracking()
-                .Where(v => v.League == parsedLeague && v.TileX >= minX && v.TileX <= maxX && v.TileY >= minY && v.TileY <= maxY)
-                .ToListAsync(cancellationToken))
-            .ToDictionary(v => new TileKey(v.TileX, v.TileY), v => v.Version);
-
-        var changed = new List<(TileKey Tile, long Version)>();
-        var unchanged = new List<TileRef>();
-        foreach (var (tile, known) in requested)
-        {
-            var version = versions.GetValueOrDefault(tile);
-            if (known == version)
-            {
-                unchanged.Add(new TileRef(tile.X, tile.Y));
-            }
-            else
-            {
-                changed.Add((tile, version));
-            }
-        }
-
-        var parcels = changed.Count == 0
-            ? []
-            : await db.Parcels.AsNoTracking()
-                .Where(p => p.League == parsedLeague && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
-                .Join(db.Users, p => p.OwnerId, u => u.Id, (p, u) => new { Parcel = p, u.ColorIndex })
-                .ToListAsync(cancellationToken);
-
-        var result = changed
-            .Select(c => new TileTerritory(
-                c.Tile.X,
-                c.Tile.Y,
-                c.Version,
-                parcels
-                    .Where(p => p.Parcel.TileX == c.Tile.X && p.Parcel.TileY == c.Tile.Y)
-                    .OrderBy(p => p.Parcel.Id)
-                    .Select(p => ToView(p.Parcel, p.ColorIndex))
-                    .ToList()))
-            .ToList();
-        return TypedResults.Ok(new TerritoryResponse(parsedLeague, result, unchanged));
+        return TypedResults.Ok(await reader.ReadAsync(parsedLeague, requested, cancellationToken));
     }
 
     /// <summary>Тайлы из строки <c>684:5775,685:5775@3</c>; null — если формат неверный или тайлов нет либо слишком много.</summary>
@@ -154,30 +114,4 @@ public static class TerritoryEndpoints
         "bike" => League.Bike,
         _ => null,
     };
-
-    private static ParcelView ToView(ParcelEntity parcel, short colorIndex) => new(
-        parcel.Id,
-        parcel.OwnerId,
-        colorIndex,
-        parcel.Level,
-        parcel.LastVisitAt.ToUnixTimeMilliseconds(),
-        parcel.ShieldUntil?.ToUnixTimeMilliseconds(),
-        parcel.SiegeUntil?.ToUnixTimeMilliseconds(),
-        LatLon(parcel.Geometry.ExteriorRing),
-        [.. parcel.Geometry.InteriorRings.Select(LatLon)]);
-
-    /// <summary>Кольцо из UTM 34N в широту и долготу; 7 знаков после запятой — около 1 см.</summary>
-    private static IReadOnlyList<double> LatLon(LineString ring)
-    {
-        var result = new double[ring.NumPoints * 2];
-        for (var i = 0; i < ring.NumPoints; i++)
-        {
-            var point = ring.GetCoordinateN(i);
-            var (latitude, longitude) = Utm34.Inverse(point.X, point.Y);
-            result[2 * i] = Math.Round(latitude, 7);
-            result[(2 * i) + 1] = Math.Round(longitude, 7);
-        }
-
-        return result;
-    }
 }
