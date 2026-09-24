@@ -61,6 +61,11 @@ targets:
     platform: iOS
     sources:
       - path: App
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # Манифест приватности (PLAN.md, §7.2) — в ресурсы бандла явно: без него App Store Connect не примет сборку.
+      - path: App/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - target: GorodkiWidgets
       - package: GameCore
@@ -103,6 +108,11 @@ targets:
     platform: iOS
     sources:
       - path: Widgets
+        excludes:
+          - PrivacyInfo.xcprivacy
+      # У расширения — свой манифест приватности.
+      - path: Widgets/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - package: GorodkiKit
         product: DesignSystem

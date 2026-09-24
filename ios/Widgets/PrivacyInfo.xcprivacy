@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Манифест приватности расширения (PLAN.md, §7.2 «Info.plist»): у каждого бандла — свой. Расширение только
+       показывает Live Activity и читает отметку приложения из App Group: API «с обязательной причиной» не вызывает и
+       данных не собирает. Появится такой API (например, UserDefaults группы) — допишите сюда. -->
+  <key>NSPrivacyTracking</key>
+  <false/>
+  <key>NSPrivacyTrackingDomains</key>
+  <array/>
+  <key>NSPrivacyCollectedDataTypes</key>
+  <array/>
+  <key>NSPrivacyAccessedAPITypes</key>
+  <array/>
+</dict>
+</plist>
