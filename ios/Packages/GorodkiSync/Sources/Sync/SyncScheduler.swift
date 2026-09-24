@@ -98,6 +98,55 @@ public struct SyncBackoff: Sendable, Equatable {
     }
 }
 
+/// Что попросить у iOS, чтобы дослать очередь, когда приложение в фоне (`BGTaskScheduler`).
+public struct BackgroundRequest: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        /// `BGAppRefreshTask`: короткое пробуждение (около 30 секунд), когда iOS сочтёт уместным.
+        case refresh
+        /// `BGProcessingTask` с сетью: несколько минут, обычно когда телефоном не пользуются.
+        case upload
+    }
+
+    public var kind: Kind
+    /// Не раньше чем через столько; iOS решает сама и может разбудить позже.
+    public var earliest: Duration
+
+    public init(_ kind: Kind, after earliest: Duration) {
+        self.kind = kind
+        self.earliest = earliest
+    }
+}
+
+/// Правило «будить ли приложение в фоне» — чистая функция, без `BackgroundTasks`.
+///
+/// - Недоставленные забеги — оба пробуждения: короткое и длинное с сетью (длинное успевает дослать большой забег).
+/// - Только заявки без итога — короткое: забрать итоги.
+/// - Вход истёк, часы сбиты, аккаунт удаляется — ничего: без действия игрока проход бесполезен.
+/// - Не раньше, чем решило расписание (`SyncWake.after`), и не чаще раза в 15 минут: раньше iOS всё равно не разбудит.
+public enum BackgroundSyncPlan {
+    public static let minimumDelay: Duration = .seconds(15 * 60)
+
+    public static func requests(after wake: SyncWake, backlog: SyncBacklog) -> [BackgroundRequest] {
+        let delay: Duration
+        switch wake {
+        case .needsSignIn, .blocked:
+            return []
+        case .idle:
+            delay = minimumDelay
+        case .after(let wait):
+            delay = max(wait, minimumDelay)
+        }
+        var requests: [BackgroundRequest] = []
+        if backlog.unfinishedDeliveries > 0 {
+            requests.append(BackgroundRequest(.upload, after: delay))
+        }
+        if backlog.unfinishedDeliveries > 0 || backlog.unsettledClaims > 0 {
+            requests.append(BackgroundRequest(.refresh, after: delay))
+        }
+        return requests
+    }
+}
+
 /// Когда запускать синхронизацию (PLAN.md, §7.2: SyncEngine, фоновая выгрузка): по событиям приложения и по таймеру
 /// из `SyncBackoff`. Проходы не накладываются: событие во время прохода запускает ещё один проход после него.
 public actor SyncScheduler {
@@ -115,6 +164,9 @@ public actor SyncScheduler {
         case hint
         /// Сработал таймер повтора.
         case timer
+        /// Приложение уходит в фон или iOS разбудила его фоновой задачей: время ограничено, шаг повторов сначала.
+        /// Истёкший вход и сбитые часы не обходит — в отличие от выхода на передний план.
+        case backgroundTask
     }
 
     private let engine: SyncEngine
@@ -123,12 +175,18 @@ public actor SyncScheduler {
     private let sleep: @Sendable (Duration) async throws -> Void
     private var backoff = SyncBackoff()
     private var wake: SyncWake = .idle
+    private var lastBacklog = SyncBacklog()
     private var timer: Task<Void, Never>?
     private var running = false
     private var rerun = false
 
     /// Последнее решение «когда снова» — для экрана «Синхронизация» и проверок.
     public var nextWake: SyncWake { wake }
+
+    /// Какие фоновые пробуждения попросить у iOS после последнего прохода (`BackgroundSyncPlan`).
+    public var backgroundRequests: [BackgroundRequest] {
+        BackgroundSyncPlan.requests(after: wake, backlog: lastBacklog)
+    }
 
     public init(
         engine: SyncEngine,
@@ -146,7 +204,7 @@ public actor SyncScheduler {
     @discardableResult
     public func trigger(_ reason: Reason) async -> SyncWake {
         switch reason {
-        case .appActive, .networkRestored, .signedIn:
+        case .appActive, .networkRestored, .signedIn, .backgroundTask:
             backoff.reset()
         case .recorded, .hint, .timer:
             break
@@ -170,7 +228,8 @@ public actor SyncScheduler {
         repeat {
             rerun = false
             let report = await engine.syncOnce()
-            wake = backoff.next(after: report, backlog: await backlog(), appActive: await appActive())
+            lastBacklog = await backlog()
+            wake = backoff.next(after: report, backlog: lastBacklog, appActive: await appActive())
         } while rerun
         schedule(wake)
         return wake
@@ -181,6 +240,7 @@ public actor SyncScheduler {
         timer?.cancel()
         timer = nil
         wake = .idle
+        lastBacklog = SyncBacklog()
     }
 
     private func schedule(_ wake: SyncWake) {

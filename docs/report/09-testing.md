@@ -12,7 +12,7 @@
 | Логика сервера (`Gorodki.Domain.Tests`) | Движок участков, правила уровней и отбора, угасание, визиты, туман, судья отрезков, календарь сезонов, игровой конфиг | 232 прогона (164 теста, часть — с набором данных) | Linux в CI, WSL локально |
 | Сервер в памяти (`Gorodki.Api.Tests`) | Описание API и образцы ответов совпадают с контрактами, здоровье сервера, граница публичности, номера кусков, псевдонимы | 34 | Linux, без базы |
 | Интеграционные (`Gorodki.IntegrationTests`) | Каждый адрес и фоновый проход на настоящей базе: захваты, откат, визиты, туман, хранение, удаление, выгрузка, приватные зоны, мультиаккаунты, реальное время, рейтинги | 88 тестов | Только CI: образ `supabase/postgres:17.6.1.175` — та же PostgreSQL и PostGIS 3.3.7, что в Supabase (Testcontainers) |
-| Логика телефона (Swift-пакеты) | `GameCore` 52, `GorodkiAPI` 11, `GorodkiSync` 55, `GorodkiNetwork` 70 (из них реальное время 21), `GorodkiPersistence` 10 | 198 | Linux в CI и WSL — без Mac |
+| Логика телефона (Swift-пакеты) | `GameCore` 52, `GorodkiAPI` 11, `GorodkiSync` 60, `GorodkiNetwork` 70 (из них реальное время 21), `GorodkiPersistence` 10 | 203 | Linux в CI и WSL — без Mac |
 | Приложение | Сборка Debug, Release-Free, Release-Paid | — | macOS в CI (`xcodebuild`) |
 
 ## 9.2. Геодвижок: property-тесты и оракул

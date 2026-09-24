@@ -32,6 +32,8 @@ struct GorodkiApp: App {
                 // В фоне подсказки некому показывать, а соединение тратит батарею: закрыть, а не ждать, пока iOS
                 // оборвёт его сама (у сервера — не больше трёх соединений на игрока).
                 Task { await dependencies.realtime?.stop() }
+                // Дослать очередь, пока iOS даёт время, и попросить фоновые пробуждения.
+                BackgroundSync.enterBackground()
             default:
                 break
             }

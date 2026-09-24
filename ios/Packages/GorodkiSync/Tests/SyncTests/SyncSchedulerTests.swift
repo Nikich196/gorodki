@@ -77,6 +77,46 @@ struct SyncSchedulerTests {
                 == .after(.seconds(30)))
     }
 
+    // MARK: - Фоновые пробуждения
+
+    @Test("Фон: недоставленные забеги — оба пробуждения, только заявки без итога — короткое, пусто — ничего")
+    func backgroundRequestsFollowTheBacklog() {
+        let quarter = BackgroundSyncPlan.minimumDelay
+        #expect(
+            BackgroundSyncPlan.requests(after: .after(.seconds(15)), backlog: .init(unfinishedDeliveries: 1))
+                == [BackgroundRequest(.upload, after: quarter), BackgroundRequest(.refresh, after: quarter)])
+        #expect(
+            BackgroundSyncPlan.requests(after: .idle, backlog: .init(unsettledClaims: 2))
+                == [BackgroundRequest(.refresh, after: quarter)])
+        #expect(BackgroundSyncPlan.requests(after: .idle, backlog: .init()).isEmpty)
+    }
+
+    @Test("Фон: не раньше решения расписания и не чаще раза в 15 минут")
+    func backgroundRequestsRespectTheWake() {
+        let backlog = SyncBacklog(unfinishedDeliveries: 1)
+        #expect(
+            BackgroundSyncPlan.requests(after: .after(.seconds(3_600)), backlog: backlog)
+                == [
+                    BackgroundRequest(.upload, after: .seconds(3_600)),
+                    BackgroundRequest(.refresh, after: .seconds(3_600)),
+                ])
+        #expect(
+            BackgroundSyncPlan.requests(after: .after(.seconds(900)), backlog: backlog).map(\.earliest)
+                == [.seconds(900), .seconds(900)])
+        #expect(
+            BackgroundSyncPlan.requests(after: .after(.seconds(899)), backlog: backlog).map(\.earliest)
+                == [.seconds(900), .seconds(900)])
+    }
+
+    @Test(
+        "Фон: вход истёк, часы сбиты, аккаунт удаляется — не будить: без игрока проход бесполезен",
+        arguments: [SyncWake.needsSignIn, .blocked(.clockInvalid), .blocked(.accountDeleting)])
+    func backgroundRequestsWaitForThePlayer(_ wake: SyncWake) {
+        #expect(
+            BackgroundSyncPlan.requests(after: wake, backlog: .init(unfinishedDeliveries: 3, unsettledClaims: 1))
+                .isEmpty)
+    }
+
     // MARK: - Расписание
 
     /// Сон таймера: запоминает, на сколько просили уснуть, и не спит (дальше таймер не идёт).
@@ -156,6 +196,48 @@ struct SyncSchedulerTests {
         await server.clearStartAnswer(of: run.id)
         #expect(await scheduler.trigger(.signedIn) == .idle)
         #expect(await server.log.contains("finish"))
+    }
+
+    @Test("Фоновая задача: шаг повторов сначала, но истёкший вход она не обходит")
+    func backgroundTaskResetsBackoffButNotSignIn() async throws {
+        let run = Fixture.run()
+        try await Fixture.record(run, points: 5, into: store)
+        let scheduler = scheduler()
+
+        await server.fail("start", with: .offline)
+        #expect(await scheduler.trigger(.appActive) == .after(.seconds(15)))
+        await server.fail("start", with: .offline)
+        #expect(await scheduler.trigger(.timer) == .after(.seconds(30)))
+        await server.fail("start", with: .offline)
+        #expect(await scheduler.trigger(.backgroundTask) == .after(.seconds(15)))
+
+        await server.answerStart(of: run.id, status: 401, code: "")
+        #expect(await scheduler.trigger(.timer) == .needsSignIn)
+        let requests = await server.log.count
+        #expect(await scheduler.trigger(.backgroundTask) == .needsSignIn)
+        #expect(await server.log.count == requests)
+        #expect(await scheduler.backgroundRequests.isEmpty)
+    }
+
+    @Test("После прохода — какие фоновые пробуждения просить: нет сети — оба, доставлено с заявкой — короткое")
+    func backgroundRequestsAfterPasses() async throws {
+        try await Fixture.record(Fixture.run(), points: 25, into: store, claims: [Fixture.loop(2, 14)])
+        let scheduler = scheduler()
+        let quarter = BackgroundSyncPlan.minimumDelay
+        #expect(await scheduler.backgroundRequests.isEmpty)
+
+        await server.fail("start", with: .offline)
+        await scheduler.trigger(.backgroundTask)
+        #expect(
+            await scheduler.backgroundRequests
+                == [BackgroundRequest(.upload, after: quarter), BackgroundRequest(.refresh, after: quarter)])
+
+        await scheduler.trigger(.backgroundTask)
+        #expect(await server.log.contains("finish"))
+        #expect(await scheduler.backgroundRequests == [BackgroundRequest(.refresh, after: quarter)])
+
+        await scheduler.stop()
+        #expect(await scheduler.backgroundRequests.isEmpty)
     }
 
     @Test("Очередь игрока: недоставленные забеги и заявки без итога")
