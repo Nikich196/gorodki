@@ -13,22 +13,42 @@ import UIKit
 /// Проход можно оборвать где угодно: состояние после каждого ответа сервера уже в базе. Поэтому истёкшее время ничего
 /// не портит — следующий проход продолжит с того же места.
 enum BackgroundSync {
-    /// Идентификаторы — как в Info.plist (`BGTaskSchedulerPermittedIdentifiers`): иначе iOS не даст их зарегистрировать.
+    /// Идентификаторы — из Info.plist (`BGTaskSchedulerPermittedIdentifiers`): других iOS не даст зарегистрировать.
     static let refreshIdentifier = identifier("sync.refresh")
     static let uploadIdentifier = identifier("sync.upload")
 
     private static func identifier(_ suffix: String) -> String {
-        "\(Bundle.main.bundleIdentifier ?? "gorodki").\(suffix)"
+        BackgroundTaskIdentifiers.pick(
+            suffix,
+            permitted: Bundle.main.object(forInfoDictionaryKey: BackgroundTaskIdentifiers.infoPlistKey) as? [String],
+            bundleIdentifier: Bundle.main.bundleIdentifier)
     }
+
+    /// Как iOS приняла фоновые задачи — для «Проверки установки»: отказ иначе ничем не виден, досылка просто не идёт.
+    struct Status: Equatable, Sendable {
+        /// Идентификаторы, которые iOS не дала зарегистрировать.
+        var rejected: [String] = []
+        /// Ошибка последней заявки по идентификатору; принятая заявка ошибку своего идентификатора стирает.
+        var submitErrors: [String: String] = [:]
+    }
+
+    static var status: Status { statusStore.value.withLock { $0 } }
+    private static let statusStore = StatusStore()
 
     /// Обработчики фоновых задач. Только до конца запуска приложения (`application(_:didFinishLaunchingWithOptions:)`):
     /// iOS может запустить приложение ради задачи и отдать её сразу.
     static func register() {
+        var rejected: [String] = []
         for identifier in [refreshIdentifier, uploadIdentifier] {
-            _ = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
+            let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
                 run(task)
             }
+            if !registered {
+                rejected.append(identifier)
+            }
         }
+        let result = rejected
+        statusStore.value.withLock { $0.rejected = result }
     }
 
     /// Приложение уходит в фон: дослать очередь, пока iOS даёт время, и попросить фоновые пробуждения.
@@ -101,11 +121,20 @@ enum BackgroundSync {
         taskRequest.earliestBeginDate = Date.now.addingTimeInterval(Double(request.earliest.components.seconds))
         do {
             try BGTaskScheduler.shared.submit(taskRequest)
+            statusStore.value.withLock { $0.submitErrors[identifier] = nil }
         } catch {
-            // Симулятор, выключенное «Обновление контента» или лимит заявок: очередь дошлётся, когда приложение
-            // откроют.
+            // Симулятор, выключенное «Обновление контента», лимит заявок или идентификатор не из Info.plist: очередь
+            // дошлётся, когда приложение откроют. Причину покажет «Проверка установки».
+            let message = error.localizedDescription
+            statusStore.value.withLock { $0.submitErrors[identifier] = message }
         }
     }
+}
+
+/// Итог регистрации и заявок: пишут фоновые задачи с любых потоков, читает экран. Mutex нельзя копировать — поэтому
+/// в классе.
+private final class StatusStore: Sendable {
+    let value = Mutex(BackgroundSync.Status())
 }
 
 /// Время, которое iOS даёт приложению, уходящему в фон. Вернуть его нужно ровно один раз — по концу прохода или когда

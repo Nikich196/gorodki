@@ -15,11 +15,6 @@ struct GorodkiApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .task {
-                    NetworkWatcher.shared.start()
-                    RealtimeRelay.shared.start()
-                    SessionRelay.shared.start()
-                }
         }
         .onChange(of: scenePhase) { _, phase in
             let dependencies = AppDependencies.shared
@@ -106,7 +101,9 @@ final class SessionRelay {
                 if await MainActor.run(body: { UIApplication.shared.applicationState == .active }) {
                     await dependencies.realtime?.start()
                 }
-                await dependencies.syncScheduler()?.trigger(.signedIn)
+                // Не ждать прохода (досылка очереди может идти долго): выход, пришедший во время него, должен сразу
+                // закрыть соединение и сбросить кэши прежнего игрока.
+                Task { await dependencies.syncScheduler()?.trigger(.signedIn) }
             }
         }
     }
