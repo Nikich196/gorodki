@@ -35,6 +35,7 @@ jobs:
   changes:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       ios: ${{ steps.filter.outputs.ios }}
     steps:
@@ -49,8 +50,13 @@ jobs:
 
   ios-build:
     needs: changes
-    # always(): задача оценивается, даже когда changes пропущена (запуск кнопкой).
-    if: always() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.ios == 'true')
+    # Сборка идёт, если менялся iOS-код, при запуске кнопкой (changes пропущена) и если changes не отработала: упала,
+    # вышла по времени. Иначе сбой фильтра путей молча пропускал бы в main непроверенный iOS-код — пропущенную
+    # ios-build GitHub считает пройденной. !cancelled(), а не always(): отменённый прогон (новый коммит в PR) не должен
+    # занимать Mac-раннер сборкой. По расписанию ios-build не нужна — там резервная сборка ниже.
+    if: >-
+      ${{ !cancelled() && github.event_name != 'schedule' &&
+      (needs.changes.result != 'success' || needs.changes.outputs.ios == 'true') }}
     runs-on: xcode-27
     timeout-minutes: 45
     steps:
