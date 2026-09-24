@@ -1,0 +1,61 @@
+# Геодвижок на 10 000 случайных историй каждую ночь — информационно (PLAN.md, §13: «геодвижок: property-тесты
+# 10 000 случаев»). В PR тесты участков идут на 150 историях (GORODKI_GEO_ITERATIONS по умолчанию, задача backend) —
+# быстро, но редкий случай там почти не встречается. CsCheck каждую ночь берёт новые случайные истории, так что
+# за неделю проверяется 70 000, а не одни и те же. Упало — в журнале шага строка «Set seed: "…"»: с ней случай
+# повторяется у себя (CONTRIBUTING.md, «Сервер»).
+# Идут все тесты Gorodki.Domain.Tests: число историй влияет только на property-тесты, остальные — секунды.
+# Расписание привязывает проверку к последнему коммиту main. Render выкатывает сервер, только если все проверки
+# коммита зелёные, — но к 03:00 проверки дневных слияний давно прошли; задержать деплой может только слияние в сервер
+# за минуты до ночного запуска, если ночной найдёт ошибку.
+name: geo-nightly
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # 03:00 по Минску
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Сколько случайных историй (GORODKI_GEO_ITERATIONS)"
+        default: "10000"
+        required: true
+
+concurrency:
+  group: geo-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  geo-property:
+    runs-on: ubuntu-latest
+    # 10 000 историй на 4 ядрах — около 10 минут (замер в WSL 24.09); запас на медленный раннер.
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Через переменную, а не подстановкой в скрипт: ввод кнопки — строка от человека.
+      GORODKI_GEO_ITERATIONS: ${{ inputs.iterations || '10000' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: backend/global.json
+
+      # Не число — тесты молча взяли бы 150 историй по умолчанию, и «ночная проверка» ничего бы не проверяла.
+      - name: Число историй
+        run: |
+          if ! [[ "$GORODKI_GEO_ITERATIONS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::GORODKI_GEO_ITERATIONS должно быть целым числом больше нуля, а не «$GORODKI_GEO_ITERATIONS»"
+            exit 1
+          fi
+          echo "Историй на инварианты и откат последнего захвата: $GORODKI_GEO_ITERATIONS" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Сборка тестов Domain
+        run: dotnet build tests/Gorodki.Domain.Tests --configuration Release
+
+      - name: Property-тесты геодвижка
+        run: dotnet test --project tests/Gorodki.Domain.Tests --configuration Release --no-build
