@@ -89,6 +89,7 @@ public sealed class TerritoryPropertyTests
                 var othersOutsideBefore = Players
                     .Where(p => p != capturer)
                     .ToDictionary(p => p, p => GeoOps.Difference(LandOf(map, p), capture).Area);
+                var piecesBefore = map.Tiles.ToDictionary(tile => tile, tile => map.ParcelsIn(tile));
 
                 var result = map.Apply(capture, new CaptureContext(capturer, time, new HashSet<Guid>()));
 
@@ -99,6 +100,9 @@ public sealed class TerritoryPropertyTests
                 // I1, I2, I6: правильная геометрия, без наложений, без осколков.
                 var errors = TerritoryInvariants.Check(map);
                 Assert.True(errors.Count == 0, $"{step}: {string.Join("; ", errors)}");
+
+                // I7: нетронутая земля не переписывается (аудит BE-01).
+                AssertUntouchedLandKept(step, piecesBefore, result, map);
 
                 // Каждый квадратный метр петли получил решение.
                 var decided = result.AreaByOutcome.Values.Sum();
@@ -125,6 +129,105 @@ public sealed class TerritoryPropertyTests
                 }
             }
         }, iter: Iterations);
+    }
+
+    /// <summary>
+    /// I7: переписаны только тайлы, где изменилось состояние земли, и в каждом из них есть что записать; остальные тайлы —
+    /// те же объекты кусков; кусок, чьи земля (множество точек) и состояние не изменились, — прежний объект, то есть в базе
+    /// он сохраняет номер. Куски, чья граница сдвинулась на сантиметры (излом от snap-rounding у изменённой земли), здесь
+    /// не в счёт: это известный остаток (UntouchedLandTests, docs/architecture/territory-map.md).
+    /// </summary>
+    private static void AssertUntouchedLandKept(
+        Step step, Dictionary<TileKey, IReadOnlyList<Parcel>> piecesBefore, CaptureResult result, TerritoryMap map)
+    {
+        Assert.Equal(result.Changes.Select(c => c.Tile), result.ChangedTiles);
+        foreach (var tile in piecesBefore.Keys.Union(result.ChangedTiles))
+        {
+            var before = piecesBefore.GetValueOrDefault(tile) ?? [];
+            var after = map.ParcelsIn(tile);
+            if (!result.ChangedTiles.Contains(tile))
+            {
+                Assert.True(before.SequenceEqual(after, ReferenceEqualityComparer.Instance), $"{step}: тайл {tile} переписан, хотя его нет в списке");
+                continue;
+            }
+
+            var diff = ParcelDiff.Compute([.. before.Select((piece, i) => ((long)i, piece))], after);
+            Assert.False(diff.IsEmpty, $"{step}: тайл {tile} в списке переписанных, но записывать в нём нечего");
+            foreach (var piece in after)
+            {
+                var same = before.FirstOrDefault(old => old.State == piece.State
+                    && old.Geometry.EnvelopeInternal.Equals(piece.Geometry.EnvelopeInternal)
+                    && old.Geometry.EqualsTopologically(piece.Geometry));
+                Assert.True(same is null || ReferenceEquals(same, piece), $"{step}: в тайле {tile} переписан кусок той же земли и того же состояния");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Вторая сборка тайла (по линиям журнала) изредка расходится с первой — тогда записываются куски первой, и нетронутую
+    /// землю режет граница петли (аудит BE-01). Движок при этом не ошибается, но сервер должен об этом узнать: иначе
+    /// частоту в проде не выяснить. История найдена перебором случайных историй этого же генератора (2 случая
+    /// на 4 420 захватов). Если здесь вторая сборка перестанет расходиться — это не поломка: нужен другой такой случай.
+    /// </summary>
+    [Fact]
+    public void Reassembly_fallback_is_reported()
+    {
+        Step[] history =
+        [
+            new(
+                Player: 2,
+                CenterX: -96.7420453656195,
+                CenterY: 2.1202759827115756,
+                Radii:
+                [
+                    80.04680987915341, 141.80740227541298, 45.78099574697251, 31.463265307929024, 247.6054087456341,
+                    174.18177989506245, 115.97574375848087, 49.4069132764856, 80.92696492137712, 68.57144433007177,
+                    143.63101844379258, 242.35342845895954, 57.43467903110882,
+                ],
+                Rotation: 1.626451275747115,
+                HoursLater: 1.4616642712902577,
+                NoiseSeed: 20331),
+            new(
+                Player: 1,
+                CenterX: -118.48170297149647,
+                CenterY: 11.738247616094611,
+                Radii:
+                [
+                    202.965252982902, 247.94762439930236, 234.31064102068106, 189.71358878524674, 196.3405037328324,
+                    174.6780194643317, 79.68277292776982, 234.11245060344808, 205.95435586569567, 144.19816544940608,
+                    131.48215528646585, 84.42421512418623, 39.82672411474712,
+                ],
+                Rotation: 6.123787865642118,
+                HoursLater: 25.871907154038507,
+                NoiseSeed: 201494),
+            new(
+                Player: 3,
+                CenterX: -100.32149353079569,
+                CenterY: -128.4464093523316,
+                Radii:
+                [
+                    79.02998006391803, 59.72228585263821, 37.27352942678776, 107.4860905564791, 40.318387341833855,
+                    138.46132011546814, 194.7767637878548, 180.4453748047563, 97.47643220586536, 156.69854436381652,
+                    177.9261101632966, 67.55191620325293, 220.1679194300286, 57.31654965659443,
+                ],
+                Rotation: 3.8281322365473818,
+                HoursLater: 7.104434383616054,
+                NoiseSeed: 579530),
+        ];
+
+        var map = new TerritoryMap();
+        var time = T0;
+        var fallbacks = new List<int>();
+        foreach (var step in history)
+        {
+            time = time.AddHours(step.HoursLater);
+            var shape = CaptureShapeBuilder.Build(TrailOf(step), 40, null, ShapeSettings);
+            Assert.True(shape.IsAccepted, $"{step}: {shape.Rejection}");
+            fallbacks.Add(map.Apply(shape.Area, new CaptureContext(Players[step.Player], time, new HashSet<Guid>())).ReassemblyFallbacks);
+            Assert.Empty(TerritoryInvariants.Check(map));
+        }
+
+        Assert.Equal([0, 0, 1], fallbacks);
     }
 
     [Fact]

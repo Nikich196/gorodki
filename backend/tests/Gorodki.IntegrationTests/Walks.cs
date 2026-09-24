@@ -29,6 +29,16 @@ internal static class Walks
         (area.X + x, area.Y + y + 1),
     ];
 
+    /// <summary>Прямоугольник с углом (x; y) — как <see cref="Square"/>: прогулка кончается в метре от старта.</summary>
+    public static (double X, double Y)[] Rectangle((double X, double Y) area, double x, double y, double width, double height) =>
+    [
+        (area.X + x, area.Y + y),
+        (area.X + x + width, area.Y + y),
+        (area.X + x + width, area.Y + y + height),
+        (area.X + x, area.Y + y + height),
+        (area.X + x, area.Y + y + 1),
+    ];
+
     public static async Task<StartRunRequest> StartWalkAsync(
         CancellationToken cancel, ApiFactory api, HttpClient client, bool motionAuthorized = true, Guid? deviceId = null)
     {

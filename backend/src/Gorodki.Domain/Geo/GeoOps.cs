@@ -103,6 +103,78 @@ public static class GeoOps
     public static IEnumerable<Polygon> Polygons(Geometry geometry) =>
         PolygonExtracter.GetPolygons(geometry).OfType<Polygon>().Where(p => !p.IsEmpty);
 
+    /// <summary>
+    /// Тот же многоугольник (то же множество точек) без вершин, которые лежат на прямой между соседними, — в
+    /// каноническом порядке обхода (<c>Normalized</c>).
+    /// </summary>
+    /// <remarks>
+    /// Узлование ставит вершину в каждую точку, где граница пересеклась с другой линией, даже если граница там не
+    /// изломилась. Такие вершины ничего не меняют в куске, но копятся и выдают, где прошла линия (PLAN.md, §3.16).
+    /// «На прямой» проверяется точно, в целых дециметрах сетки; вершину вне сетки не трогаем — для неё точной проверки нет.
+    /// </remarks>
+    public static Polygon WithoutCollinearVertices(Polygon polygon)
+    {
+        var shell = WithoutCollinearVertices(polygon.Shell);
+        var holes = polygon.Holes.Select(WithoutCollinearVertices).ToArray();
+        return (Polygon)polygon.Factory.CreatePolygon(shell, holes).Normalized();
+    }
+
+    private static LinearRing WithoutCollinearVertices(LinearRing ring)
+    {
+        var points = ring.Coordinates;
+        var kept = new List<Coordinate>(points.Length);
+        foreach (var point in points.Take(points.Length - 1)) // последняя точка кольца повторяет первую
+        {
+            kept.Add(point);
+            while (kept.Count >= 3 && IsStraightThrough(kept[^3], kept[^2], kept[^1]))
+            {
+                kept.RemoveAt(kept.Count - 2);
+            }
+        }
+
+        // Стык кольца: последняя и первая вершины тоже могут лежать на прямой между соседями.
+        while (kept.Count > 3)
+        {
+            if (IsStraightThrough(kept[^2], kept[^1], kept[0]))
+            {
+                kept.RemoveAt(kept.Count - 1);
+            }
+            else if (IsStraightThrough(kept[^1], kept[0], kept[1]))
+            {
+                kept.RemoveAt(0);
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (kept.Count == points.Length - 1)
+        {
+            return ring;
+        }
+
+        kept.Add(kept[0].Copy());
+        return ring.Factory.CreateLinearRing(kept.ToArray());
+    }
+
+    /// <summary>Вершина <paramref name="b"/> лежит на отрезке ac строго между концами (на сетке — точно).</summary>
+    private static bool IsStraightThrough(Coordinate a, Coordinate b, Coordinate c)
+    {
+        if (!IsOnGrid(a.X) || !IsOnGrid(a.Y) || !IsOnGrid(b.X) || !IsOnGrid(b.Y) || !IsOnGrid(c.X) || !IsOnGrid(c.Y))
+        {
+            return false;
+        }
+
+        long ax = Decimeters(a.X), ay = Decimeters(a.Y), bx = Decimeters(b.X), by = Decimeters(b.Y);
+        long cx = Decimeters(c.X), cy = Decimeters(c.Y);
+        var cross = ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+        var forward = ((bx - ax) * (cx - bx)) + ((by - ay) * (cy - by));
+        return cross == 0 && forward > 0;
+    }
+
+    private static long Decimeters(double value) => (long)Math.Round(value * 10);
+
     /// <summary>Переносит геометрию на сетку 0,1 м так, чтобы она осталась правильной.</summary>
     public static Geometry Snap(Geometry geometry) => GeometryPrecisionReducer.Reduce(geometry, Grid);
 
@@ -126,11 +198,16 @@ public static class GeoOps
             EndCapStyle = EndCapStyle.Flat,
         }).IsEmpty;
 
-    /// <summary>Часть линии вне области (без сетки: длины и так считаются в метрах).</summary>
+    /// <summary>Часть линии вне области.</summary>
+    /// <remarks>
+    /// Сетка здесь тоже есть: OverlayNG без явной точности берёт её у первой геометрии, а линии строятся через
+    /// <see cref="Factory"/>. Поэтому это тот же snap-rounding на 0,1 м, что и у остальных операций фасада: точки линии
+    /// сдвигаются не дальше полудиагонали клетки (0,0707 м) — для визитов (от 50 м пути) это ничто.
+    /// </remarks>
     public static Geometry LineOutside(Geometry line, Geometry area) =>
         OverlayNG.Overlay(line, area, SpatialFunction.Difference);
 
-    /// <summary>Длина части линии внутри многоугольника, метры (граница — тоже «внутри»).</summary>
+    /// <summary>Длина части линии внутри многоугольника, метры (граница — тоже «внутри»; сетка — как у <see cref="LineOutside"/>).</summary>
     public static double LengthInside(Geometry line, Geometry area) =>
         OverlayNG.Overlay(line, area, SpatialFunction.Intersection).Length;
 
