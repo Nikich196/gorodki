@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- Фоновая досылка очереди (App/BackgroundSync.swift): короткое пробуждение и длинное с сетью. -->
+  <key>BGTaskSchedulerPermittedIdentifiers</key>
+  <array>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER).sync.refresh</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER).sync.upload</string>
+  </array>
   <key>CFBundleDevelopmentRegion</key>
   <string>$(DEVELOPMENT_LANGUAGE)</string>
   <key>CFBundleDisplayName</key>
@@ -37,7 +43,9 @@
   <string>Датчики движения отличают бег от поездки на транспорте — так игра остаётся честной.</string>
   <key>UIBackgroundModes</key>
   <array>
+    <string>fetch</string>
     <string>location</string>
+    <string>processing</string>
   </array>
   <key>UIApplicationSceneManifest</key>
   <dict>
