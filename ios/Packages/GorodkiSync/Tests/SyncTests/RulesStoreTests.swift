@@ -95,6 +95,36 @@ struct RulesStoreTests {
         #expect(await server.requests == 1)
     }
 
+    @Test("Прежние версии остаются: продолженный забег судится своей версией и после перезапуска; хранятся пять")
+    func olderVersionsAreKept() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storage = FileRulesStorage(url: directory.appendingPathComponent("rules.json"))
+        let store = store(storage)
+        for version in 2...7 {
+            await server.answer(version: version, maxRunHours: Double(version))
+            try await store.refresh()
+        }
+
+        let relaunched = self.store(storage)
+        #expect(await relaunched.current().version == 7)
+        #expect(await relaunched.rules(version: 3)?.rules.maxRunHours == 3)
+        #expect(await relaunched.rules(version: 2) == nil)  // шестая с конца — уже нет
+        #expect(await relaunched.rules(version: 1) == .bundled)  // с ней собрано приложение
+        #expect(await relaunched.rules(version: 8) == nil)
+    }
+
+    @Test("Файл прежнего формата (один ответ сервера) читается")
+    func legacyFileIsRead() async throws {
+        var sample = try JSONSerialization.jsonObject(with: Self.sample()) as! [String: Any]
+        sample["version"] = 4
+        let store = RulesStore(
+            api: nil, storage: InMemoryRulesStorage(try JSONSerialization.data(withJSONObject: sample)))
+
+        #expect(await store.current().version == 4)
+        #expect(await store.rules(version: 4)?.rules == .version1)
+    }
+
     @Test("Нет сети или ошибка сервера — ошибка, прежняя версия остаётся")
     func failureKeepsPrevious() async throws {
         let store = store()
