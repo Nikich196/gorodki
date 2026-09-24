@@ -19,8 +19,9 @@ public sealed record FogClearing(int Tiles, int Runs, int Rankings);
 /// <remarks>
 /// Тайлы удаляются, а не обнуляются: в базе тайл хранит хотя бы одну клетку (<c>ck_fog_tiles_cells</c>). Чтобы телефон
 /// не показывал стёртое из кэша, <c>GET /fog</c> на тайл, которого больше нет, отвечает пустым тайлом с версией новее
-/// спрошенной, а открытый заново тайл получает версию-время (<see cref="FogProcessor.NextVersion"/>) — больше любой
-/// прежней.
+/// спрошенной. Кэш хранит такой тайл с версией 0, как любой пустой, — и открытый заново примет с любой версией. Пока
+/// телефон ещё помнит стёртый тайл со старой версией, открытый заново тайл обгоняет её версией-временем
+/// (<see cref="FogProcessor.NextVersion"/>), если часы сервера не пошли назад.
 /// </remarks>
 public sealed class FogHistory(
     AppDbContext db, LeaderboardSnapshots leaderboards, RealtimeHints hints, TimeProvider time, ILogger<FogHistory> logger)

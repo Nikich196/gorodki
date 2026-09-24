@@ -92,24 +92,17 @@ struct FogTileCodecTests {
 @Suite("Туман на телефоне: тайлы с версиями")
 struct FogCacheTests {
     /// Сервер тумана без сети, как `GET /fog`: тайл → версия (открыто клеток = версия × 10). Тайла без открытых клеток
-    /// в базе нет: спрошенный с `@0` он «не изменился», без версии — не упоминается вовсе. Стёртый очисткой истории,
-    /// спрошенный с версией, приходит пустым с версией на 1 больше.
+    /// в базе нет: спрошенный с `@0` он «не изменился», без версии — не упоминается вовсе, а спрошенный с версией
+    /// больше 0 (стёрт очисткой истории) приходит пустым с версией на 1 больше.
     actor Server: ClientTransport {
         private var versions: [FogTileRef: Int64] = [:]
-        private var cleared: Set<FogTileRef> = []
         private(set) var requests: [(tiles: [String], layer: String?, season: String?)] = []
         private var corrupt: Set<FogTileRef> = []
         private var wrongCount: Set<FogTileRef> = []
 
-        func set(_ key: FogTileRef, version: Int64) {
-            versions[key] = version
-            cleared.remove(key)
-        }
+        func set(_ key: FogTileRef, version: Int64) { versions[key] = version }
         /// «Очистить историю исследований»: строки тайла больше нет.
-        func clear(_ key: FogTileRef) {
-            versions[key] = nil
-            cleared.insert(key)
-        }
+        func clear(_ key: FogTileRef) { versions[key] = nil }
         func corrupt(_ key: FogTileRef) { corrupt.insert(key) }
         func heal(_ key: FogTileRef) { corrupt.remove(key) }
         func lieAboutCount(_ key: FogTileRef) { wrongCount.insert(key) }
@@ -154,7 +147,7 @@ struct FogCacheTests {
                     tiles.append(
                         #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"cellCount":\#(count),"bits":"\#(bits)"}"#
                     )
-                } else if cleared.contains(key), let known, known > 0 {
+                } else if let known, known > 0 {
                     let bits = compressedTile(cells: 0).base64EncodedString()
                     tiles.append(
                         #"{"x":\#(key.x),"y":\#(key.y),"version":\#(known + 1),"cellCount":0,"bits":"\#(bits)"}"#)
@@ -358,7 +351,7 @@ struct FogCacheTests {
         #expect(try await cache.refresh(visible: [Self.a]).isEmpty)  // дальше — снова без запросов
     }
 
-    @Test("История очищена — пустой тайл с версией новее заменяет стёртый; открытый заново приходит")
+    @Test("История очищена — пустой тайл заменяет стёртый и дальше приходит «без изменений»; открытый заново приходит")
     func clearedHistoryReplacesCachedTiles() async throws {
         await seed()
         let cache = cache()
@@ -368,14 +361,20 @@ struct FogCacheTests {
         await cache.invalidate()  // подсказка `FogChanged` после очистки
         #expect(try await cache.refresh(visible: Self.near) == [Self.a])
         let empty = try #require(await cache.tile(Self.a))
-        #expect(empty.version == 4 && empty.cellCount == 0 && FogTileCodec.cellCount(empty.words) == 0)
+        #expect(empty.version == 0 && empty.cellCount == 0 && empty.words.isEmpty)  // как любой пустой
         #expect(await cache.tile(Self.b)?.cellCount == 10)  // другой тайл не тронут
         #expect(await cache.corruptedTiles == 0)
 
-        await server.set(Self.a, version: 5)  // новый забег открыл его снова — версия больше пустой
+        // Следующая подсказка или переподключение: стёртый тайл спрашивается с версией 0 и не перерисовывается снова.
+        await cache.invalidate()
+        #expect(try await cache.refresh(visible: Self.near).isEmpty)
+        #expect(await server.requests.last?.tiles == ["9270:5404@0", "9271:5404@1"])
+
+        // Новый забег открыл его снова — приходит, даже с версией меньше стёртой (часы сервера пошли назад).
+        await server.set(Self.a, version: 2)
         await cache.invalidate()
         #expect(try await cache.refresh(visible: Self.near) == [Self.a])
-        #expect(await cache.tile(Self.a)?.cellCount == 50)
+        #expect(await cache.tile(Self.a)?.cellCount == 20)
     }
 
     @Test("Ответ, начатый до смены аккаунта, выбрасывается: чужой туман в кэш не попадает")
