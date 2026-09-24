@@ -41,6 +41,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<CaptureJournalPieceEntity> CaptureJournalPieces => Set<CaptureJournalPieceEntity>();
 
+    public DbSet<CaptureJournalParcelEntity> CaptureJournalParcels => Set<CaptureJournalParcelEntity>();
+
     public DbSet<CaptureRollbackEntity> CaptureRollbacks => Set<CaptureRollbackEntity>();
 
     public DbSet<SeasonEntity> Seasons => Set<SeasonEntity>();
@@ -281,6 +283,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 .HasForeignKey(p => new { p.CaptureId, p.TileX, p.TileY })
                 .OnDelete(DeleteBehavior.Cascade);
             piece.ToTable(t => t.HasCheckConstraint("ck_capture_journal_pieces_level", "level BETWEEN 1 AND 3"));
+        });
+
+        model.Entity<CaptureJournalParcelEntity>(row =>
+        {
+            row.HasKey(r => r.Id);
+            row.Property(r => r.Id).UseIdentityAlwaysColumn();
+            row.HasOne<CaptureJournalEntity>()
+                .WithMany()
+                .HasForeignKey(r => new { r.CaptureId, r.TileX, r.TileY })
+                .OnDelete(DeleteBehavior.Cascade);
+            // Одна строка куска на сторону: номер строки parcels не может быть и удалён, и удалён ещё раз одним захватом.
+            row.HasIndex(r => new { r.CaptureId, r.TileX, r.TileY, r.Replaced, r.ParcelId }).IsUnique();
+            row.HasIndex(r => r.AppliedAt); // чистка — через пару часов (таблица маленькая: удаление аккаунта идёт без индекса)
+            row.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_capture_journal_parcels_level", "level BETWEEN 1 AND 3");
+                // Контур нужен только удалённой строке: у вставленной он лежит в parcels.
+                t.HasCheckConstraint("ck_capture_journal_parcels_geometry", "replaced = (geometry IS NOT NULL)");
+            });
         });
 
         model.Entity<CaptureRollbackEntity>(rollback =>

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
+using static Gorodki.IntegrationTests.RunRequests;
 using static Gorodki.IntegrationTests.Walks;
 
 namespace Gorodki.IntegrationTests;
@@ -86,6 +87,104 @@ public sealed class CaptureJournalTests(DatabaseFixture database)
         Assert.InRange(restore.SkippedArea, 0, 1);
         Assert.InRange(map.AreaOf(annaId), 9_500, 10_500);
         Assert.Equal(0, map.AreaOf(borisId), 1);
+    }
+
+    [Fact]
+    public async Task Capture_records_the_rows_it_replaced_exactly_as_PostGIS_stored_them_and_the_rows_it_wrote()
+    {
+        // Точный откат (аудит BE-01) возвращает удалённые строки из журнала — значит, контур в журнале обязан быть ровно
+        // тем, что лежал в parcels: побайтово тот же TWKB, что выдаёт сама PostGIS по сохранённому куску. А вставленные
+        // строки — с номерами, которые дала база (identity), а не нулями до сохранения.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        long annaParcel;
+        byte[] postgisTwkb;
+        Polygon stored;
+        await using (var db = database.CreateContext())
+        {
+            var parcel = await db.Parcels.AsNoTracking().SingleAsync(p => p.OwnerId == annaId, Cancel);
+            (annaParcel, stored) = (parcel.Id, parcel.Geometry);
+            postgisTwkb = await db.Database
+                .SqlQuery<byte[]>($"SELECT extensions.st_astwkb(geometry, 1) AS \"Value\" FROM app.parcels WHERE id = {annaParcel}")
+                .SingleAsync(Cancel);
+        }
+
+        var claim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100));
+        Assert.Equal(1, await ProcessAsync(api, claim.RunId));
+
+        await using var check = database.CreateContext();
+        var capture = await check.Captures.AsNoTracking().SingleAsync(c => c.Id == claim.CaptureId, Cancel);
+        var rows = await check.CaptureJournalParcels.AsNoTracking().Where(r => r.CaptureId == claim.CaptureId).ToListAsync(Cancel);
+        var parcels = await check.Parcels.AsNoTracking().Where(p => p.TileX == tile.X && p.TileY == tile.Y).ToListAsync(Cancel);
+
+        var replaced = Assert.Single(rows, r => r.Replaced);
+        Assert.Equal(annaParcel, replaced.ParcelId);
+        Assert.Equal(Convert.ToHexString(postgisTwkb), Convert.ToHexString(replaced.Geometry!));
+        Assert.True(Twkb.Read(replaced.Geometry!).EqualsExact(stored));
+        Assert.DoesNotContain(parcels, p => p.Id == annaParcel); // удалённой строки в parcels больше нет
+
+        // Все куски тайла сейчас — вставленные захватом (остаток Анны и земля Бориса), и строки журнала — ровно они.
+        var written = rows.Where(r => !r.Replaced).ToList();
+        Assert.Equal(parcels.Select(p => p.Id).Order(), written.Select(w => w.ParcelId).Order());
+        foreach (var row in written)
+        {
+            var parcel = parcels.Single(p => p.Id == row.ParcelId);
+            Assert.Equal(
+                (parcel.OwnerId, parcel.Level, parcel.LastVisitAt, parcel.LastLevelUpAt, parcel.ShieldUntil, parcel.SiegeUntil, parcel.LossWindowSince),
+                (row.OwnerId, row.Level, row.LastVisitAt, row.LastLevelUpAt, row.ShieldUntil, row.SiegeUntil, row.LossWindowSince));
+            Assert.Equal(parcel.LossAttackers, row.LossAttackers);
+            Assert.Null(row.Geometry);
+        }
+
+        Assert.All(rows, r => Assert.Equal((capture.AppliedAt!.Value, tile.X, tile.Y), (r.AppliedAt, r.TileX, r.TileY)));
+    }
+
+    [Fact]
+    public async Task Failing_to_write_the_exact_undo_rows_never_fails_the_capture()
+    {
+        // Строки точного отката — лучшее усилие: без них проекция пойдёт по граням следа, как раньше. Захват из-за них не
+        // падает: ошибка записи откатывается до точки сохранения, земля, журнал и версия тайла остаются.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        await using (var db = database.CreateContext())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE FUNCTION app.test_refuse_exact_undo() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'нет'; END $$;
+                CREATE TRIGGER test_refuse_exact_undo BEFORE INSERT ON app.capture_journal_parcels
+                    FOR EACH ROW EXECUTE FUNCTION app.test_refuse_exact_undo();
+                """,
+                Cancel);
+        }
+
+        try
+        {
+            Assert.Equal(1, await ProcessAsync(api, claim.RunId));
+        }
+        finally
+        {
+            await using var db = database.CreateContext();
+            await db.Database.ExecuteSqlRawAsync(
+                "DROP TRIGGER test_refuse_exact_undo ON app.capture_journal_parcels; DROP FUNCTION app.test_refuse_exact_undo();",
+                CancellationToken.None);
+        }
+
+        await using var check = database.CreateContext();
+        Assert.Equal(CaptureStatus.Applied, (await check.Captures.AsNoTracking().SingleAsync(c => c.Id == claim.CaptureId, Cancel)).Status);
+        Assert.True(await check.Parcels.AnyAsync(p => p.OwnerId == annaId, Cancel));
+        Assert.True(await check.CaptureJournal.AnyAsync(j => j.CaptureId == claim.CaptureId, Cancel));
+        Assert.False(await check.CaptureJournalParcels.AnyAsync(r => r.CaptureId == claim.CaptureId, Cancel));
+        Assert.True(await check.TileVersions.AnyAsync(v => v.TileX == tile.X && v.TileY == tile.Y && v.Version >= 1, Cancel));
     }
 
     [Fact]

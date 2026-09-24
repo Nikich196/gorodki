@@ -33,6 +33,48 @@ public static class CaptureJournal
         }
     }
 
+    /// <summary>
+    /// Добавляет в контекст строки точного отката (<see cref="ParcelSwap"/>) — только для тайлов, у которых уже есть запись
+    /// журнала (внешний ключ). Номера вставленных строк известны только после сохранения земли, поэтому это второе
+    /// сохранение в той же транзакции (<see cref="CaptureProcessor"/>).
+    /// </summary>
+    public static void AddParcels(AppDbContext db, Guid captureId, DateTimeOffset appliedAt, IEnumerable<ParcelSwap> swaps)
+    {
+        foreach (var swap in swaps)
+        {
+            db.CaptureJournalParcels.AddRange(swap.Replaced.Select(row => ToEntity(captureId, swap.Tile, appliedAt, replaced: true, row)));
+            db.CaptureJournalParcels.AddRange(swap.Written.Select(row => ToEntity(captureId, swap.Tile, appliedAt, replaced: false, row)));
+        }
+    }
+
+    /// <summary>
+    /// Запись журнала захвата в одном тайле для публичной проекции: строки точного отката (<c>null</c> — их нет: захват
+    /// записан до них, контур не сохранился без потерь, строки стёрты) и запись «до/после» для запасного пути. Геометрия
+    /// здесь не разбирается: испорченная запись «до/после» не мешает точному откату, а испорченная строка точного отката —
+    /// запасному пути (<see cref="ExactUndo.Project"/>).
+    /// </summary>
+    public static async Task<HiddenTileChange> LoadTileAsync(AppDbContext db, Guid captureId, TileKey tile, CancellationToken cancellationToken)
+    {
+        var journal = await db.CaptureJournal.AsNoTracking()
+            .SingleAsync(j => j.CaptureId == captureId && j.TileX == tile.X && j.TileY == tile.Y, cancellationToken);
+        var pieces = await db.CaptureJournalPieces.AsNoTracking()
+            .Where(p => p.CaptureId == captureId && p.TileX == tile.X && p.TileY == tile.Y)
+            .OrderBy(p => p.Id)
+            .ToListAsync(cancellationToken);
+        var rows = await db.CaptureJournalParcels.AsNoTracking()
+            .Where(r => r.CaptureId == captureId && r.TileX == tile.X && r.TileY == tile.Y)
+            .OrderBy(r => r.Id)
+            .ToListAsync(cancellationToken);
+
+        var swap = rows.Count == 0
+            ? null
+            : new ParcelSwap(
+                tile,
+                [.. rows.Where(r => r.Replaced).Select(ToJournalParcel)],
+                [.. rows.Where(r => !r.Replaced).Select(ToJournalParcel)]);
+        return new HiddenTileChange(swap, () => ToChange(journal, pieces));
+    }
+
     /// <summary>Журнал захвата по тайлам (пусто — захват ничего не изменил или журнал уже стёрт).</summary>
     public static async Task<IReadOnlyList<TileChange>> LoadAsync(AppDbContext db, Guid captureId, CancellationToken cancellationToken)
     {
@@ -46,16 +88,53 @@ public static class CaptureJournal
             .OrderBy(p => p.Id)
             .ToListAsync(cancellationToken);
 
-        List<JournalPiece> PiecesOf(CaptureJournalEntity tile, bool after) =>
-            pieces
-                .Where(p => p.TileX == tile.TileX && p.TileY == tile.TileY && p.After == after)
-                .Select(p => new JournalPiece(Twkb.Read(p.Geometry), ToState(p)))
-                .ToList();
-
         return tiles
-            .Select(t => new TileChange(new TileKey(t.TileX, t.TileY), Twkb.Read(t.Footprint), PiecesOf(t, after: false), PiecesOf(t, after: true)))
+            .Select(t => ToChange(t, [.. pieces.Where(p => p.TileX == t.TileX && p.TileY == t.TileY)]))
             .ToList();
     }
+
+    /// <exception cref="FormatException">Геометрия записи испорчена.</exception>
+    private static TileChange ToChange(CaptureJournalEntity tile, IReadOnlyList<CaptureJournalPieceEntity> pieces)
+    {
+        List<JournalPiece> PiecesOf(bool after) =>
+            [.. pieces.Where(p => p.After == after).Select(p => new JournalPiece(Twkb.Read(p.Geometry), ToState(p)))];
+
+        return new TileChange(new TileKey(tile.TileX, tile.TileY), Twkb.Read(tile.Footprint), PiecesOf(after: false), PiecesOf(after: true));
+    }
+
+    private static CaptureJournalParcelEntity ToEntity(Guid captureId, TileKey tile, DateTimeOffset appliedAt, bool replaced, JournalParcel row) => new()
+    {
+        CaptureId = captureId,
+        TileX = tile.X,
+        TileY = tile.Y,
+        AppliedAt = appliedAt,
+        Replaced = replaced,
+        ParcelId = row.ParcelId,
+        OwnerId = row.State.OwnerId,
+        Level = (short)row.State.Level,
+        LastVisitAt = row.State.LastVisitAt,
+        LastLevelUpAt = row.State.LastLevelUpAt,
+        ShieldUntil = row.State.ShieldUntil,
+        SiegeUntil = row.State.SiegeUntil,
+        LossWindowSince = row.State.LossWindowSince,
+        LossAttackers = [.. row.State.LossAttackers.Ids],
+        Geometry = row.Geometry,
+    };
+
+    private static JournalParcel ToJournalParcel(CaptureJournalParcelEntity row) => new(
+        row.ParcelId,
+        new ParcelState
+        {
+            OwnerId = row.OwnerId,
+            Level = row.Level,
+            LastVisitAt = row.LastVisitAt,
+            LastLevelUpAt = row.LastLevelUpAt,
+            ShieldUntil = row.ShieldUntil,
+            SiegeUntil = row.SiegeUntil,
+            LossWindowSince = row.LossWindowSince,
+            LossAttackers = AttackerSet.Of(row.LossAttackers),
+        },
+        row.Geometry);
 
     private static CaptureJournalPieceEntity ToEntity(Guid captureId, TileKey tile, bool after, JournalPiece piece) => new()
     {

@@ -41,7 +41,7 @@ public sealed class SchemaTests(DatabaseFixture database)
             .ToListAsync(Cancel);
 
         Assert.Equal(
-            ["capture_journal", "capture_journal_pieces", "capture_rollbacks", "captures", "ef_migrations_history", "fog_tiles", "game_configs", "invites", "leaderboard_snapshots", "parcels", "privacy_zones", "refresh_tokens", "run_chunks", "runs", "seasons", "tile_versions", "users"],
+            ["capture_journal", "capture_journal_parcels", "capture_journal_pieces", "capture_rollbacks", "captures", "ef_migrations_history", "fog_tiles", "game_configs", "invites", "leaderboard_snapshots", "parcels", "privacy_zones", "refresh_tokens", "run_chunks", "runs", "seasons", "tile_versions", "users"],
             tables);
     }
 

@@ -394,6 +394,51 @@ public sealed class CaptureJournalPieceEntity
     public required byte[] Geometry { get; set; }
 }
 
+/// <summary>
+/// Строка куска, которую захват удалил или вставил в тайле, — для точного отката в публичной проекции (аудит BE-01,
+/// <c>ExactUndo</c>): пока захват скрыт, зритель получает удалённые строки как они лежали, до вершины и с теми же
+/// номерами. Пишется в транзакции захвата, хранится недолго (<c>CaptureProcessor.ExactUndoRetention</c>: только пока
+/// захват может быть скрыт). Строки удалённого аккаунта стираются вместе с ним (<c>AccountDeletion</c>).
+/// </summary>
+public sealed class CaptureJournalParcelEntity
+{
+    public long Id { get; set; }
+
+    public Guid CaptureId { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    /// <summary>Когда применён захват — для чистки.</summary>
+    public DateTimeOffset AppliedAt { get; set; }
+
+    /// <summary><c>true</c> — строка, которую захват удалил (с контуром); <c>false</c> — вставил.</summary>
+    public bool Replaced { get; set; }
+
+    /// <summary>Номер строки в <c>parcels</c>. Без внешнего ключа: удалённой строки там уже нет.</summary>
+    public long ParcelId { get; set; }
+
+    public Guid OwnerId { get; set; }
+
+    public short Level { get; set; }
+
+    public DateTimeOffset LastVisitAt { get; set; }
+
+    public DateTimeOffset LastLevelUpAt { get; set; }
+
+    public DateTimeOffset? ShieldUntil { get; set; }
+
+    public DateTimeOffset? SiegeUntil { get; set; }
+
+    public DateTimeOffset? LossWindowSince { get; set; }
+
+    public Guid[] LossAttackers { get; set; } = [];
+
+    /// <summary>Контур удалённой строки в TWKB (сетка 0,1 м, как лежал в <c>parcels</c>); у вставленной — нет.</summary>
+    public byte[]? Geometry { get; set; }
+}
+
 public enum CaptureStatus : short
 {
     /// <summary>Ждёт точек, данных датчиков или своей очереди. Ноль — чтобы забытый статус не означал «применено».</summary>

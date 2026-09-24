@@ -9,6 +9,7 @@ using Gorodki.Domain.Runs;
 using Gorodki.Domain.Territory;
 using Gorodki.Domain.Time;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using NetTopologySuite.Geometries;
 using Npgsql;
 
@@ -358,10 +359,12 @@ public sealed class CaptureProcessor(
 
         var now = time.GetUtcNow();
         var changedTiles = new List<TileKey>();
+        var written = new List<(TileKey Tile, ParcelDiff Diff, List<(long Id, Parcel Parcel)> Before, List<ParcelEntity> Added)>();
         foreach (var tile in result.ChangedTiles)
         {
             var before = stored.Where(p => p.TileX == tile.X && p.TileY == tile.Y).ToList();
-            var diff = ParcelDiff.Compute([.. before.Select(p => (p.Id, ToParcel(p)))], map.ParcelsIn(tile));
+            var parcels = before.Select(p => (p.Id, ToParcel(p))).ToList();
+            var diff = ParcelDiff.Compute(parcels, map.ParcelsIn(tile));
             if (diff.IsEmpty)
             {
                 continue;
@@ -369,15 +372,19 @@ public sealed class CaptureProcessor(
 
             changedTiles.Add(tile);
             db.Parcels.RemoveRange(before.Where(p => diff.Removed.Contains(p.Id)));
-            db.Parcels.AddRange(diff.Added.Select(p => ToEntity(p, claim.League)));
+            var added = diff.Added.Select(p => ToEntity(p, claim.League)).ToList();
+            db.Parcels.AddRange(added);
+            written.Add((tile, diff, parcels, added));
         }
 
         // Журнал — в той же транзакции: земля без записи для отката (или запись без земли) не сохраняется никогда.
         // Только тайлы, версия которых выросла: публичная проекция считает скрытые захваты по журналу и вычитает их
         // из версии тайла — запись без роста версии дала бы зрителю «провал» версии.
-        CaptureJournal.Add(db, claim.Id, claim.League, now, [.. result.Changes.Where(c => changedTiles.Contains(c.Tile))]);
+        var journaled = result.Changes.Where(c => changedTiles.Contains(c.Tile)).ToList();
+        CaptureJournal.Add(db, claim.Id, claim.League, now, journaled);
 
         await db.SaveChangesAsync(cancellationToken);
+        await AddExactUndoAsync(transaction, claim.Id, now, [.. written.Where(w => journaled.Any(c => c.Tile == w.Tile))], cancellationToken);
         foreach (var tile in changedTiles)
         {
             await db.Database.ExecuteSqlAsync(
@@ -426,6 +433,78 @@ public sealed class CaptureProcessor(
         }
 
         return 1;
+    }
+
+    /// <summary>
+    /// Строки точного отката (<see cref="ParcelSwap"/>) — вторым сохранением в той же транзакции: номера вставленных строк
+    /// (identity) база даёт только при первом. По ним публичная проекция, пока захват скрыт, возвращает землю до него до
+    /// вершины и с теми же номерами (аудит BE-01, <see cref="ExactUndo"/>).
+    /// </summary>
+    /// <remarks>
+    /// Это лучшее усилие: захват из-за них не падает никогда. Тайл, контур удалённого куска которого не читается из TWKB
+    /// тем же (кусок, записанный до сетки), и любая ошибка записи оставляют тайл без строк — проекция пойдёт запасным путём
+    /// (откат по граням следа, как до точного отката), а в лог уходит только число таких тайлов, без тайлов и координат:
+    /// сам лог не должен выдавать, где бегали. Ошибка записи откатывается до точки сохранения: транзакция захвата цела.
+    /// </remarks>
+    private async Task AddExactUndoAsync(
+        IDbContextTransaction transaction,
+        Guid captureId,
+        DateTimeOffset appliedAt,
+        List<(TileKey Tile, ParcelDiff Diff, List<(long Id, Parcel Parcel)> Before, List<ParcelEntity> Added)> written,
+        CancellationToken cancellationToken)
+    {
+        var swaps = new List<ParcelSwap>();
+        var skipped = 0;
+        foreach (var (tile, diff, before, added) in written)
+        {
+            ParcelSwap? swap = null;
+            try
+            {
+                // Номера — после сохранения: тот же порядок, что у diff.Added.
+                swap = diff.Swap(tile, before, [.. added.Select(p => p.Id)]);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                logger.LogWarning("Захват {CaptureId}: строки точного отката не собраны ({Error})", captureId, e.GetType().Name);
+            }
+
+            if (swap is null)
+            {
+                skipped++;
+            }
+            else
+            {
+                swaps.Add(swap);
+            }
+        }
+
+        if (swaps.Count > 0)
+        {
+            const string savepoint = "exact_undo";
+            await transaction.CreateSavepointAsync(savepoint, cancellationToken);
+            try
+            {
+                CaptureJournal.AddParcels(db, captureId, appliedAt, swaps);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                await transaction.RollbackToSavepointAsync(savepoint, cancellationToken);
+                foreach (var entry in db.ChangeTracker.Entries<CaptureJournalParcelEntity>().ToList())
+                {
+                    entry.State = EntityState.Detached;
+                }
+
+                skipped += swaps.Count;
+                logger.LogWarning("Захват {CaptureId}: строки точного отката не записаны ({Error})", captureId, e.GetType().Name);
+            }
+        }
+
+        if (skipped > 0)
+        {
+            logger.LogWarning(
+                "Захват {CaptureId}: без точного отката {Tiles} тайл(ов) — проекция пойдёт по граням следа", captureId, skipped);
+        }
     }
 
     /// <summary>Стирает журнал захватов старше <see cref="JournalRetention"/> (куски — каскадом). Возвращает, сколько записей стёрто.</summary>
