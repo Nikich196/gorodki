@@ -7,7 +7,8 @@ import Testing
 @Suite("Когда синхронизировать: правило повторов и расписание")
 struct SyncSchedulerTests {
     private static func report(
-        _ stop: SyncStop? = nil, deferred: Int = 0, requeued: Int = 0, storageLimit: Bool = false
+        _ stop: SyncStop? = nil, deferred: Int = 0, requeued: Int = 0, storageLimit: Bool = false, forgotten: Int = 0,
+        unconfirmed: Int = 0
     )
         -> SyncReport
     {
@@ -16,6 +17,8 @@ struct SyncSchedulerTests {
         report.deferredRuns = deferred
         report.requeuedChunks = requeued
         report.storageLimitReached = storageLimit
+        report.forgottenRuns = forgotten
+        report.unconfirmedFinishes = unconfirmed
         return report
     }
 
@@ -94,6 +97,27 @@ struct SyncSchedulerTests {
                 == .after(.seconds(30)))
     }
 
+    @Test("Отложенный забег недоставлен, но повтор — через час, а не каждые 15 с; забытый забег и завершение — сразу")
+    func undeliveredRunFollowsThePassReport() {
+        var backoff = SyncBackoff()
+        let undelivered = SyncBacklog(unfinishedDeliveries: 1)
+
+        #expect(
+            backoff.next(after: Self.report(deferred: 1), backlog: undelivered, appActive: true)
+                == .after(.seconds(3_600)))
+        #expect(
+            backoff.next(after: Self.report(storageLimit: true), backlog: undelivered, appActive: true)
+                == .after(.seconds(3_600)))
+        #expect(
+            backoff.next(after: Self.report(deferred: 1, forgotten: 1), backlog: undelivered, appActive: true)
+                == .after(.seconds(15)))
+        #expect(
+            backoff.next(after: Self.report(unconfirmed: 1), backlog: undelivered, appActive: false)
+                == .after(.seconds(15)))
+        // Проход ничего не сказал о недоставленном забеге — страховка: не ждать его до следующего события.
+        #expect(backoff.next(after: Self.report(), backlog: undelivered, appActive: false) == .after(.seconds(900)))
+    }
+
     // MARK: - Фоновые пробуждения
 
     @Test("Фон: недоставленные забеги — оба пробуждения, только заявки без итога — короткое, пусто — ничего")
@@ -158,11 +182,11 @@ struct SyncSchedulerTests {
     private let server = FakeServer()
     private let sleeps = Sleeps()
 
-    private func scheduler(appActive: Bool = true) -> SyncScheduler {
+    private func scheduler(appActive: Bool = true, now: Double = Fixture.start + 7_200) -> SyncScheduler {
         let store = self.store
         let sleeps = self.sleeps
         return SyncScheduler(
-            engine: SyncEngine(store: store, api: server, ownerId: Fixture.owner, now: { Fixture.start + 7_200 }),
+            engine: SyncEngine(store: store, api: server, ownerId: Fixture.owner, now: { now }),
             backlog: { (try? await SyncBacklog.of(store, ownerId: Fixture.owner)) ?? SyncBacklog() },
             appActive: { appActive },
             sleep: { duration in
@@ -195,6 +219,45 @@ struct SyncSchedulerTests {
         #expect(await scheduler.trigger(.timer) == .after(.seconds(30)))
         await server.fail("start", with: .offline)
         #expect(await scheduler.trigger(.networkRestored) == .after(.seconds(15)))
+    }
+
+    @Test("Лимит забегов в сутки — законченный забег ждёт часа, а не повторяет старт каждые 15 с")
+    func dailyRunLimitRetriesInAnHour() async throws {
+        let run = Fixture.run()
+        try await Fixture.record(run, points: 5, into: store)
+        await server.answerStart(of: run.id, status: 429, code: "daily_run_limit")
+        let scheduler = scheduler()
+
+        #expect(await scheduler.trigger(.appActive) == .after(.seconds(3_600)))
+        #expect(try await SyncBacklog.of(store, ownerId: Fixture.owner).unfinishedDeliveries == 1)
+    }
+
+    @Test("Точки «из будущего» (часы переведены назад) — забег отложен: повтор через час, а не каждые 15 с")
+    func timeFutureRetriesInAnHour() async throws {
+        try await Fixture.record(Fixture.run(), points: 25, into: store)
+        let scheduler = scheduler(now: Fixture.start - 100)  // «сейчас» + 2 мин = 20-я секунда забега
+
+        #expect(await scheduler.trigger(.appActive) == .after(.seconds(3_600)))
+        #expect(await server.log.last == "chunk 20-24")
+    }
+
+    @Test("Сервер забыл забег, потом потерял завершение — каждый раз следующий проход почти сразу")
+    func forgottenRunAndLostFinishRetrySoon() async throws {
+        let run = Fixture.run()
+        try await Fixture.record(run, points: 25, into: store)
+        let scheduler = scheduler()
+
+        await server.fail("chunk 20-24", with: .offline)
+        #expect(await scheduler.trigger(.appActive) == .after(.seconds(15)))
+        await server.forget(run.id)
+        #expect(await scheduler.trigger(.timer) == .after(.seconds(15)))  // кусок — 404: забег начнётся заново
+
+        await server.fail("get", with: .offline)
+        #expect(await scheduler.trigger(.timer) == .after(.seconds(15)))
+        await server.unfinish(run.id)
+        #expect(await scheduler.trigger(.timer) == .after(.seconds(15)))  // забег у сервера не завершён — повторить
+        #expect(await scheduler.trigger(.timer) == .idle)
+        #expect(try #require(await store.runs().first).confirmedComplete)
     }
 
     @Test("Вход истёк — события без входа ничего не отправляют; вход — снова синхронизация")

@@ -41,8 +41,11 @@ public enum SyncWake: Equatable, Sendable {
 ///
 /// - Нет сети или сервер не ответил — повтор через 15 с, 30 с, 1 мин… до 15 минут (холодный старт сервера на Render Free
 ///   бывает дольше минуты, но и часами молчать нельзя). Слишком частые запросы — не раньше чем через минуту.
-/// - Забег отложен (лимит забегов в сутки, часы) или исчерпан суточный объём — через час.
-/// - Сервер попросил дослать точки — почти сразу.
+/// - Забег отложен (лимит забегов в сутки, часы) или исчерпан суточный объём — через час: такой забег остаётся
+///   недоставленным, но повтор раньше получит тот же отказ.
+/// - Сервер попросил дослать точки, забыл забег (404) или ещё не видит завершения — почти сразу.
+/// - Недоставленный забег, о котором проход ничего не сказал, — через 15 минут: страховка, чтобы он не ждал до следующего
+///   события.
 /// - Заявки ждут итога, приложение открыто — опрос раз в 30 с: подсказка «заявка решена» по реальному времени обычно
 ///   приходит раньше, опрос — страховка.
 public struct SyncBackoff: Sendable, Equatable {
@@ -79,12 +82,17 @@ public struct SyncBackoff: Sendable, Equatable {
             failures = 0
         }
 
+        // Когда продолжать доставку, говорит итог прохода, а не очередь: отложенный забег в ней тоже недоставленный,
+        // и по одной очереди его повторяли бы каждые 15 с — до суток отказов 429 и 400.
         var waits: [Duration] = []
-        if report.requeuedChunks > 0 || backlog.unfinishedDeliveries > 0 {
-            waits.append(Self.first)  // досылка; число кругов ограничивает сам SyncEngine
+        if report.requeuedChunks > 0 || report.forgottenRuns > 0 || report.unconfirmedFinishes > 0 {
+            waits.append(Self.first)  // число кругов ограничивает сам SyncEngine
         }
         if report.deferredRuns > 0 || report.storageLimitReached {
             waits.append(Self.limitRetry)
+        }
+        if waits.isEmpty && backlog.unfinishedDeliveries > 0 {
+            waits.append(Self.longest)
         }
         if backlog.unsettledClaims > 0 && appActive {
             waits.append(Self.claimPoll)

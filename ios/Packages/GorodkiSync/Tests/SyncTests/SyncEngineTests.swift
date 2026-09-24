@@ -222,7 +222,7 @@ struct SyncEngineTests {
         await server.forget(run.id)
 
         let second = await engine().syncOnce()
-        #expect(second.stop == nil)
+        #expect(second.stop == nil && second.forgottenRuns == 1)
         #expect(try await stored(run).serverState == .unknown)
         #expect(await store.chunks(of: run.id).allSatisfy { !$0.sent })
         #expect(await store.claims(of: run.id).allSatisfy { !$0.sent })
@@ -282,7 +282,7 @@ struct SyncEngineTests {
         _ = await engine().syncOnce()
         await server.unfinish(run.id)
 
-        _ = await engine().syncOnce()
+        #expect(await engine().syncOnce().unconfirmedFinishes == 1)
         #expect(try await !stored(run).confirmedComplete)
         #expect(await store.chunks(of: run.id).count == 3)  // куски на телефоне, пока сервер не подтвердит
 
@@ -458,6 +458,7 @@ struct SyncEngineTests {
 
         let early = await engine(now: Fixture.start - 100).syncOnce()  // «сейчас» + 2 мин = 20-я секунда забега
         #expect(early.uploadedChunks == 2 && early.droppedChunks == 0 && early.finishedRuns == 0)
+        #expect(early.deferredRuns == 1)  // расписание повторит через час, а не через 15 с
         #expect(await store.chunks(of: run.id).filter { !$0.sent }.map(\.firstSeq) == [20])
 
         _ = await engine(now: Fixture.start + 100).syncOnce()
