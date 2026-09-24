@@ -101,12 +101,21 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
         var (annaId, boris, borisId, area, admin) = (scene.AnnaId, scene.Boris, scene.BorisId, scene.Area, scene.Admin);
         api.Time.Advance(TimeSpan.FromHours(21));
 
-        // Через сутки Борис прошёл по отнятому: визит поднял уровень — земля «изменилась после захвата».
-        var walk = await WalkAndFinishAsync(Cancel, api, boris, [(area.X - 250, area.Y + 50), (area.X + 450, area.Y + 50)]);
-        api.Time.Advance(Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay); // визит — через 20 минут после забега
-        await using (var scope = api.Services.CreateAsyncScope())
+        // Борис дважды, с перерывом в сутки, прошёл по отнятому у Анны: визиты подняли уровень до 3 — земля «изменилась
+        // после захвата». Два повышения переносом визитов не объяснить (за 20 ч уровень растёт один раз), так что землю
+        // возвращает только правило «свои касания нарушителя — не касание».
+        for (var day = 0; day < 2; day++)
         {
-            Assert.True(await scope.ServiceProvider.GetRequiredService<VisitProcessor>().ProcessRunAsync(walk.Id, Cancel) > 0);
+            var walk = await WalkAndFinishAsync(Cancel, api, boris, [(area.X + 75, area.Y - 250), (area.X + 75, area.Y + 450)]);
+            api.Time.Advance(Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay); // визит — через 20 минут после забега
+            Assert.True(await VisitAsync(api, walk.Id) > 0);
+            api.Time.Advance(TimeSpan.FromHours(21));
+        }
+
+        await using (var db = database.CreateContext())
+        {
+            var taken = await db.Parcels.AsNoTracking().SingleAsync(p => p.OwnerId == borisId && p.ShieldUntil != null, Cancel);
+            Assert.Equal(3, taken.Level);
         }
 
         var done = await RollBackAsync(api, admin, borisId);
@@ -114,6 +123,47 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
         Assert.InRange(done.SkippedArea, 0, 50); // свои визиты нарушителя — не «касание»
         Assert.InRange(await LandAreaAsync(annaId), 9_500, 10_500);
         Assert.Equal(0, await LandAreaAsync(borisId), 1);
+        Assert.Empty(TerritoryInvariants.Check(await MapOfAsync(area)));
+    }
+
+    [Fact]
+    public async Task Victims_visit_to_a_cracked_part_does_not_keep_the_crack_after_rollback()
+    {
+        // Борис треснул правую часть квадрата Анны (L2 → L1 и осада), потом Анна пробежала по треснувшей части. Раньше
+        // визит делал её «тронутой»: откат нарушителя оставлял жертве −1 уровень и осаду. Теперь визит переносится на
+        // возвращённую землю.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
+        var area = NewArea();
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(21));
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId); // L2
+        api.Time.Advance(TimeSpan.FromHours(1));
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 40, -10, 100, 120))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        // 60 м по треснувшей части (x от 40 до 100) — визит; по остальной земле 40 м — не визит.
+        var walk = await WalkAndFinishAsync(Cancel, api, anna, [(area.X - 250, area.Y + 50), (area.X + 450, area.Y + 50)]);
+        api.Time.Advance(Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay + Gorodki.Api.Features.Territory.TerritoryReader.RevealStep);
+        Assert.Equal(1, await VisitAsync(api, walk.Id));
+        await using (var db = database.CreateContext())
+        {
+            var cracked = await db.Parcels.AsNoTracking().SingleAsync(p => p.OwnerId == annaId && p.SiegeUntil != null, Cancel);
+            Assert.Equal(1, cracked.Level);
+            Assert.True(cracked.LastVisitAt > cracked.SiegeUntil!.Value - TimeSpan.FromHours(24)); // визит — после трещины
+        }
+
+        var done = await RollBackAsync(api, admin, borisId);
+
+        Assert.Equal(1, done.RolledBack);
+        Assert.InRange(done.SkippedArea, 0, 50);
+        Assert.Equal(0, await LandAreaAsync(borisId), 1);
+        await using var check = database.CreateContext();
+        var land = await check.Parcels.AsNoTracking().Where(p => p.OwnerId == annaId).ToListAsync(Cancel);
+        Assert.InRange(land.Sum(p => p.Geometry.Area), 9_500, 10_500);
+        Assert.All(land, p => Assert.Equal((2, (DateTimeOffset?)null), ((int)p.Level, p.SiegeUntil)));
         Assert.Empty(TerritoryInvariants.Check(await MapOfAsync(area)));
     }
 

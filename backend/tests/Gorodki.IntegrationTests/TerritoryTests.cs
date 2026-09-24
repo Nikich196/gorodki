@@ -225,6 +225,140 @@ public sealed class TerritoryTests(DatabaseFixture database)
         Assert.Contains(revealed.Parcels, p => p.OwnerId == borisId);
     }
 
+    [Fact]
+    public async Task Authors_visits_while_his_capture_is_hidden_do_not_reveal_it()
+    {
+        // Аудит BE-01, «проблема 2»: забег из офлайна — петля и ещё путь по взятой земле, отправлен через час. Конец забега
+        // давно публичен, и визиты засчитываются сразу, а захват применён только что и скрыт ещё 20 минут. Визиты автора
+        // меняли записанные захватом куски, проекция считала эту землю «тронутой» и показывала её всем раньше времени.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(2)); // квадрат Анны уже публичен, а забег Бориса (час назад) — позже него
+        var beforeBoris = await TileAsync(vera, tile);
+
+        // Петля по правой половине квадрата Анны и ничьей земле рядом, потом ещё 160 м по взятому и прочь.
+        var run = await WalkLoopAndOnAsync(
+            Cancel,
+            api,
+            boris,
+            Square(area, 50, 0, 100),
+            [(area.X + 100, area.Y + 50), (area.X + 140, area.Y + 50), (area.X + 140, area.Y + 400)],
+            startedAgo: TimeSpan.FromHours(1));
+        Assert.Equal(1, await ProcessAsync(api, run.RunId));
+        Assert.Equal(2, await VisitAsync(api, run.RunId)); // взятое у Анны и ничьё — оба куска Бориса
+        List<long> visits;
+        await using (var db = database.CreateContext())
+        {
+            var capture = await db.Captures.AsNoTracking().SingleAsync(c => c.Id == run.CaptureId, Cancel);
+            Assert.Equal(CaptureStatus.Applied, capture.Status);
+            var land = await db.Parcels.AsNoTracking().Where(p => p.OwnerId == borisId).ToListAsync(Cancel);
+            Assert.Equal(2, land.Count);
+            Assert.All(land, p => Assert.True(p.LastVisitAt > capture.EffectiveAt)); // визиты легли на скрытый захват
+            visits = [.. land.Select(p => p.LastVisitAt.ToUnixTimeMilliseconds() / 3_600_000 * 3_600_000).Order()];
+        }
+
+        var hidden = await TileAsync(vera, tile);
+
+        // Вера видит землю такой, какой она была до захвата, — всё до вершины и до поля: номера, уровни, времена, контуры.
+        Assert.Equal(Content(beforeBoris), Content(hidden));
+
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var revealed = await TileAsync(vera, tile, known: hidden.Version);
+
+        // После раскрытия — захват и визиты по нему (время чужого визита — до часа).
+        var borisLand = revealed.Parcels.Where(p => p.OwnerId == borisId).ToList();
+        Assert.InRange(borisLand.Sum(p => AreaOf(p.Exterior)), 9_500, 10_500);
+        Assert.Equal(visits, borisLand.Select(p => p.LastVisitAtMs).Order());
+    }
+
+    [Fact]
+    public async Task Victims_visit_to_a_cracked_part_while_the_capture_is_hidden_does_not_reveal_it()
+    {
+        // Аудит BE-01: Борис треснул правую часть квадрата Анны (L2 → L1 и осада). Забег Анны из офлайна прошёл и по
+        // треснувшей части, и по остальной земле; визиты засчитаны, пока захват скрыт. Раньше треснувшая часть с визитом
+        // оставалась в проекции как есть: отдельный кусок с уровнем −1 и осадой, шов ровно по линии петли.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(21));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId); // L2
+        api.Time.Advance(TimeSpan.FromHours(2));
+        var beforeBoris = Assert.Single((await TileAsync(vera, tile)).Parcels);
+        Assert.Equal((annaId, (short)2), (beforeBoris.OwnerId, beforeBoris.Level));
+
+        var claim = await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 60, -10, 100, 120));
+        Assert.Equal(1, await ProcessAsync(api, claim.RunId));
+
+        // Анна: на восток по y = 30 через обе части, на север, на запад по y = 70 обратно через границу частей. Засчитанный
+        // путь кончается (последние 200 м не в счёт) через 0,3 м после границы — на том же шаге пути, что её пересёк:
+        // у обеих частей одно время визита, как у целого куска в мире без захвата.
+        var border = await CrackBorderAsync(area, annaId, north: 70);
+        var walk = await WalkAndFinishAsync(
+            Cancel,
+            api,
+            anna,
+            [
+                (area.X - 300, area.Y + 30),
+                (area.X + 90, area.Y + 30),
+                (area.X + 90, area.Y + 70),
+                (area.X + border - 0.8, area.Y + 70),
+                (area.X + border - 200.3, area.Y + 70),
+            ],
+            startedAgo: TimeSpan.FromMinutes(90));
+        Assert.Equal(2, await VisitAsync(api, walk.Id));
+        DateTimeOffset visitedAt;
+        await using (var db = database.CreateContext())
+        {
+            var land = await db.Parcels.AsNoTracking().Where(p => p.OwnerId == annaId).ToListAsync(Cancel);
+            Assert.Equal(2, land.Count);
+            Assert.Single(land, p => p.SiegeUntil is not null); // треснувшая часть в базе — L1 и осада
+            visitedAt = Assert.Single(land.Select(p => p.LastVisitAt).Distinct());
+        }
+
+        var hidden = await TileAsync(vera, tile);
+
+        // Один кусок Анны — тот же контур до вершины, уровень 2, без осады, визит (до часа) — как без захвата.
+        var seen = Assert.Single(hidden.Parcels);
+        Assert.Equal(
+            (annaId, (short)2, (long?)null, (long?)null, visitedAt.ToUnixTimeMilliseconds() / 3_600_000 * 3_600_000),
+            (seen.OwnerId, seen.Level, seen.ShieldUntilMs, seen.SiegeUntilMs, seen.LastVisitAtMs));
+        Assert.Equal(beforeBoris.Exterior, seen.Exterior);
+        Assert.Empty(seen.Holes);
+
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var revealed = await TileAsync(vera, tile, known: hidden.Version);
+
+        Assert.Contains(revealed.Parcels, p => p.OwnerId == annaId && p.Level == 1 && p.SiegeUntilMs is not null);
+        Assert.Contains(revealed.Parcels, p => p.OwnerId == borisId);
+    }
+
+    /// <summary>
+    /// Где на высоте <paramref name="north"/> (метры от угла места теста) проходит западная граница треснувшей части земли
+    /// игрока — её общая граница с остальной его землёй, метры от угла места.
+    /// </summary>
+    private async Task<double> CrackBorderAsync((double X, double Y) area, Guid ownerId, double north)
+    {
+        await using var db = database.CreateContext();
+        var cracked = await db.Parcels.AsNoTracking().SingleAsync(p => p.OwnerId == ownerId && p.SiegeUntil != null, Cancel);
+        var y = WalkOrigin.Y + area.Y + north;
+        var line = GeoOps.Factory.CreateLineString([new Coordinate(WalkOrigin.X + area.X - 1_000, y), new Coordinate(WalkOrigin.X + area.X + 1_000, y)]);
+        return cracked.Geometry.Intersection(line).Coordinates.Min(c => c.X) - WalkOrigin.X - area.X;
+    }
+
+    /// <summary>Всё, что зритель получает о кусках тайла, — для сравнения «до поля».</summary>
+    private static string Content(TileTerritory tile) => System.Text.Json.JsonSerializer.Serialize(tile.Parcels, Json);
+
     /// <summary>
     /// Анна — квадрат 100 × 100 м, Вера забрала его правую половину и ничью землю рядом: три куска с общими границами
     /// (у Веры два — со щитом и без). Оба захвата уже публичны.
