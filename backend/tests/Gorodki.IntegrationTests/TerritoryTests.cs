@@ -496,6 +496,15 @@ public sealed class TerritoryTests(DatabaseFixture database)
         Assert.Equal(before.Version, hidden.Version);
         Assert.Equal(Content(before), Content(hidden));
         Assert.Equal((1, 0, 0), (stats.Exact, stats.Fallback, stats.EmptyTiles));
+
+        // Счёт (и строка лога) — за одно чтение: «мои данные» читают карту в одной области несколько раз.
+        await using var scope = api.Services.CreateAsyncScope();
+        var reader = scope.ServiceProvider.GetRequiredService<TerritoryReader>();
+        for (var read = 0; read < 2; read++)
+        {
+            await reader.ReadAsync(Gorodki.Domain.Leagues.League.Run, [(tile, null)], new TerritoryViewer(veraId, Immediate: false), Cancel);
+            Assert.Equal((1, 0), (reader.Projections.Exact, reader.Projections.Fallback));
+        }
     }
 
     [Fact]

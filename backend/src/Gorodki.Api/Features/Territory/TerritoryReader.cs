@@ -40,8 +40,11 @@ public sealed record TerritoryViewer(Guid? UserId, bool Immediate);
 /// </remarks>
 public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, TimeProvider time, ILogger<TerritoryReader> logger)
 {
-    /// <summary>Как проекция откатывала скрытые захваты в этом запросе (сервис живёт один запрос) — для лога и тестов.</summary>
-    public ProjectionStats Projections { get; } = new();
+    /// <summary>
+    /// Как проекция откатывала скрытые захваты при последнем чтении — для лога и тестов. Счёт — за одно чтение, а не за
+    /// сервис: «мои данные» (<c>AccountExport</c>) читают карту в одной области по лигам несколько раз.
+    /// </summary>
+    public ProjectionStats Projections { get; private set; } = new();
 
     /// <summary>
     /// Для тестов: вызывается в транзакции чтения после версий и списка скрытых захватов, перед чтением кусков
@@ -68,6 +71,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
         TerritoryViewer viewer,
         CancellationToken cancellationToken)
     {
+        Projections = new ProjectionStats();
         var now = time.GetUtcNow();
         var config = (await configs.GetCurrentAsync(cancellationToken)).Rules;
         var rules = config.Territory.ToRules();
