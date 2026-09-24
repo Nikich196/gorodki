@@ -91,14 +91,32 @@ struct FogTileCodecTests {
 
 @Suite("Туман на телефоне: тайлы с версиями")
 struct FogCacheTests {
-    /// Сервер тумана без сети: тайл → версия (открыто клеток = версия × 10).
+    /// Сервер тумана без сети, как `GET /fog`: тайл → версия (открыто клеток = версия × 10). Тайла без открытых клеток
+    /// в базе нет: спрошенный с `@0` он «не изменился», без версии — не упоминается вовсе.
     actor Server: ClientTransport {
         private var versions: [FogTileRef: Int64] = [:]
         private(set) var requests: [(tiles: [String], layer: String?, season: String?)] = []
         private var corrupt: Set<FogTileRef> = []
+        private var wrongCount: Set<FogTileRef> = []
 
         func set(_ key: FogTileRef, version: Int64) { versions[key] = version }
         func corrupt(_ key: FogTileRef) { corrupt.insert(key) }
+        func heal(_ key: FogTileRef) { corrupt.remove(key) }
+        func lieAboutCount(_ key: FogTileRef) { wrongCount.insert(key) }
+        /// Пока придержан — ответ ждёт `release()`.
+        private var held: CheckedContinuation<Void, Never>?
+        private var holding = false
+        func hold() { holding = true }
+        func release() {
+            holding = false
+            held?.resume()
+            held = nil
+        }
+        func waitUntilHeld() async throws {
+            for _ in 0..<2_500 where held == nil {
+                try await Task.sleep(for: .milliseconds(2))
+            }
+        }
 
         func send(
             _ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String
@@ -113,18 +131,22 @@ struct FogCacheTests {
                 let parts = item.split(separator: "@")
                 let xy = parts[0].split(separator: ":").compactMap { Int($0) }
                 let key = FogTileRef(x: xy[0], y: xy[1])
-                let version = versions[key] ?? 1
-                if parts.count == 2, Int64(parts[1]) == version {
+                let known = parts.count == 2 ? Int64(parts[1]) : nil
+                if (versions[key] ?? 0) == known {
                     unchanged.append(#"{"x":\#(key.x),"y":\#(key.y)}"#)
-                } else {
+                } else if let version = versions[key] {
                     let bits =
                         corrupt.contains(key)
                         ? Data([9, 9, 9]).base64EncodedString()
                         : compressedTile(cells: Int(version) * 10).base64EncodedString()
+                    let count = version * 10 + (wrongCount.contains(key) ? 1 : 0)
                     tiles.append(
-                        #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"cellCount":\#(version * 10),"bits":"\#(bits)"}"#
+                        #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"cellCount":\#(count),"bits":"\#(bits)"}"#
                     )
                 }
+            }
+            if holding {
+                await withCheckedContinuation { held = $0 }
             }
             let json =
                 #"{"layer":"foot","season":null,"tiles":[\#(tiles.joined(separator: ","))],"unchanged":[\#(unchanged.joined(separator: ","))]}"#
@@ -142,62 +164,137 @@ struct FogCacheTests {
         return FogCache(api: api, layer: .foot, season: season)
     }
 
-    private static let near: Set<FogTileRef> = [FogTileRef(x: 9270, y: 5404), FogTileRef(x: 9271, y: 5404)]
+    private static let a = FogTileRef(x: 9270, y: 5404)
+    private static let b = FogTileRef(x: 9271, y: 5404)
+    private static let near: Set<FogTileRef> = [a, b]
+
+    /// Оба тайла уже открыты: у `a` версия 3, у `b` — 1.
+    private func seed() async {
+        await server.set(Self.a, version: 3)
+        await server.set(Self.b, version: 1)
+    }
 
     @Test("Первый раз — тайлы целиком, биты распакованы; сразу снова — без запросов: туман сам не меняется")
     func firstLoadThenNothing() async throws {
-        await server.set(FogTileRef(x: 9270, y: 5404), version: 3)
+        await seed()
         let cache = cache()
 
         #expect(try await cache.refresh(visible: Self.near) == Self.near)
-        let tile = try #require(await cache.tile(FogTileRef(x: 9270, y: 5404)))
+        let tile = try #require(await cache.tile(Self.a))
         #expect(tile.version == 3 && tile.cellCount == 30 && FogTileCodec.cellCount(tile.words) == 30)
         #expect(try await cache.refresh(visible: Self.near).isEmpty)
         #expect(await server.requests.count == 1)
+        #expect(await server.requests.first?.tiles == ["9270:5404@0", "9271:5404@0"])
         #expect(await server.requests.first?.layer == "foot")
         #expect(await server.requests.first?.season == nil)
     }
 
     @Test("Забег доставлен (invalidate) — перезапрос с версиями; изменился только один тайл")
     func invalidateRefetchesWithVersions() async throws {
+        await seed()
         let cache = cache()
         try await cache.refresh(visible: Self.near)
-        await server.set(FogTileRef(x: 9271, y: 5404), version: 2)
+        await server.set(Self.b, version: 2)
 
         await cache.invalidate()
         let updated = try await cache.refresh(visible: Self.near)
 
-        #expect(updated == [FogTileRef(x: 9271, y: 5404)])
-        #expect(await server.requests.last?.tiles == ["9270:5404@1", "9271:5404@1"])
-        #expect(await cache.tile(FogTileRef(x: 9271, y: 5404))?.cellCount == 20)
+        #expect(updated == [Self.b])
+        #expect(await server.requests.last?.tiles == ["9270:5404@3", "9271:5404@1"])
+        #expect(await cache.tile(Self.b)?.cellCount == 20)
         #expect(try await cache.refresh(visible: Self.near).isEmpty)
+    }
+
+    @Test("Тайл, где ничего не открыто, кэшируется пустым: второй раз не запрашивается; открылся — приходит")
+    func emptyTileIsCached() async throws {
+        await server.set(Self.a, version: 3)  // `b` пуст: строки в базе нет
+        let cache = cache()
+
+        #expect(try await cache.refresh(visible: Self.near) == [Self.a])
+        let empty = try #require(await cache.tile(Self.b))
+        #expect(empty.version == 0 && empty.cellCount == 0 && empty.words.isEmpty)
+        #expect(try await cache.refresh(visible: Self.near).isEmpty)
+        #expect(await server.requests.count == 1)
+
+        await server.set(Self.b, version: 1)
+        await cache.invalidate()
+        #expect(try await cache.refresh(visible: Self.near) == [Self.b])
+        #expect(await server.requests.last?.tiles == ["9270:5404@3", "9271:5404@0"])
+        #expect(await cache.tile(Self.b)?.cellCount == 10)
     }
 
     @Test("Сезонный слой — номер сезона в запросе")
     func seasonIsSent() async throws {
+        await seed()
         try await cache(season: 2).refresh(visible: Self.near)
         #expect(await server.requests.last?.season == "2")
     }
 
     @Test("Повреждённый тайл пропускается и считается, остальные приходят")
     func corruptedTileIsSkipped() async throws {
-        await server.corrupt(FogTileRef(x: 9270, y: 5404))
+        await seed()
+        await server.corrupt(Self.a)
         let cache = cache()
 
         let updated = try await cache.refresh(visible: Self.near)
 
-        #expect(updated == [FogTileRef(x: 9271, y: 5404)])
+        #expect(updated == [Self.b])
         #expect(await cache.corruptedTiles == 1)
-        #expect(await cache.tile(FogTileRef(x: 9270, y: 5404)) == nil)
+        #expect(await cache.tile(Self.a) == nil)
+    }
+
+    @Test("Повреждённый при перезапросе — прежний тайл остаётся и перезапрашивается снова, пока не придёт целым")
+    func corruptedRefetchStaysStale() async throws {
+        await seed()
+        let cache = cache()
+        try await cache.refresh(visible: Self.near)
+        await server.set(Self.a, version: 4)
+        await server.corrupt(Self.a)
+
+        await cache.invalidate()
+        #expect(try await cache.refresh(visible: Self.near).isEmpty)
+        #expect(await cache.tile(Self.a)?.version == 3)
+
+        await server.heal(Self.a)
+        #expect(try await cache.refresh(visible: Self.near) == [Self.a])
+        #expect(await server.requests.last?.tiles == ["9270:5404@3"])
+        #expect(await cache.tile(Self.a)?.version == 4)
+    }
+
+    @Test("Число клеток не сходится с битами — тайл считается повреждённым")
+    func cellCountMismatchIsCorrupted() async throws {
+        await seed()
+        await server.lieAboutCount(Self.a)
+        let cache = cache()
+
+        #expect(try await cache.refresh(visible: Self.near) == [Self.b])
+        #expect(await cache.corruptedTiles == 1)
+        #expect(await cache.tile(Self.a) == nil)
     }
 
     @Test("Смена аккаунта — кэш пуст")
     func resetForgets() async throws {
+        await seed()
         let cache = cache()
         try await cache.refresh(visible: Self.near)
         await cache.reset()
         #expect(await cache.count == 0)
         try await cache.refresh(visible: Self.near)
-        #expect(await server.requests.last?.tiles == ["9270:5404", "9271:5404"])
+        #expect(await server.requests.last?.tiles == ["9270:5404@0", "9271:5404@0"])
+    }
+
+    @Test("Ответ, начатый до смены аккаунта, выбрасывается: чужой туман в кэш не попадает")
+    func responseAfterResetIsDropped() async throws {
+        await seed()
+        let cache = cache()
+        await server.hold()
+
+        let loading = Task { try await cache.refresh(visible: Self.near) }
+        try await server.waitUntilHeld()
+        await cache.reset()
+        await server.release()
+
+        #expect(try await loading.value.isEmpty)
+        #expect(await cache.count == 0)
     }
 }

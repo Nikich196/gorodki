@@ -57,6 +57,9 @@ public struct SignalRConnector: RealtimeConnector {
         await hub.on("CaptureDecided") { (runId: String, captureId: String, status: String) in
             continuation.yield(.captureDecided(runId: runId, captureId: captureId, status: status))
         }
+        await hub.on("FogChanged") {
+            continuation.yield(.fogChanged)
+        }
         await hub.onClosed { _ in continuation.finish() }
 
         let deadline = Task {

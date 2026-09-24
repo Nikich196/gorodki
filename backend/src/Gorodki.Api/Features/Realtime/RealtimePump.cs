@@ -57,6 +57,11 @@ public sealed class RealtimePump(RealtimeHints hints, IHubContext<GameHub> hub, 
                 cancellationToken);
         }
 
+        foreach (var user in batch.OfType<FogChangedHint>().Select(h => h.UserId).Distinct())
+        {
+            sent += await SendAsync(hub.Clients.User(user.ToString()), GameHub.FogChanged, [], cancellationToken);
+        }
+
         return sent;
     }
 

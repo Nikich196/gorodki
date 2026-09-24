@@ -61,7 +61,12 @@ final class RealtimeRelay {
                     // После подключения — догнать пропущенное; итог заявки забирает синхронизация. Не ждать прохода:
                     // подсказки, пришедшие во время него, расписание склеит в один следующий.
                     Task { await AppDependencies.shared.syncScheduler()?.trigger(.hint) }
-                    // Забег мог дойти и открыть туман: тайлы перезапросятся с версиями, когда карта их покажет.
+                    if event == .connected {
+                        // Подсказки «туман изменился» за время разрыва потеряны.
+                        await AppDependencies.shared.fog?.invalidate()
+                    }
+                case .fogChanged:
+                    // Сервер открыл туман по доставленному забегу: тайлы перезапросятся с версиями, когда карта их покажет.
                     await AppDependencies.shared.fog?.invalidate()
                 case .tilesChanged(let league, let tiles):
                     // Пометить тайлы: карта (этап 2) перезапросит их с известными версиями, когда покажет.

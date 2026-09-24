@@ -24,6 +24,9 @@ public sealed class GameHub(HubConnections connections) : Hub
 
     public const string CaptureDecided = "CaptureDecided";
 
+    /// <summary>Туман игрока изменился (забег открыл новые клетки) — без аргументов, только ему.</summary>
+    public const string FogChanged = "FogChanged";
+
     public static string Group(League league) => $"league:{league.ToString().ToLowerInvariant()}";
 
     public override async Task OnConnectedAsync()

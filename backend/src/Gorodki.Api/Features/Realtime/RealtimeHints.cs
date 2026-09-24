@@ -13,6 +13,9 @@ public sealed record TilesChangedHint(League League, IReadOnlyList<TileKey> Tile
 /// <summary>Заявка петли решена — только её автору.</summary>
 public sealed record CaptureDecidedHint(Guid UserId, Guid RunId, Guid CaptureId, string Status) : RealtimeHint;
 
+/// <summary>Забег открыл игроку новый туман — перезапросить свои тайлы тумана. Только самому игроку: туман — его данные.</summary>
+public sealed record FogChangedHint(Guid UserId) : RealtimeHint;
+
 /// <summary>
 /// Очередь подсказок реального времени (PLAN.md, D6). Обработчики кладут сюда подсказку <b>после</b> фиксации транзакции —
 /// подсказка о несуществующем изменении невозможна, — а отправляет отдельная служба (<see cref="RealtimePump"/>): медленное
@@ -35,6 +38,8 @@ public sealed class RealtimeHints
     public void TilesChanged(League league, IEnumerable<TileKey> tiles) => Publish(new TilesChangedHint(league, [.. tiles], null));
 
     /// <summary>Тайлы изменились для одного игрока (например, его собственный захват — он его видит сразу).</summary>
+    public void FogChanged(Guid userId) => Publish(new FogChangedHint(userId));
+
     public void TilesChangedFor(Guid userId, League league, IEnumerable<TileKey> tiles) =>
         Publish(new TilesChangedHint(league, [.. tiles], userId));
 }

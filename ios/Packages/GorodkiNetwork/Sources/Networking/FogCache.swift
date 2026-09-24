@@ -31,7 +31,8 @@ public actor FogCache {
         public var key: FogTileRef
         public var version: Int64
         public var cellCount: Int
-        /// Биты тайла: 1 024 слова по 64 бита, клетка `(x, y)` — бит `y · 256 + x`.
+        /// Биты тайла: 1 024 слова по 64 бита, клетка `(x, y)` — бит `y · 256 + x`. Пусто — в тайле ничего не открыто
+        /// (версия 0: сервер его не хранит).
         public var words: [UInt64]
     }
 
@@ -43,6 +44,8 @@ public actor FogCache {
     private var tiles: [FogTileRef: Tile] = [:]
     private var stale: Set<FogTileRef> = []
     private var lastWanted: [FogTileRef: Double] = [:]
+    /// Номер «поколения»: `reset` его меняет, и ответ, начатый до смены аккаунта, выбрасывается.
+    private var generation = 0
     public private(set) var corruptedTiles = 0
 
     public init(
@@ -69,6 +72,7 @@ public actor FogCache {
         tiles = [:]
         stale = []
         lastWanted = [:]
+        generation += 1
     }
 
     /// Обновить тайлы, которые показывает карта.
@@ -90,9 +94,9 @@ public actor FogCache {
     }
 
     private func fetch(_ keys: [FogTileRef]) async throws -> Set<FogTileRef> {
-        let query = keys.map { key in
-            tiles[key].map { "\(key.x):\(key.y)@\($0.version)" } ?? "\(key.x):\(key.y)"
-        }
+        // Неизвестный тайл — с версией 0: пустой тайл сервер не хранит и вернёт в `unchanged`, а не промолчит.
+        let query = keys.map { key in "\(key.x):\(key.y)@\(tiles[key]?.version ?? 0)" }
+        let requestedIn = generation
         let output = try await api.getFog(
             query: .init(layer: layer.rawValue, tiles: query.joined(separator: ","), season: season.map { Int32($0) }))
         let response: Components.Schemas.FogResponse
@@ -104,20 +108,28 @@ public actor FogCache {
         case .undocumented(let status, _):
             throw FogCacheError.unexpectedStatus(status)
         }
+        guard generation == requestedIn else { return [] }  // пока шёл запрос, аккаунт сменился
 
         var updated: Set<FogTileRef> = []
         for view in response.tiles {
             let key = FogTileRef(x: Int(view.x), y: Int(view.y))
-            stale.remove(key)
-            guard let words = try? FogTileCodec.words(fromCompressed: Data(view.bits.data)) else {
+            // Повреждённый (или не сошёлся с `cellCount`) — прежний тайл остаётся и будет перезапрошен.
+            guard let words = try? FogTileCodec.words(fromCompressed: Data(view.bits.data)),
+                FogTileCodec.cellCount(words) == Int(view.cellCount)
+            else {
                 corruptedTiles += 1
                 continue
             }
+            stale.remove(key)
             tiles[key] = Tile(key: key, version: view.version, cellCount: Int(view.cellCount), words: words)
             updated.insert(key)
         }
         for ref in response.unchanged {
-            stale.remove(FogTileRef(x: Int(ref.x), y: Int(ref.y)))
+            let key = FogTileRef(x: Int(ref.x), y: Int(ref.y))
+            stale.remove(key)
+            if tiles[key] == nil {
+                tiles[key] = Tile(key: key, version: 0, cellCount: 0, words: [])  // пустой тайл
+            }
         }
         return updated
     }

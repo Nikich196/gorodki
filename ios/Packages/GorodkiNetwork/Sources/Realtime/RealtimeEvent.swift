@@ -11,6 +11,8 @@ public enum RealtimeEvent: Equatable, Sendable {
     case tilesChanged(League, [TileKey])
     /// `CaptureDecided`: заявка решена — забрать итог (`GET /runs/{runId}/captures`).
     case captureDecided(runId: String, captureId: String, status: String)
+    /// `FogChanged`: свой забег открыл новый туман — перезапросить свои тайлы тумана.
+    case fogChanged
 }
 
 /// Одно соединение с хабом. Подсказки идут в `messages`, поток кончается, когда соединение закрылось.
