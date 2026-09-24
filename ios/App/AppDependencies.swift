@@ -26,6 +26,9 @@ final class AppDependencies: Sendable {
     /// Реальное время (docs/architecture/realtime.md): одно соединение на приложение — под тем, кто сейчас вошёл.
     /// `nil`, пока адрес сервера не задан.
     let realtime: RealtimeClient?
+    /// Земля «Бега» по тайлам с видимыми версиями (docs/architecture/territory-map.md): карта (этап 2) берёт тайлы
+    /// отсюда. `nil`, пока адрес сервера не задан.
+    let territory: TerritoryCache?
     /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). В приложении — в базе
     /// GRDB (`GRDBSyncStore`): неотправленные забеги переживают выгрузку приложения и перезапуск телефона.
     let syncStore: any SyncStore
@@ -44,6 +47,7 @@ final class AppDependencies: Sendable {
         let api = serverURL.map { ClientFactory.make(serverURL: $0, tokens: tokens, transport: transport) }
         self.api = api
         self.signIn = api.map { SignInService(api: $0, tokens: tokens) }
+        self.territory = api.map { TerritoryCache(api: $0, league: .run) }
         self.realtime = serverURL.map { url in
             RealtimeClient(
                 connector: SignalRConnector(
