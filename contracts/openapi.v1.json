@@ -73,6 +73,41 @@
         }
       }
     },
+    "/me/public-profile": {
+      "put": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Согласие на показ ника (без него в рейтингах — «Игрок #1234»)",
+        "description": "Отдельное согласие на показ ника, цвета и земли по нику (PLAN.md, §3.16; закон 99-З). Действует сразу: рейтинги читают его при каждом запросе. Ответ — профиль, как GET /me.",
+        "operationId": "setPublicProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/me/export": {
       "get": {
         "tags": [
@@ -2383,6 +2418,17 @@
           }
         },
         "additionalProperties": {}
+      },
+      "PublicProfileRequest": {
+        "required": [
+          "enabled"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
       },
       "RefreshRequest": {
         "required": [
