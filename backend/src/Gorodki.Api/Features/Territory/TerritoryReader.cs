@@ -172,9 +172,10 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
 
             return map.ParcelsIn(tile).Select(p => (p.State, p.Geometry)).ToList();
         }
-        catch (Exception e) when (e is TerritoryEngineException or TopologyException)
+        catch (Exception e) when (e is TerritoryEngineException or TopologyException or FormatException)
         {
-            // Лучше пустой тайл на 20 минут, чем показать, где человек сейчас.
+            // Лучше пустой тайл на 20 минут, чем показать, где человек сейчас. FormatException — испорченная запись
+            // журнала (TWKB): без неё здесь весь запрос карты отвечал бы 500.
             logger.LogError(e, "Публичная проекция тайла {Tile} не собралась — тайл отдан пустым до раскрытия", tile);
             return [];
         }

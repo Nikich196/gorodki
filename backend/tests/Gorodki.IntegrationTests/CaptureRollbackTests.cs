@@ -180,6 +180,31 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Damaged_journal_fails_only_that_capture_and_the_job_still_finishes()
+    {
+        // Испорченная запись журнала (ручная правка базы) — неудача этого захвата в итоге задания. Иначе задание
+        // оставалось бы ожидающим и стояло первым в очереди откатов навсегда.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var scene = await AnnaThenBorisAsync(api);
+        await using (var db = database.CreateContext())
+        {
+            await db.CaptureJournal
+                .Where(j => j.CaptureId == scene.BorisClaim.CaptureId)
+                .ExecuteUpdateAsync(set => set.SetProperty(j => j.Footprint, new byte[] { 0 }), Cancel);
+        }
+
+        var done = await RollBackAsync(api, scene.Admin, scene.BorisId);
+
+        Assert.Equal(CaptureRollbackStatus.Done, done.Status);
+        Assert.Equal((0, 1), (done.RolledBack, done.Failed));
+        Assert.InRange(await LandAreaAsync(scene.AnnaId), 4_700, 5_300); // земля осталась как была
+        await using var check = database.CreateContext();
+        var job = await check.CaptureRollbacks.AsNoTracking().SingleAsync(r => r.Id == done.Id, Cancel);
+        Assert.Contains(scene.BorisClaim.CaptureId.ToString(), job.LastError);
+    }
+
+    [Fact]
     public async Task Only_an_administrator_can_roll_back()
     {
         database.RequireDatabase();

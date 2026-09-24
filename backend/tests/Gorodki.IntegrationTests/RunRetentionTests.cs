@@ -86,6 +86,67 @@ public sealed class RunRetentionTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Loop_claims_are_refused_once_points_are_erased_or_the_upload_window_is_closed()
+    {
+        // Судить петлю не по чему: иначе заявка на старый забег роняла бы обработчик, пока не кончатся её попытки.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, _) = await api.CreatePlayerClientAsync();
+        var (erased, erasedPoints) = await WalkAsync(Cancel, api, client, Square(NewArea(), 0, 0, 100));
+        await using (var db = database.CreateContext())
+        {
+            await db.Runs
+                .Where(r => r.Id == erased.Id)
+                .ExecuteUpdateAsync(set => set.SetProperty(r => r.PointsPurgedAt, api.Time.GetUtcNow()), Cancel);
+        }
+
+        var (late, latePoints) = await WalkAsync(Cancel, api, client, Square(NewArea(), 0, 0, 100));
+        var onErased = await ClaimAsync(api, client, erased.Id, erasedPoints.Count - 1);
+        api.Time.Advance(RunLimits.UploadWindow + TimeSpan.FromMinutes(1));
+        var afterWindow = await ClaimAsync(api, client, late.Id, latePoints.Count - 1);
+
+        foreach (var response in new[] { onErased, afterWindow })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Contains("upload_window_closed", await response.Content.ReadAsStringAsync(Cancel));
+        }
+
+        await using var check = database.CreateContext();
+        Assert.False(await check.Captures.AnyAsync(c => c.RunId == erased.Id || c.RunId == late.Id, Cancel));
+    }
+
+    [Fact]
+    public async Task Claim_still_waiting_when_the_points_are_erased_ends_as_stale()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, _) = await api.CreatePlayerClientAsync();
+        var claim = await WalkAndClaimAsync(Cancel, api, client, Square(NewArea(), 0, 0, 100)); // заявка ещё не обработана
+        await using (var db = database.CreateContext())
+        {
+            await db.Runs
+                .Where(r => r.Id == claim.RunId)
+                .ExecuteUpdateAsync(set => set.SetProperty(r => r.PointsPurgedAt, api.Time.GetUtcNow()), Cancel);
+            await db.RunChunks
+                .Where(c => c.RunId == claim.RunId)
+                .ExecuteUpdateAsync(set => set.SetProperty(c => c.Points, Array.Empty<byte>()), Cancel);
+        }
+
+        Assert.Equal(1, await Walks.ProcessAsync(api, claim.RunId));
+
+        await using var check = database.CreateContext();
+        var capture = await check.Captures.AsNoTracking().SingleAsync(c => c.Id == claim.CaptureId, Cancel);
+        Assert.Equal((CaptureStatus.Stale, "stale"), (capture.Status, capture.RejectCode));
+    }
+
+    private static Task<HttpResponseMessage> ClaimAsync(ApiFactory api, HttpClient client, Guid runId, int endSeq) =>
+        client.PostAsJsonAsync(
+            $"/runs/{runId}/loops",
+            new LoopClaimRequest(0, 0, endSeq, LoopClosure.Proximity, 10_000, api.Time.GetUtcNow().ToUnixTimeMilliseconds()),
+            Json,
+            TestContext.Current.CancellationToken);
+
+    [Fact]
     public async Task Forgotten_run_is_closed_a_day_after_its_length_limit_and_opens_fog()
     {
         database.RequireDatabase();

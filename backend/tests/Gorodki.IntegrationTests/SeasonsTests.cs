@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Seasons;
+using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Time;
 using Microsoft.EntityFrameworkCore;
 using static Gorodki.IntegrationTests.RunRequests;
@@ -25,6 +26,19 @@ public sealed class SeasonsTests(DatabaseFixture database)
             [new DateOnly(2026, 11, 16), new DateOnly(2026, 11, 30), new DateOnly(2026, 12, 14)],
             calendar.Seasons.Select(s => GameClock.GameDayOf(s.StartsAt)));
         Assert.All(calendar.Seasons, s => Assert.Equal(SeasonCalendar.MinskMidnight(GameClock.GameDayOf(s.StartsAt)), s.StartsAt));
+    }
+
+    [Fact]
+    public async Task Season_not_starting_at_minsk_midnight_is_refused_by_the_database_itself()
+    {
+        // Сезоны вставляются вручную. Полночь UTC — это 03:00 в Минске: календарь такой сезон не принимает, и падали бы
+        // туман всех забегов и GET /seasons. База не даёт записать такую строку.
+        database.RequireDatabase();
+        await using var db = database.CreateContext();
+        db.Seasons.Add(new SeasonEntity { Number = 3, Name = "Сезон 3", StartsAt = new DateTimeOffset(2026, 12, 28, 0, 0, 0, TimeSpan.Zero) });
+
+        var error = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(Cancel));
+        Assert.Contains("ck_seasons_minsk_midnight", error.InnerException?.Message ?? "", StringComparison.Ordinal);
     }
 
     [Fact]

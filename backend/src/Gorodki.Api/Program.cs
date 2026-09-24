@@ -58,10 +58,17 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<GameClock>();
 
 // База данных и всё, что без неё не работает (вход, профиль), подключаются, только если задана строка подключения
-// (на Render — переменная ConnectionStrings__Gorodki). Без неё сервер всё равно запускается: так проще разрабатывать
-// и тестировать то, что базы не требует.
+// (на Render — переменная ConnectionStrings__Gorodki). Без неё сервер запускается только в разработке (так проще
+// разрабатывать и тестировать то, что базы не требует). На сервере потерянная переменная иначе дала бы игру без базы
+// и входа при «здоровом» /health/ready — поэтому там он не стартует и сразу говорит почему.
 var connectionString = builder.Configuration.GetConnectionString("Gorodki");
 var withDatabase = !string.IsNullOrWhiteSpace(connectionString);
+if (!withDatabase && !builder.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException(
+        "Не задана строка подключения к базе: ConnectionStrings:Gorodki (на Render — переменная ConnectionStrings__Gorodki).");
+}
+
 if (withDatabase)
 {
     builder.Services.AddDbContext<AppDbContext>(options => AppDbContext.Configure(options, connectionString!));
@@ -90,6 +97,7 @@ if (withDatabase)
     }
     builder.Services.AddScoped<RunJudgements>();
     builder.Services.AddScoped<RunRetention>();
+    builder.Services.AddScoped<RefreshTokenRetention>();
     builder.Services.AddScoped<AccountDeletion>();
     builder.Services.AddScoped<LeaderboardSnapshots>();
     builder.Services.AddScoped<AccountExport>();
