@@ -44,11 +44,16 @@ public sealed record TileChange(TileKey Tile, Geometry Footprint, IReadOnlyList<
 /// </param>
 /// <param name="SliverArea">Площадь осколков, отданных соседям или ставших ничьими, м².</param>
 /// <param name="Changes">Что изменилось по тайлам — для журнала отката; тайлы без изменений не входят.</param>
+/// <param name="ReassemblyFallbacks">
+/// В скольких тайлах вторая сборка (по линиям журнала) разошлась с первой и записаны куски первой: там нетронутая земля
+/// разрезана границей петли, и проекция скрытого захвата может её выдать. Сервер пишет это в лог — иначе частоту не узнать.
+/// </param>
 public sealed record CaptureResult(
     IReadOnlyDictionary<PieceOutcome, double> AreaByOutcome,
     IReadOnlyList<TileKey> ChangedTiles,
     double SliverArea,
-    IReadOnlyList<TileChange> Changes)
+    IReadOnlyList<TileChange> Changes,
+    int ReassemblyFallbacks)
 {
     public double Area(PieceOutcome outcome) => AreaByOutcome.GetValueOrDefault(outcome);
 }
@@ -130,6 +135,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         var rebuilt = new List<(TileKey Tile, List<Parcel> Pieces)>();
         var changes = new List<TileChange>();
         var sliverArea = 0.0;
+        var reassemblyFallbacks = 0;
 
         foreach (var tile in TileKey.Covering(capture.EnvelopeInternal))
         {
@@ -144,11 +150,12 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
             {
                 rebuilt.Add((tile, captured.Pieces));
                 changes.Add(captured.Change);
+                reassemblyFallbacks += captured.ReassemblyFailed ? 1 : 0;
             }
         }
 
         Commit(rebuilt);
-        return new CaptureResult(areas, rebuilt.Select(r => r.Tile).ToList(), sliverArea, changes);
+        return new CaptureResult(areas, rebuilt.Select(r => r.Tile).ToList(), sliverArea, changes, reassemblyFallbacks);
     }
 
     /// <summary>
@@ -215,8 +222,11 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         public ParcelState? New { get; set; }
     }
 
-    /// <summary>Новые куски тайла и запись журнала; <c>null</c> — ни одно состояние не изменилось, тайл остаётся как был.</summary>
-    private (List<Parcel> Pieces, TileChange Change)? CaptureTile(
+    /// <summary>
+    /// Новые куски тайла и запись журнала; <c>null</c> — ни одно состояние не изменилось, тайл остаётся как был.
+    /// <c>ReassemblyFailed</c> — вторая сборка разошлась с первой, и куски — из первой (<see cref="Reassembled"/>).
+    /// </summary>
+    private (List<Parcel> Pieces, TileChange Change, bool ReassemblyFailed)? CaptureTile(
         TileKey tile,
         Geometry captureInTile,
         CaptureContext context,
@@ -272,19 +282,23 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         // 5. Там, где петля прошла по земле, которую не изменила, её граница не нужна: собираем тайл заново только по
         // линиям журнала. Иначе куски, которых захват не касался, получили бы вершины в точках, где их общую границу
         // пересекла петля (на наклонной границе — изломы до 7 см), новые номера и выдали бы скрытую петлю.
-        if (keptInside && Reassembled(tile, change) is { } reassembled)
+        var reassemblyFailed = false;
+        if (keptInside)
         {
-            pieces = reassembled;
+            var reassembled = Reassembled(tile, change);
+            reassemblyFailed = reassembled is null;
+            pieces = reassembled ?? pieces;
         }
 
         sliverArea += tileSlivers;
-        return (pieces, change);
+        return (pieces, change, reassemblyFailed);
     }
 
     /// <summary>
     /// Куски тайла после захвата, собранные по его записи журнала, а не по границе петли: грани — от текущих границ
     /// и линий журнала (след и земля после захвата), внутри следа — состояние после захвата, снаружи — прежнее.
-    /// <c>null</c> — сборка разошлась с первой (площадь следа или осколки): тогда остаются куски первой сборки.
+    /// <c>null</c> — сборка разошлась с первой (площадь следа или осколки): тогда остаются куски первой сборки, и это
+    /// видно в <see cref="CaptureResult.ReassemblyFallbacks"/>.
     /// </summary>
     private List<Parcel>? Reassembled(TileKey tile, TileChange change)
     {

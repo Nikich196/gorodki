@@ -394,6 +394,16 @@ public sealed class CaptureProcessor(
         }
 
         await transaction.CommitAsync(cancellationToken);
+        if (result.ReassemblyFallbacks > 0)
+        {
+            // В этих тайлах нетронутая земля разрезана границей петли, и проекция может выдать скрытый захват (аудит BE-01).
+            // Движок не ошибся — пишем только частоту, без тайлов и координат: сам лог не должен выдавать, где бегали.
+            logger.LogWarning(
+                "Захват {CaptureId}: вторая сборка кусков не сошлась в {Tiles} тайл(ах), записана первая",
+                claim.Id,
+                result.ReassemblyFallbacks);
+        }
+
         return 1;
     }
 

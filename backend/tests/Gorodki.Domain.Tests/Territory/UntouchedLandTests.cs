@@ -1,5 +1,6 @@
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Territory;
+using NetTopologySuite.Algorithm.Distance;
 using NetTopologySuite.Geometries;
 using static Gorodki.Domain.Tests.Geo.TestGeometry;
 
@@ -17,6 +18,9 @@ public sealed class UntouchedLandTests
     private static readonly Guid Vera = new("00000000-0000-0000-0000-00000000000c");
     private static readonly DateTimeOffset T0 = new(2026, 11, 16, 9, 0, 0, TimeSpan.Zero);
     private static readonly TileKey Tile = TileKey.Of(OriginX + 1, OriginY + 1);
+
+    /// <summary>Полудиагональ клетки сетки 0,1 м (0,0707… м) с запасом на округление: дальше snap-rounding точку не сдвигает.</summary>
+    private const double HalfDiagonal = 0.0708;
 
     private static CaptureResult Capture(TerritoryMap map, CaptureContext context, Geometry area)
     {
@@ -190,6 +194,63 @@ public sealed class UntouchedLandTests
 
         Assert.Contains(map.ParcelsIn(Tile), p => p.State == anna.State && p.Geometry.EqualsExact(legacy));
         AssertSamePieces([anna], projection.ParcelsIn(Tile));
+    }
+
+    // ── Известный остаток: наклонная граница у изменённой земли ──────────────
+
+    [Theory]
+    [InlineData(false)] // новичок взял ничью землю за наклонным краем квадрата Анны: Анна — нетронутый сосед
+    [InlineData(true)] // бывалый срезал часть земли Анны; Вера за наклонной границей побывала у себя позже петли
+    public void Hidden_capture_next_to_a_slanted_border_shows_in_the_projection_only_as_kinks_at_the_loop(bool cutsAnnasLand)
+    {
+        // Остаток BE-01 (docs/architecture/territory-map.md). Петля пересекает наклонную границу не в узле сетки 0,1 м,
+        // snap-rounding сдвигает точку пересечения, и граница изменённой земли ломается в ней — это настоящая геометрия,
+        // иначе куски налезли бы друг на друга. Тот же излом ложится на нетронутого соседа и на срезанный кусок, и проекция
+        // скрытого захвата собирает землю вместе с ним: куски не те же (у зрителя другие номера), а изломы стоят там, где
+        // прошла петля. На границах по GPS (они почти всегда наклонные) это обычный захват чужой земли, не редкость.
+        // Убрать остаток можно, только храня в журнале исходные контуры кусков. Тест держит его в рамках: изломы не дальше
+        // полудиагонали клетки, наложений нет, новые вершины — только у петли. Когда остаток закроют, упадёт последняя
+        // проверка: замени её на AssertSamePieces и поправь territory-map.md.
+        var annaLand = GeoOps.Factory.CreatePolygon([At(100, 100), At(300, 100), At(300, 170), At(100, 137), At(100, 100)]);
+        var veraLand = GeoOps.Factory.CreatePolygon([At(100, 137), At(300, 170), At(300, 300), At(100, 300), At(100, 137)]);
+        var map = new TerritoryMap();
+        Capture(map, Veteran(Anna, T0), annaLand);
+        if (cutsAnnasLand)
+        {
+            Capture(map, Veteran(Vera, T0.AddHours(2)), veraLand);
+        }
+
+        var before = Copy(map);
+        var loop = RectanglePolygon(150, 110, 100, 140);
+        var context = cutsAnnasLand ? Veteran(Boris, T0.AddHours(1)) : Newcomer(T0.AddHours(1));
+        var result = Capture(map, context, loop);
+        Assert.True(result.Area(cutsAnnasLand ? PieceOutcome.Transferred : PieceOutcome.ClaimedNeutral) > 0);
+        Assert.True(result.Area(cutsAnnasLand ? PieceOutcome.Superseded : PieceOutcome.NewAccountLimited) > 0);
+
+        var projection = Copy(map);
+        projection.Restore(result.Changes);
+
+        Assert.Empty(TerritoryInvariants.Check(projection));
+        Assert.Equal(before.ParcelsIn(Tile).Count, projection.ParcelsIn(Tile).Count);
+        var exact = true;
+        foreach (var piece in before.ParcelsIn(Tile))
+        {
+            var projected = Assert.Single(projection.ParcelsIn(Tile), p => p.State == piece.State);
+            exact &= projected.Geometry.EqualsExact(piece.Geometry);
+            Assert.True(
+                DiscreteHausdorffDistance.Distance(piece.Geometry.Boundary, projected.Geometry.Boundary) <= HalfDiagonal,
+                $"граница сдвинута больше чем на полудиагональ клетки: {projected.Geometry}");
+
+            var oldVertices = piece.Geometry.Coordinates.ToHashSet();
+            foreach (var vertex in projected.Geometry.Coordinates.Where(c => !oldVertices.Contains(c)))
+            {
+                Assert.True(
+                    loop.Boundary.Distance(GeoOps.Factory.CreatePoint(vertex)) <= HalfDiagonal,
+                    $"новая вершина {vertex} не у петли");
+            }
+        }
+
+        Assert.False(exact, "проекция отдала куски теми же до вершины — остаток BE-01 закрыт, обнови тест и territory-map.md");
     }
 
     // ── Откат ────────────────────────────────────────────────────────────────
