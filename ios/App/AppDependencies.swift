@@ -105,12 +105,17 @@ final class AppDependencies: Sendable {
     /// Начать забег (экран забега — этап 2): правила последней известной версии конфига, идентификатор установки,
     /// вошедший игрок. Забег сразу в очереди; `nil` — никто не вошёл: без входа забег некому отправить.
     /// - Parameter motionAuthorized: разрешён ли доступ к датчикам движения (без него захватов нет — сервер знает).
-    func startRun(league: GameCore.League, motionAuthorized: Bool) async throws -> RunSession? {
+    /// - Parameters:
+    ///   - source: `.replay` — демо-повтор (сервер разрешает его только ролям `demo` и `admin`).
+    ///   - startedAt: начало, секунды Unix; у повтора — в прошлом (`RunReplay.startedAt`), иначе «сейчас».
+    func startRun(
+        league: GameCore.League, motionAuthorized: Bool, source: LocalRun.Source = .live, startedAt: Double? = nil
+    ) async throws -> RunSession? {
         guard let ownerId = await tokens.current()?.playerId else { return nil }
         let rules = await self.rules.current()
         let run = LocalRun(
-            id: UUID(), ownerId: ownerId, league: league, configVersion: rules.version,
-            startedAtMs: StoragePrecision.milliseconds(now()), deviceId: await installation.value(),
+            id: UUID(), ownerId: ownerId, league: league, source: source, configVersion: rules.version,
+            startedAtMs: StoragePrecision.milliseconds(startedAt ?? now()), deviceId: await installation.value(),
             appVersion: Self.appVersion, motionAuthorized: motionAuthorized)
         let newcomer = try await RunSession.isNewcomer(ownerId: ownerId, store: syncStore)
         let session = try await RunSession.start(run, store: syncStore, rules: rules.rules, newcomer: newcomer)

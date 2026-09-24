@@ -1,5 +1,6 @@
 import Foundation
 import GameCore
+import Synchronization
 
 /// Что приходит в идущий забег. Всё — через одну очередь `RunTracker`, строго по порядку поступления.
 public enum TrackerInput: Sendable {
@@ -68,6 +69,9 @@ public actor RunTracker {
     private var session: RunSession?
     private var starting = false
     private var sealed = 0
+    /// Идёт запись для демо-повтора — пишется прямо из `send`, в порядке поступления.
+    private nonisolated let recording = Mutex<RunRecordingBuffer?>(nil)
+    private var finishedRecording: RunRecording?
     public private(set) var state = TrackerState() {
         didSet {
             if state != oldValue { onChange(state) }
@@ -88,17 +92,31 @@ public actor RunTracker {
 
     /// Поступление от источника — без ожидания, в порядке вызовов.
     public nonisolated func send(_ input: TrackerInput) {
+        recording.withLock { $0 }?.append(input)
         queue.yield(.input(input))
     }
 
     /// «Старт». `makeSession` записывает забег в очередь (`AppDependencies.startRun`) — только если забега нет: второй
     /// «Старт» отклоняется до записи в базу.
-    public func start(_ makeSession: @Sendable () async throws -> RunSession) async throws {
+    /// - Parameter recording: записать забег для демо-повтора (`takeRecording` после «Финиша»).
+    public func start(recording: Bool = false, _ makeSession: @Sendable () async throws -> RunSession) async throws {
         guard session == nil, !starting else { throw TrackerError.alreadyRunning }
         starting = true
         defer { starting = false }
-        attach(try await makeSession(), stats: RunStats(), sealed: 0)
+        let session = try await makeSession()
+        finishedRecording = nil
+        if recording {
+            let buffer = RunRecordingBuffer(startedAt: Double(session.startedAtMs) / 1_000, league: session.league)
+            self.recording.withLock { $0 = buffer }
+        }
+        attach(session, stats: RunStats(), sealed: 0)
         onQueued()  // забег в очереди: сервер узнает о нём раньше первой петли
+    }
+
+    /// Запись последнего забега для демо-повтора (если он записывался) — один раз.
+    public func takeRecording() -> RunRecording? {
+        defer { finishedRecording = nil }
+        return finishedRecording
     }
 
     /// Продолжить забег после перезапуска приложения (`recover`). Поступившее до этого обрабатывается уже в нём.
@@ -157,6 +175,9 @@ public actor RunTracker {
                 state.storageFailed = true
                 return done.resume(throwing: error)
             }
+            if let buffer = recording.withLock({ $0.take() }) {
+                finishedRecording = buffer.finish(at: seconds)
+            }
             await ended(session)
             done.resume()
         case .drain(let done):
@@ -200,6 +221,9 @@ public actor RunTracker {
     }
 
     private func ended(_ session: RunSession) async {
+        if let buffer = recording.withLock({ $0.take() }) {  // конец по пределу длины
+            finishedRecording = buffer.finishAtLastEntry()
+        }
         state.stats = await session.stats
         state.isRunning = false
         self.session = nil

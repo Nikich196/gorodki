@@ -25,6 +25,10 @@ final class RunController {
     }
 
     private(set) var state = TrackerState()
+    /// Идёт демо-повтор — экран показывает значок «ПОВТОР ×N».
+    private(set) var replaySpeed: Double?
+    /// Есть сохранённая запись для демо-повтора.
+    private(set) var hasDemoRecording = RunController.loadDemoRecording() != nil
 
     @ObservationIgnored private let tracker: RunTracker
     @ObservationIgnored private let location = RunLocationSource()
@@ -32,6 +36,7 @@ final class RunController {
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var activityID: String?
     @ObservationIgnored private var lastActivityUpdate = Date.distantPast
+    @ObservationIgnored private var replay: Task<Void, Never>?
 
     /// Подсказка «забег мог идти», чтобы после перезапуска сразу, ещё до чтения базы, запустить геопозицию (иначе iOS
     /// может снова усыпить приложение). Решает база (`RunTracker.recover`), подсказка — только ускоряет.
@@ -51,7 +56,8 @@ final class RunController {
     // MARK: - Экран
 
     /// «Старт». Разрешения проверяются до записи забега: пустой забег съел бы суточный лимит (10 забегов).
-    func start(league: League) async throws {
+    /// - Parameter recordDemo: записать забег для демо-повтора (запись сохраняется после «Финиша»).
+    func start(league: League, recordDemo: Bool = false) async throws {
         let manager = CLLocationManager()
         guard [.authorizedWhenInUse, .authorizedAlways].contains(manager.authorizationStatus) else {
             throw StartProblem.locationNotAllowed
@@ -62,7 +68,7 @@ final class RunController {
         // Источники — сразу: точки до записи забега копятся в очереди трекера и уходят в него (GPS «догоняет»).
         startSources(motionSince: startedAt)
         do {
-            try await tracker.start {
+            try await tracker.start(recording: recordDemo) {
                 guard
                     let session = try await AppDependencies.shared.startRun(
                         league: league, motionAuthorized: motionAuthorized)
@@ -81,8 +87,57 @@ final class RunController {
     /// «Финиш». Точки, пришедшие раньше, войдут в забег.
     /// - Throws: ошибку записи в очередь — забег продолжается, «Финиш» можно повторить.
     func finish() async throws {
+        replay?.cancel()
         try await tracker.finish(at: Date.now.timeIntervalSince1970)
         ended()
+    }
+
+    // MARK: - Демо-повтор
+
+    /// Демо-повтор сохранённой записи (PLAN.md §7.2): ×`speed`, время сдвинуто в прошлое, `source = replay`. Сервер
+    /// разрешает его только ролям `demo` и `admin` (403 `replay_forbidden` — забег отвергнут, очередь не ломается).
+    /// Геопозиция и датчики не запускаются: всё идёт из записи, таймер — по её времени.
+    func startReplay(speed: Double = 20) async throws {
+        guard let recording = Self.loadDemoRecording() else { return }
+        let replay = RunReplay(recording, speed: speed)
+        let startedAt = replay.startedAt(now: Date.now.timeIntervalSince1970)
+        try await tracker.start {
+            guard
+                let session = try await AppDependencies.shared.startRun(
+                    league: recording.league, motionAuthorized: recording.hasMotion, source: .replay,
+                    startedAt: startedAt)
+            else { throw StartProblem.notSignedIn }
+            return session
+        }
+        replaySpeed = replay.speed
+        let tracker = self.tracker
+        self.replay = Task {
+            try? await replay.play(into: tracker, startedAt: startedAt)
+        }
+    }
+
+    /// Остановить повтор: забег заканчивается на достигнутом времени записи.
+    func stopReplay() {
+        replay?.cancel()
+    }
+
+    private static var demoRecordingURL: URL? {
+        try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+        )
+        .appendingPathComponent("demo-recording.json")
+    }
+
+    /// Запись для повтора — одна, последняя; только на телефоне (настоящий маршрут в репозиторий не попадает).
+    private static func loadDemoRecording() -> RunRecording? {
+        guard let url = demoRecordingURL, let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(RunRecording.self, from: data)
+    }
+
+    private func saveDemoRecording(_ recording: RunRecording) {
+        guard let url = Self.demoRecordingURL, let data = try? JSONEncoder().encode(recording) else { return }
+        try? data.write(to: url, options: [.atomic, .completeFileProtection])
+        hasDemoRecording = true
     }
 
     /// Выход из аккаунта: сначала завершить забег (он принадлежит этому игроку), потом стереть вход. Событие о смене
@@ -160,6 +215,13 @@ final class RunController {
     }
 
     private func ended() {
+        replay = nil
+        replaySpeed = nil
+        Task {
+            if let recording = await tracker.takeRecording() {
+                saveDemoRecording(recording)
+            }
+        }
         stopSources()
         UserDefaults.standard.set(false, forKey: Self.hintKey)
         if let activityID {

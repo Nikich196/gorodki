@@ -102,7 +102,8 @@ public actor RunSession {
     private var lastPointMs: Int64?
     private var lastTimestamp: Double?
     /// Начало забега, мс: точка раньше начала больше чем на минуту — не этого забега.
-    private let startedAtMs: Int64
+    /// Начало забега, мс Unix.
+    public nonisolated let startedAtMs: Int64
     /// Точка старше этого (по часам телефона) — устаревшая: не нумеруется и не отправляется (`TrackJudging` на сервере
     /// считает «сейчас» временем самой точки, свежесть проверяет только телефон).
     private let maxFixAgeSeconds: Double
