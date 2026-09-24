@@ -252,7 +252,7 @@ struct RunSessionTests {
         await slow.holdChunkSaves()
 
         let point = Task { try await session.handle(a, now: a.timestamp) }
-        try await slow.waitUntilSaving()
+        await slow.waitUntilSaving()
         let finishing = Task { try await session.finish(endedAt: a.timestamp + 1) }
         try await Task.sleep(for: .milliseconds(200))
         #expect(await !session.isFinished)  // «Финиш» ждёт, пока точка запишется
@@ -323,7 +323,7 @@ struct RunSessionTests {
         await slow.holdChunkSaves()
 
         let first = Task { try await session.handle(a, now: a.timestamp) }  // кусок из одной точки записывается
-        try await slow.waitUntilSaving()
+        await slow.waitUntilSaving()
         let second = Task { try await session.handle(b, now: b.timestamp) }
         try await Task.sleep(for: .milliseconds(200))
         #expect(await slow.saveAttempts == 1)  // вторая точка не обгоняет первую
@@ -344,7 +344,7 @@ struct RunSessionTests {
         await slow.holdChunkSaves()
 
         let sealing = Task { try await session.tick(now: Fixture.start + 7_200) }  // кусок «созрел»
-        try await slow.waitUntilSaving()
+        await slow.waitUntilSaving()
         let during = walk.fix(east: 10, north: 0)
         let point = Task { try await session.handle(during, now: during.timestamp) }
         await session.record(MotionSample(timestamp: during.timestamp, activity: .walking))  // датчики очереди не ждут
@@ -573,8 +573,8 @@ struct RunSessionTests {
 actor GatedStore: SyncStore {
     let inner = InMemorySyncStore()
     private var holding = false
-    private var saving = false
     private var gate: [CheckedContinuation<Void, Never>] = []
+    private let saving = Gate()
     private(set) var saveAttempts = 0
 
     func holdChunkSaves() { holding = true }
@@ -585,10 +585,10 @@ actor GatedStore: SyncStore {
         gate = []
     }
 
-    func waitUntilSaving() async throws {
-        for _ in 0..<2_500 where !saving {
-            try await Task.sleep(for: .milliseconds(2))
-        }
+    /// Дождаться, пока запись куска придержана, — без сна: иначе на медленной машине проверка шла бы дальше раньше,
+    /// чем кусок начал записываться, и проверяла бы не то.
+    func waitUntilSaving(sourceLocation: SourceLocation = #_sourceLocation) async {
+        await saving.wait(sourceLocation: sourceLocation)
     }
 
     func runs() async -> [LocalRun] { await inner.runs() }
@@ -608,7 +608,7 @@ actor GatedStore: SyncStore {
     private func holdIfAsked() async {
         saveAttempts += 1
         if holding {
-            saving = true
+            saving.open()
             await withCheckedContinuation { gate.append($0) }
         }
     }

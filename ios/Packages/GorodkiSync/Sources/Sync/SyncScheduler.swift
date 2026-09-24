@@ -204,6 +204,8 @@ public actor SyncScheduler {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     /// Был ли хоть один проход (или выход): до него очередь неизвестна.
     private var knowsBacklog = false
+    /// Проверкам: событие встало ждать идущего прохода — гонку проверяют порядком событий, а не сном.
+    private var waitingForPass: (@Sendable () -> Void)?
 
     /// Последнее решение «когда снова» — для экрана «Синхронизация» и проверок.
     public var nextWake: SyncWake { wake }
@@ -249,7 +251,10 @@ public actor SyncScheduler {
         if running {
             rerun = true
             if reason == .backgroundTask {
-                await withCheckedContinuation { waiters.append($0) }
+                await withCheckedContinuation {
+                    waiters.append($0)
+                    waitingForPass?()
+                }
             }
             return wake
         }
@@ -269,6 +274,9 @@ public actor SyncScheduler {
         done.forEach { $0.resume() }
         return wake
     }
+
+    /// Проверкам: `action` зовётся, когда событие встало ждать идущего прохода.
+    func onWaitingForPass(_ action: @escaping @Sendable () -> Void) { waitingForPass = action }
 
     /// Остановить таймер (выход из аккаунта).
     public func stop() {

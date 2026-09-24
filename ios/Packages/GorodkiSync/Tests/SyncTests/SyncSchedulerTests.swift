@@ -325,13 +325,15 @@ struct SyncSchedulerTests {
         try await Fixture.record(Fixture.run(), points: 25, into: store, claims: [Fixture.loop(2, 14)])
         let scheduler = scheduler()
         let background = Box()
+        let waiting = Gate()
+        await scheduler.onWaitingForPass { waiting.open() }
         await server.whileStarting {
             await background.set(
                 Task {
                     await scheduler.trigger(.backgroundTask)
                     return await scheduler.backgroundRequests
                 })
-            try? await Task.sleep(for: .milliseconds(100))  // задача успевает встать в очередь за идущим проходом
+            await waiting.wait()  // фоновая задача встала за идущим проходом — только тогда он продолжается
         }
 
         await scheduler.trigger(.appActive)

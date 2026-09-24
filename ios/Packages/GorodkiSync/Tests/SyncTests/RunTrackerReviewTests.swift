@@ -67,17 +67,21 @@ struct RunTrackerReviewTests {
         var walk = Walk()
         walk.time = Fixture.start + 100
         let fixes = walk.straight(seconds: 5)
+        let entered = Gate()
+        let written = Gate()
         let starting = Task {
             try await tracker.start {
-                try await Task.sleep(for: .milliseconds(200))  // запись забега в базу не мгновенна
+                entered.open()
+                await written.wait()  // запись забега в базу не мгновенна
                 return try await RunSession.start(second, store: store, rules: .version1)
             }
         }
-        try await Task.sleep(for: .milliseconds(50))
+        await entered.wait()
         tracker.send(.motion(MotionSample(timestamp: Fixture.start + 90, activity: .automotive)))  // «уже в машине»
         for fix in fixes {
             tracker.send(.fix(fix, receivedAt: fix.timestamp + 1))
         }
+        written.open()
         try await starting.value
         try await tracker.finish(at: walk.time)
 

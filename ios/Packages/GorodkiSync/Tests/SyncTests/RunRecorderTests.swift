@@ -34,7 +34,7 @@ struct RunRecorderTests {
         await slow.holdChunkSaves()
 
         let finishing = Task { try await recorder.finish(endedAt: start + 3) }
-        try await slow.waitUntilSaving()
+        await slow.waitUntilSaving()
         await #expect(throws: RecorderError.alreadyFinished) {
             try await recorder.record(Fixture.point(3))
         }
