@@ -29,6 +29,9 @@ final class AppDependencies: Sendable {
     /// Земля «Бега» по тайлам с видимыми версиями (docs/architecture/territory-map.md): карта (этап 2) берёт тайлы
     /// отсюда. `nil`, пока адрес сервера не задан.
     let territory: TerritoryCache?
+    /// Свой туман «Пешком» за всё время (docs/architecture/fog.md): карта (этап 2) берёт тайлы отсюда. `nil`, пока адрес
+    /// сервера не задан.
+    let fog: FogCache?
     /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). В приложении — в базе
     /// GRDB (`GRDBSyncStore`): неотправленные забеги переживают выгрузку приложения и перезапуск телефона.
     let syncStore: any SyncStore
@@ -48,6 +51,7 @@ final class AppDependencies: Sendable {
         self.api = api
         self.signIn = api.map { SignInService(api: $0, tokens: tokens) }
         self.territory = api.map { TerritoryCache(api: $0, league: .run) }
+        self.fog = api.map { FogCache(api: $0, layer: .foot) }
         self.realtime = serverURL.map { url in
             RealtimeClient(
                 connector: SignalRConnector(

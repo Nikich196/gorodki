@@ -1,3 +1,4 @@
+using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -15,7 +16,8 @@ namespace Gorodki.Api.Features.Fog;
 /// Слоя два: за всё время и сезонный — сезон забега определяется по времени его начала (по часам сервера), а не по моменту
 /// обработки: забег, начатый в 23:50 последнего дня сезона, весь относится к нему. Забеги до первого сезона — только «за всё время».
 /// </summary>
-public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, SeasonStore seasons, TimeProvider time)
+public sealed class FogProcessor(
+    AppDbContext db, RunJudgements judgements, SeasonStore seasons, RealtimeHints hints, TimeProvider time)
 {
     /// <summary>Закрытый сервером забег, который телефон так и не завершил, открывает туман через сутки — тем, что успело прийти.</summary>
     public static readonly TimeSpan ClosedRunGrace = TimeSpan.FromDays(1);
@@ -116,10 +118,7 @@ public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, Seas
 
         // «+N га» в итоге забега — новое за всё время; сезонный слой пополняется теми же клетками.
         var newCells = Merge(SeasonCalendar.AllTime);
-        if (season is { } seasonNumber)
-        {
-            Merge(seasonNumber);
-        }
+        var seasonCells = season is { } seasonNumber ? Merge(seasonNumber) : 0;
 
         await db.SaveChangesAsync(cancellationToken);
         var marked = await db.Runs
@@ -134,6 +133,12 @@ public sealed class FogProcessor(AppDbContext db, RunJudgements judgements, Seas
         }
 
         await transaction.CommitAsync(cancellationToken);
+        if (newCells > 0 || seasonCells > 0)
+        {
+            // После фиксации: подсказки о несостоявшемся изменении не бывает (docs/architecture/realtime.md).
+            hints.FogChanged(run.UserId);
+        }
+
         return newCells;
     }
 }

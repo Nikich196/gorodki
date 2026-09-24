@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -97,6 +98,36 @@ public sealed class RealtimeTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task New_fog_is_hinted_to_its_owner_only_and_only_when_it_changed()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var annaHub = await ListenAsync(api, anna);
+        var veraHub = await ListenAsync(api, vera);
+        var area = NewArea();
+
+        var first = await WalkAndFinishAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        Assert.True(await StampAsync(api, first.Id) > 0);
+        await DrainAsync(api);
+        await annaHub.BarrierAsync(api, Cancel);
+        await veraHub.BarrierAsync(api, Cancel);
+        Assert.Equal(1, annaHub.FogChanged);
+        Assert.Equal(0, veraHub.FogChanged);
+
+        // Тот же путь ещё раз — нового тумана нет, подсказки тоже.
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        var again = await WalkAndFinishAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        Assert.Equal(0, await StampAsync(api, again.Id));
+        await DrainAsync(api);
+        await annaHub.BarrierAsync(api, Cancel);
+        Assert.Equal(1, annaHub.FogChanged);
+        await annaHub.DisposeAsync();
+        await veraHub.DisposeAsync();
+    }
+
+    [Fact]
     public async Task Demo_account_captures_reach_everyone_at_once()
     {
         // PLAN.md, §11, показ: «захват точно по контуру, /live обновился».
@@ -177,6 +208,12 @@ public sealed class RealtimeTests(DatabaseFixture database)
         return listener;
     }
 
+    private static async Task<int?> StampAsync(ApiFactory api, Guid runId)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<FogProcessor>().StampRunAsync(runId, CancellationToken.None);
+    }
+
     private static async Task DrainAsync(ApiFactory api) =>
         await api.Services.GetRequiredService<RealtimePump>().DrainAsync(CancellationToken.None);
 
@@ -187,6 +224,10 @@ public sealed class RealtimeTests(DatabaseFixture database)
     private sealed class Listener : IAsyncDisposable
     {
         private readonly ConcurrentQueue<TaskCompletionSource> _barriers = new();
+        private int _fogChanged;
+
+        /// <summary>Сколько раз пришла подсказка «туман изменился».</summary>
+        public int FogChanged => Volatile.Read(ref _fogChanged);
 
         public Listener(HubConnection connection)
         {
@@ -195,6 +236,7 @@ public sealed class RealtimeTests(DatabaseFixture database)
                 Tiles.Add((league, [.. tiles.Select(t => (t[0], t[1]))])));
             connection.On<Guid, Guid, string>(GameHub.CaptureDecided, (runId, captureId, status) =>
                 Decided.Add((runId, captureId, status)));
+            connection.On(GameHub.FogChanged, () => Interlocked.Increment(ref _fogChanged));
             connection.On("Barrier", () =>
             {
                 if (_barriers.TryDequeue(out var barrier))
