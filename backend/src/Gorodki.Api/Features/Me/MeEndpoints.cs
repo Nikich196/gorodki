@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -8,6 +9,14 @@ namespace Gorodki.Api.Features.Me;
 
 /// <summary>Профиль вошедшего игрока.</summary>
 public sealed record MeResponse(Guid Id, string DisplayName, short ColorIndex, string Role, bool PublicProfile);
+
+/// <summary>Согласие на показ профиля: ник, цвет и земля по нику в рейтингах и на карте; без него — «Игрок #1234».</summary>
+public sealed record PublicProfileRequest
+{
+    /// <summary>Показывать ли ник. Обязательно: пустой запрос не должен молча выключать согласие.</summary>
+    [JsonRequired]
+    public required bool Enabled { get; init; }
+}
 
 /// <summary>Запрос на удаление аккаунта принят.</summary>
 /// <param name="RequestedAtMs">Когда запрошено (мс Unix); повторный запрос возвращает то же время.</param>
@@ -19,6 +28,13 @@ public static class MeEndpoints
     public static IEndpointRouteBuilder MapMeEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/me", GetMe).WithName("getMe").WithTags("Профиль").WithSummary("Кто я: ник, цвет, роль");
+        app.MapPut("/me/public-profile", SetPublicProfile)
+            .WithName("setPublicProfile")
+            .WithTags("Профиль")
+            .WithSummary("Согласие на показ ника (без него в рейтингах — «Игрок #1234»)")
+            .WithDescription(
+                "Отдельное согласие на показ ника, цвета и земли по нику (PLAN.md, §3.16; закон 99-З). Действует сразу: рейтинги "
+                + "читают его при каждом запросе. Ответ — профиль, как GET /me.");
         app.MapGet("/me/export", Export)
             .WithName("exportMyData")
             .WithTags("Профиль")
@@ -35,6 +51,19 @@ public static class MeEndpoints
                 + "забеги с точками, захваты, туман — стираются фоновым обработчиком, обычно в течение часа, по закону — "
                 + "не позже 15 дней. Повторный запрос ничего не меняет.");
         return app;
+    }
+
+    /// <summary>Включить или выключить согласие на показ профиля.</summary>
+    private static Task<Results<Ok<MeResponse>, NotFound>> SetPublicProfile(
+        PublicProfileRequest request,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        CancellationToken cancellationToken)
+    {
+        // ЗАДАЧА #71 (Егор): записать request.Enabled в PublicProfile вошедшего игрока и вернуть профиль, как GET /me.
+        // Игрока нет (аккаунт уже стёрт) — 404. Тесты — PublicProfileTests.
+        _ = (request, principal, db, cancellationToken);
+        throw new NotImplementedException("ЗАДАЧА #71");
     }
 
     private static async Task<Results<Ok<AccountExportResponse>, NotFound>> Export(
