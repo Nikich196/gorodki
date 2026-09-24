@@ -365,6 +365,93 @@ struct RealtimeClientTests {
     func retryDelay(failures: Int, seconds: Int) {
         #expect(RealtimeClient.retryDelay(afterFailures: failures) == .seconds(seconds))
     }
+
+    // MARK: - Диагностика для «Лаборатории» (S7)
+
+    @Test("Переподключения: каждый разрыв с восстановлением — +1; первое соединение и неудачные попытки — нет")
+    func countsReconnects() async throws {
+        let first = FakeConnection()
+        let second = FakeConnection()
+        let third = FakeConnection()
+        await connector.plan(.fail, .open(first), .fail, .open(second), .open(third))
+        let client = client(sleep: FakeSleep())
+        let log = EventLog(client.events)
+
+        await client.start()
+        try await waitUntil { log.events == [.connected] }
+        #expect(await client.diagnostics.reconnects == 0)
+
+        first.serverClose()
+        try await waitUntil { log.events.count == 2 }
+        #expect(await client.diagnostics.reconnects == 1)
+
+        second.serverClose()
+        try await waitUntil { log.events.count == 3 }
+        #expect(await client.diagnostics == .init(state: .connected, needsSignIn: false, reconnects: 2))
+        await client.stop()
+    }
+
+    @Test("Новое соединение после stop и start — не переподключение: разрыва не было, его закрыло приложение")
+    func restartIsNotReconnect() async throws {
+        let first = FakeConnection()
+        let second = FakeConnection()
+        await connector.plan(.open(first), .open(second))
+        let client = client(sleep: FakeSleep())
+        let log = EventLog(client.events)
+
+        await client.start()
+        try await waitUntil { log.events == [.connected] }
+        await client.stop()
+        await client.start()
+        try await waitUntil { log.events == [.connected, .connected] }
+
+        #expect(await client.diagnostics.reconnects == 0)
+        await client.stop()
+    }
+
+    @Test("Последняя подсказка: сколько секунд назад по часам клиента; connected подсказкой не считается")
+    func lastHint() async throws {
+        let first = FakeConnection()
+        let second = FakeConnection()
+        await connector.plan(.open(first), .open(second))
+        let client = client(sleep: FakeSleep())
+        let log = EventLog(client.events)
+
+        await client.start()
+        try await waitUntil { log.events == [.connected] }
+        #expect(await client.diagnostics.secondsSinceLastHint == nil)
+
+        first.push(.fogChanged)
+        try await waitUntil { log.events.count == 2 }
+        clock.advance(12)
+        #expect(await client.diagnostics.secondsSinceLastHint == 12)
+
+        // Переподключение не стирает время подсказки: оно о сервере, а не о соединении.
+        first.serverClose()
+        try await waitUntil { log.events.count == 3 }
+        clock.advance(3)
+        #expect(await client.diagnostics.secondsSinceLastHint == 15)
+        await client.stop()
+    }
+
+    @Test("Входа нет — «нужен вход»; start после входа снимает пометку")
+    func needsSignIn() async throws {
+        await connector.plan(.notSignedIn)
+        let client = client(sleep: FakeSleep())
+        let log = EventLog(client.events)
+
+        await client.start()
+        try await waitUntil { await client.diagnostics.needsSignIn }
+        #expect(await client.diagnostics.state == .stopped)
+
+        let connection = FakeConnection()
+        await connector.plan(.open(connection))
+        await client.start()
+        #expect(await !client.diagnostics.needsSignIn)
+        try await waitUntil { log.events == [.connected] }
+        #expect(await !client.diagnostics.needsSignIn)
+        await client.stop()
+    }
 }
 
 @Suite("Реальное время: подключение SignalR")
