@@ -93,8 +93,9 @@ jobs:
             CODE_SIGNING_ALLOWED=NO -quiet
 
       # Имена симуляторов меняются от Xcode к Xcode, поэтому не зашиты: iPhone новейшей из установленных iOS.
-      # Сбой симулятора на preview-раннере красит ios-build, а с ним не слить PR и не выкатить сервер (Render, checksPass).
-      # Начнёт сбоить — повтор после simctl shutdown и erase, но не continue-on-error: тот спрячет и настоящее падение.
+      # Сбой симулятора на preview-раннере красит ios-build, а с ним не слить PR и не выкатить сервер (Render,
+      # checksPass). Начнёт сбоить — повтор после simctl shutdown и erase, но не continue-on-error: тот спрячет и
+      # настоящее падение.
       - name: Симулятор iPhone
         id: simulator
         timeout-minutes: 10
@@ -167,15 +168,16 @@ jobs:
 
           alive_after "20 секунд на переднем плане" 20
           # Настройки выходят на передний план — «Городки» уходят в фон, как при переключении приложений.
-          xcrun simctl launch "$UDID" com.apple.Preferences
+          xcrun simctl launch "$UDID" com.apple.Preferences \
+            || { echo "::error::Симулятор не открыл Настройки — сбой симулятора, а не приложения"; exit 1; }
           alive_after "10 секунд в фоне" 10
           xcrun simctl terminate "$UDID" "$bundle_id"
           xcrun simctl uninstall "$UDID" "$bundle_id"
 
       # Тесты склейки приложения с iOS (цель GorodkiTests, ios/AppTests) — внутри приложения на том же симуляторе.
-      # Без -quiet: в журнале видно, какие тесты прошли. «TEST SUCCEEDED» xcodebuild пишет и при нуле тестов (цель выпала
-      # из схемы, тесты не нашлись), поэтому итог сверяется по пакету результатов: тестов не меньше, чем @Test в
-      # ios/AppTests, упавших нет. Сводка — `xcresulttool get test-results summary` (Xcode 16+), она всегда JSON.
+      # Без -quiet: в журнале видно, какие тесты прошли. «TEST SUCCEEDED» xcodebuild пишет и при нуле тестов (тесты
+      # не собрались в цель или не нашлись), поэтому итог сверяется по пакету результатов: тестов не меньше, чем @Test
+      # в ios/AppTests, упавших нет. Сводка — `xcresulttool get test-results summary` (Xcode 16+), она всегда JSON.
       - name: Тесты приложения на симуляторе
         timeout-minutes: 20
         env:
@@ -189,11 +191,17 @@ jobs:
             -resultBundlePath "$results" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO
-          xcrun xcresulttool get test-results summary --path "$results" > "$RUNNER_TEMP/app-tests-summary.json"
+          xcrun xcresulttool get test-results summary --path "$results" > "$RUNNER_TEMP/app-tests-summary.json" \
+            || { echo "::error::xcresulttool не выдал сводку тестов приложения"; exit 1; }
           declared=$({ grep -rhE '^[[:space:]]*@Test' ios/AppTests || true; } | wc -l | tr -d ' ')
           python3 - "$RUNNER_TEMP/app-tests-summary.json" "$declared" <<'PY'
           import json, sys
-          summary = json.load(open(sys.argv[1]))
+          try:
+              summary = json.load(open(sys.argv[1]))
+          except ValueError:
+              print(open(sys.argv[1]).read())
+              print("::error::Сводка тестов приложения — не JSON (вывод xcresulttool выше)")
+              sys.exit(1)
           declared = int(sys.argv[2])
           total, failed = summary.get("totalTestCount"), summary.get("failedTests")
           print(f"Тестов приложения: всего {total}, прошли {summary.get('passedTests')}, упали {failed}, "
