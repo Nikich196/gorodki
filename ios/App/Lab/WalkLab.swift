@@ -22,6 +22,12 @@ struct WalkStats: Codable, Equatable {
     var relaunches = 0
     /// Сколько секунд после перезапуска приложения пришла первая точка (цель спайка — не больше 5 с).
     var lastRecoverySeconds: Double?
+    /// Запаздывание записей CoreMotion (получение − время записи), секунды: по нему выбирается отметка «все датчики до
+    /// этого момента получены» у трекера (`RunTracker.sensorLagSeconds`). Первая запись — текущий вид движения с давним
+    /// началом — не считается.
+    var motionLags: [Double]?
+    /// То же для шагомера (получение − конец интервала).
+    var stepLags: [Double]?
     var lastFixAt: Date?
 
     init(api: LocationAPI, startedAt: Date) {
@@ -56,6 +62,9 @@ final class WalkLab {
     private var resumedAt: Date?
     private var activityID: String?
     private var lastActivityUpdate = Date.distantPast
+    private var sawFirstActivity = false
+    /// Замеров запаздывания храним не больше стольких — хватает на прогулку, UserDefaults не раздувается.
+    private static let maxLagSamples = 600
 
     private static let storageKey = "lab.walk.stats"
 
@@ -114,6 +123,8 @@ final class WalkLab {
             "Туман: \(stats.fogCells) клеток (≈\(String(format: "%.2f", stats.fogAreaSquareMeters / 10_000)) га)",
             "Точность: последняя \(stats.lastAccuracy.map { "\(Int($0)) м" } ?? "—"), лучшая \(stats.bestAccuracy.map { "\(Int($0)) м" } ?? "—")",
             "Перезапусков: \(stats.relaunches), восстановление: \(stats.lastRecoverySeconds.map { String(format: "%.1f с", $0) } ?? "—")",
+            "Запаздывание вида движения: \(Self.lagSummary(stats.motionLags))",
+            "Запаздывание шагомера: \(Self.lagSummary(stats.stepLags))",
         ]
         if !stats.breaks.isEmpty {
             lines.append(
@@ -137,9 +148,10 @@ final class WalkLab {
         isRunning = true
         UserDefaults.standard.set(true, forKey: Self.activeKey)
         feed.start { [weak self] fix in self?.handle(fix) }
+        sawFirstActivity = false
         motion.start(
-            onActivity: { [weak self] sample in self?.judge.record(sample) },
-            onSteps: { [weak self] sample in self?.judge.record(sample) }
+            onActivity: { [weak self] sample, receivedAt in self?.record(sample, receivedAt: receivedAt) },
+            onSteps: { [weak self] sample, receivedAt in self?.record(sample, receivedAt: receivedAt) }
         )
     }
 
@@ -210,6 +222,38 @@ final class WalkLab {
             stats.loopAreaSquareMeters += claim.estimatedArea
             lastEvent = "Петля замкнута: ≈\(Int(claim.estimatedArea)) м²"
         }
+    }
+
+    // MARK: - Датчики
+
+    private func record(_ sample: MotionSample, receivedAt: Double) {
+        judge.record(sample)
+        guard sawFirstActivity else {
+            sawFirstActivity = true  // текущий вид движения: начало может быть часы назад — не запаздывание
+            return
+        }
+        stats?.motionLags = Self.appending(receivedAt - sample.timestamp, to: stats?.motionLags)
+    }
+
+    private func record(_ sample: PedometerSample, receivedAt: Double) {
+        judge.record(sample)
+        stats?.stepLags = Self.appending(receivedAt - sample.end, to: stats?.stepLags)
+    }
+
+    private static func appending(_ lag: Double, to lags: [Double]?) -> [Double] {
+        Array(((lags ?? []) + [lag]).suffix(maxLagSamples))
+    }
+
+    /// «медиана 3,1 с · 99 % — 8,4 с · макс 12,0 с (n = 140)» — без выбросов не обойтись, поэтому и максимум.
+    static func lagSummary(_ lags: [Double]?) -> String {
+        guard let lags, !lags.isEmpty else { return "—" }
+        let sorted = lags.sorted()
+        func percentile(_ p: Double) -> Double {
+            sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
+        }
+        return String(
+            format: "медиана %.1f с · 99 %% — %.1f с · макс %.1f с (n = %ld)", percentile(0.5), percentile(0.99),
+            sorted.last ?? 0, sorted.count)
     }
 
     // MARK: - Live Activity
