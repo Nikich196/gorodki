@@ -185,6 +185,20 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
+  # UI-тесты: снимки экранов, доступных без сервера (ios/UITests). Информационные — только в своей схеме
+  # «Gorodki Snapshots» и в ios-snapshots.yml, а не в «Gorodki Free»: иначе ios-build гонял бы их как обязательные.
+  # TEST_TARGET_NAME XcodeGen ставит сам по зависимости от приложения.
+  GorodkiUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Gorodki
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Gorodki Free:
     build:
@@ -219,3 +233,15 @@ schemes:
       config: Debug-Paid
     archive:
       config: Release-Paid
+
+  # Снимки экранов (ios-snapshots.yml): сборка Free, как у пробной установки через Sideloadly.
+  Gorodki Snapshots:
+    build:
+      targets:
+        Gorodki: all
+    run:
+      config: Debug-Free
+    test:
+      config: Debug-Free
+      targets:
+        - GorodkiUITests
