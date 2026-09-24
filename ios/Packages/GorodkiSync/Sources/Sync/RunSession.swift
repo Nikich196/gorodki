@@ -84,42 +84,81 @@ public actor RunSession {
     private var detector: LoopDetector
     /// Открытый туман этого забега — для карты во время забега (итог решает сервер).
     public private(set) var fog = FogLayer()
-    private let exploration = ExplorationSettings()
+    private let exploration: ExplorationSettings
     private var lastAccepted: TrackPoint?
-    /// Принятые точки, которые ещё могут оказаться «за 30 с до разрыва».
-    private var fogPending: [TrackPoint] = []
+    /// Принятые точки, которые ещё могут оказаться «за 30 с до разрыва»; `startsSegment` — полоса начинается заново
+    /// (после телепорта путь не рисуется через скачок).
+    private var fogPending: [(point: TrackPoint, startsSegment: Bool)] = []
     /// Последняя точка, открывшая туман, в текущем отрезке: следующая открывает полосу от неё.
     private var fogLast: TrackPoint?
     private var lastPointMs: Int64?
     private var lastTimestamp: Double?
+    /// Начало забега, мс: точка раньше начала больше чем на минуту — не этого забега.
+    private let startedAtMs: Int64
+    /// Точка старше этого (по часам телефона) — устаревшая: не нумеруется и не отправляется (`TrackJudging` на сервере
+    /// считает «сейчас» временем самой точки, свежесть проверяет только телефон).
+    private let maxFixAgeSeconds: Double
+    /// После разрыва следа следующая точка начинает новую полосу тумана.
+    private var fogNextStartsSegment = false
+    /// Точки обрабатываются по одной: номер берётся до записи, и две точки не должны получить один номер.
+    private var handling = false
+    private var handlingWaiters: [CheckedContinuation<Void, Never>] = []
 
-    private init(runId: UUID, league: League, recorder: RunRecorder, detector: LoopDetectorSettings) {
+    private init(
+        runId: UUID, league: League, startedAtMs: Int64, recorder: RunRecorder, rules: PhoneRules, newcomer: Bool
+    ) {
         self.runId = runId
         self.league = league
+        self.startedAtMs = startedAtMs
         self.recorder = recorder
-        self.judge = SegmentJudge(league: league)
-        self.detector = LoopDetector(settings: detector)
+        let judgeRules = rules.rules(for: league, newcomer: newcomer)
+        self.maxFixAgeSeconds = judgeRules.maxFixAgeSeconds
+        self.judge = SegmentJudge(league: league, rules: judgeRules)
+        self.detector = LoopDetector(settings: rules.loopDetector)
+        self.exploration = rules.exploration
     }
 
     /// Начать забег: он встаёт в очередь синхронизации, прерванные забеги игрока закрываются.
+    /// - Parameters:
+    ///   - rules: числа той версии конфига, что записана в забеге (`run.configVersion`): сервер судит забег ею же.
+    ///     Предел длины забега берётся из них.
+    ///   - newcomer: у игрока ещё нет засчитанных захватов — судья берёт порог точности новичка, как сервер.
     public static func start(
-        _ run: LocalRun, store: any SyncStore, policy: ChunkPolicy = ChunkPolicy(),
-        detector: LoopDetectorSettings = LoopDetectorSettings()
+        _ run: LocalRun, store: any SyncStore, rules: PhoneRules, newcomer: Bool = false,
+        policy: ChunkPolicy = ChunkPolicy()
     ) async throws -> RunSession {
-        let recorder = try await RunRecorder.begin(run, store: store, policy: policy)
-        return RunSession(runId: run.id, league: run.league, recorder: recorder, detector: detector)
+        var run = run
+        run.judgedAsNewcomer = newcomer
+        let recorder = try await RunRecorder.begin(run, store: store, policy: policy.limited(by: rules))
+        return RunSession(
+            runId: run.id, league: run.league, startedAtMs: run.startedAtMs, recorder: recorder, rules: rules,
+            newcomer: newcomer)
+    }
+
+    /// Новичок ли игрок — так, как видно с этого телефона: в очереди нет ни одной его засчитанной заявки. Если захваты
+    /// были с другого телефона, телефон сочтёт игрока новичком и примет чуть больше точек, чем сервер, — лишняя заявка
+    /// просто не пройдёт; наоборот (петли потерялись бы) не бывает.
+    public static func isNewcomer(ownerId: String, store: any SyncStore) async throws -> Bool {
+        for run in try await store.runs() where run.ownerId == ownerId {
+            if try await store.claims(of: run.id).contains(where: { $0.outcome?.status == "applied" }) {
+                return false
+            }
+        }
+        return true
     }
 
     /// Продолжить забег после перезапуска приложения; `nil` — его нет, он завершён или отвергнут сервером.
     public static func resume(
-        runId: UUID, store: any SyncStore, policy: ChunkPolicy = ChunkPolicy(),
-        detector: LoopDetectorSettings = LoopDetectorSettings()
+        runId: UUID, store: any SyncStore, rules: PhoneRules, policy: ChunkPolicy = ChunkPolicy()
     ) async throws -> RunSession? {
         guard let run = try await store.runs().first(where: { $0.id == runId }),
-            let recorder = try await RunRecorder.resume(runId: runId, store: store, policy: policy)
+            let recorder = try await RunRecorder.resume(runId: runId, store: store, policy: policy.limited(by: rules))
         else { return nil }
-        let session = RunSession(runId: runId, league: run.league, recorder: recorder, detector: detector)
-        await session.restore(lastPointMs: run.lastPointMs)
+        let session = RunSession(
+            runId: runId, league: run.league, startedAtMs: run.startedAtMs, recorder: recorder, rules: rules,
+            newcomer: run.judgedAsNewcomer ?? false)
+        // Время последней точки — у записи: она учитывает и куски, записанные до сбоя без отметки в забеге.
+        await session.restore(lastPointMs: await recorder.lastPointMs)
         return session
     }
 
@@ -131,7 +170,26 @@ public actor RunSession {
     /// - Parameter now: «сейчас» по часам телефона, секунды Unix (судья отбрасывает устаревшие точки).
     /// - Returns: что стало с точкой; петля добавляет к вердикту `.loopClaimed`.
     public func handle(_ fix: LocationFix, now: Double) async throws -> [RunEvent] {
+        while handling {
+            await withCheckedContinuation { handlingWaiters.append($0) }
+        }
+        handling = true
+        defer {
+            handling = false
+            if !handlingWaiters.isEmpty {
+                handlingWaiters.removeFirst().resume()
+            }
+        }
+        return try await process(fix, now: now)
+    }
+
+    private func process(_ fix: LocationFix, now: Double) async throws -> [RunEvent] {
         guard !isFinished else { return [] }
+        // Устаревшая точка (CoreLocation часто первой отдаёт запомненную) не нумеруется и не уходит на сервер.
+        if now - fix.timestamp > maxFixAgeSeconds {
+            stats.lastIssue = .staleFix
+            return [.ignored(.staleFix)]
+        }
         let point = TrackPoint(
             seq: await recorder.nextSeq, coordinate: fix.coordinate, timestamp: fix.timestamp,
             horizontalAccuracy: fix.horizontalAccuracy, speed: fix.speed
@@ -144,6 +202,10 @@ public actor RunSession {
         do {
             try await recorder.record(point, source: fix.source)
         } catch RecorderError.outsideRunWindow {
+            // Раньше начала больше чем на минуту — точка не этого забега; позже предела — забег окончен.
+            if ms < startedAtMs {
+                return [.dropped]
+            }
             try await finish(endedAt: lastTimestamp ?? point.timestamp)
             return [.finishedAtLimit]
         }
@@ -185,30 +247,32 @@ public actor RunSession {
         lastAccepted = point
         stats.acceptedPoints += 1
         if !breaksSegment {  // точка разрыва туман не открывает — см. `breakFog`
-            fogPending.append(point)
+            fogPending.append((point, fogNextStartsSegment))
+            fogNextStartsSegment = false
             settleFog(olderThan: StoragePrecision.milliseconds(point.timestamp) - Self.fogBreakLookbackMs)
         }
         return detector.add(point)
     }
 
-    /// Разрыв следа: точки за 30 с до него не открывают туман (кроме телепорта — путь до скачка честный), отрезок
-    /// тумана кончается, сама точка разрыва не открывает ничего.
+    /// Разрыв следа: сама точка разрыва не открывает ничего, полоса начинается заново. Точки за 30 с до разрыва
+    /// не открывают туман — кроме телепорта: путь до скачка честный. Но и эти точки ждут свои 30 с: если следом
+    /// придёт другой разрыв (машина), сервер не засчитает и их — его окно 30 с не останавливается на телепорте.
     private func breakFog(at point: TrackPoint, issue: TrackIssue) {
-        let breakMs = StoragePrecision.milliseconds(point.timestamp)
-        if issue == .teleport {
-            settleFog(olderThan: .max)
-        } else {
+        if issue != .teleport {
             // Как на сервере: не засчитываются точки не старше 30 с до разрыва.
-            settleFog(olderThan: breakMs - Self.fogBreakLookbackMs)
+            settleFog(olderThan: StoragePrecision.milliseconds(point.timestamp) - Self.fogBreakLookbackMs)
             fogPending = []
         }
-        fogLast = nil
+        fogNextStartsSegment = true
     }
 
     /// Открыть туман точками старше `limitMs` (по возрастанию времени).
     private func settleFog(olderThan limitMs: Int64) {
         var settled = 0
-        for point in fogPending where StoragePrecision.milliseconds(point.timestamp) < limitMs {
+        for (point, startsSegment) in fogPending where StoragePrecision.milliseconds(point.timestamp) < limitMs {
+            if startsSegment {
+                fogLast = nil
+            }
             if let last = fogLast {
                 fog.reveal(
                     from: last.coordinate, to: point.coordinate, radius: exploration.revealRadiusMeters,

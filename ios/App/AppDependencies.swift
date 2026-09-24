@@ -1,4 +1,5 @@
 import Foundation
+import GameCore
 import GorodkiAPI
 import Networking
 import Persistence
@@ -35,12 +36,18 @@ final class AppDependencies: Sendable {
     /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). В приложении — в базе
     /// GRDB (`GRDBSyncStore`): неотправленные забеги переживают выгрузку приложения и перезапуск телефона.
     let syncStore: any SyncStore
+    /// Правила для нового забега (`GET /config`): последняя известная версия — в файле, свежая запрашивается в фоне.
+    let rules: RulesStore
+    /// Идентификатор установки — `deviceId` каждого забега (Keychain, своя запись).
+    let installation: InstallationID
     /// «Сейчас» для синхронизации, секунды Unix: часы внедряются, чтобы их можно было подменить в проверках.
     private let now: @Sendable () -> Double
     private let engine = Mutex<(ownerId: String, engine: SyncEngine, scheduler: SyncScheduler)?>(nil)
 
     init(
         serverURL: URL?, tokenStorage: any TokenStorage, syncStore: any SyncStore = InMemorySyncStore(),
+        rulesStorage: any RulesStorage = InMemoryRulesStorage(),
+        installationStorage: any TokenStorage = InMemoryTokenStorage(),
         now: @escaping @Sendable () -> Double = { Date.now.timeIntervalSince1970 }
     ) {
         let tokens = TokenStore(storage: tokenStorage)
@@ -59,6 +66,8 @@ final class AppDependencies: Sendable {
                     refresher: ClientFactory.refresher(serverURL: url, transport: transport)))
         }
         self.syncStore = syncStore
+        self.rules = RulesStore(api: api, storage: rulesStorage)
+        self.installation = InstallationID(storage: installationStorage)
         self.now = now
     }
 
@@ -68,7 +77,15 @@ final class AppDependencies: Sendable {
             serverURL: ServerURL.parse(bundle.object(forInfoDictionaryKey: ServerURL.infoPlistKey) as? String),
             // Bundle ID у приложения есть всегда; запасное имя — только чтобы не падать.
             tokenStorage: KeychainTokenStorage(bundleIdentifier: bundle.bundleIdentifier ?? "gorodki"),
-            syncStore: liveSyncStore())
+            syncStore: liveSyncStore(),
+            rulesStorage: FileRulesStorage(url: liveRulesURL()),
+            installationStorage: KeychainTokenStorage(
+                service: (bundle.bundleIdentifier ?? "gorodki") + ".install", account: "id"))
+    }
+
+    /// Последний полученный конфиг — рядом с базой приложения (Application Support).
+    private static func liveRulesURL() -> URL {
+        URL.applicationSupportDirectory.appendingPathComponent("rules.json")
     }
 
     /// Очередь в базе приложения (Application Support). Если базу не открыть (например, нет места), — в памяти:
@@ -79,6 +96,30 @@ final class AppDependencies: Sendable {
         } catch {
             return InMemorySyncStore()
         }
+    }
+
+    /// Начать забег (экран забега — этап 2): правила последней известной версии конфига, идентификатор установки,
+    /// вошедший игрок. Забег сразу в очереди; `nil` — никто не вошёл: без входа забег некому отправить.
+    /// - Parameter motionAuthorized: разрешён ли доступ к датчикам движения (без него захватов нет — сервер знает).
+    func startRun(league: GameCore.League, motionAuthorized: Bool) async throws -> RunSession? {
+        guard let ownerId = await tokens.current()?.playerId else { return nil }
+        let rules = await self.rules.current()
+        let run = LocalRun(
+            id: UUID(), ownerId: ownerId, league: league, configVersion: rules.version,
+            startedAtMs: StoragePrecision.milliseconds(now()), deviceId: await installation.value(),
+            appVersion: Self.appVersion, motionAuthorized: motionAuthorized)
+        let newcomer = try await RunSession.isNewcomer(ownerId: ownerId, store: syncStore)
+        let session = try await RunSession.start(run, store: syncStore, rules: rules.rules, newcomer: newcomer)
+        Task { await syncScheduler()?.trigger(.recorded) }
+        return session
+    }
+
+    /// Версия сборки для сервера: «0.1.0 (1)».
+    static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "0"
+        let build = info?["CFBundleVersion"] as? String ?? "0"
+        return "\(short) (\(build))"
     }
 
     /// Синхронизация вошедшего игрока; `nil` — адрес сервера не задан или никто не вошёл. Движок один на игрока:

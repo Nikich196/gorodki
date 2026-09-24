@@ -14,6 +14,13 @@ public struct ChunkPolicy: Sendable, Hashable {
 
     public init() {}
 
+    /// Та же политика с пределом длины забега из правил версии конфига.
+    public func limited(by rules: PhoneRules) -> ChunkPolicy {
+        var policy = self
+        policy.maxRunHours = rules.maxRunHours
+        return policy
+    }
+
     // Правила сервера (TrackChunkRules, RunLimits).
     /// Точки и датчики чуть раньше старта допустимы: GPS «догоняет» после нажатия «Старт».
     static let earlyToleranceMs: Int64 = 60_000
@@ -62,7 +69,8 @@ public actor RunRecorder {
     private var bufferStartedAt: Double?
     /// Номер, который должна иметь следующая точка.
     public private(set) var nextSeq = 0
-    private var lastPointMs: Int64?
+    /// Время последней записанной точки, мс.
+    public private(set) var lastPointMs: Int64?
     private var nextClaimNo = 0
     private var claimedEnds: Set<Int> = []
     private var sensorsMarkMs: Int64
@@ -239,6 +247,9 @@ public actor RunRecorder {
         finished = true
     }
 
+    /// Запечатать буфер. Буфер забирается и очищается **до** записи в хранилище: пока запись идёт, актор принимает
+    /// следующие точки и датчики (реентерабельность), и они должны попасть в следующий кусок, а не пропасть при очистке.
+    /// Запись не удалась — забранное возвращается в начало буфера.
     private func seal() async throws {
         guard let first = buffer.first else { return }
         var chunkMotion = motion
@@ -250,20 +261,35 @@ public actor RunRecorder {
         let chunk = SealedChunk(
             runId: runId, firstSeq: first.seq, points: buffer, sources: sources, motion: chunkMotion, steps: steps,
             sensorsCompleteThroughMs: mark)
-        try await store.save(chunk)
-        let lastSeq = chunk.lastSeq
-        let lastPointMs = lastPointMs
-        try await store.updateRun(runId) {
-            $0.recordedThroughSeq = lastSeq
-            $0.lastPointMs = lastPointMs
-            $0.sealedSensorsMarkMs = mark
-        }
-        acceptsSensorsAfterMs = mark
-        motionBeforeWindow = nil
+        let taken = (
+            buffer: buffer, sources: sources, motion: motion, steps: steps, early: motionBeforeWindow,
+            startedAt: bufferStartedAt, accepts: acceptsSensorsAfterMs
+        )
         buffer = []
         sources = []
         motion = []
         steps = []
+        motionBeforeWindow = nil
         bufferStartedAt = nil
+        acceptsSensorsAfterMs = mark  // датчики не позже отметки уже обещаны этим куском
+        let lastSeq = chunk.lastSeq
+        let lastPointMs = taken.buffer.last.map { StoragePrecision.milliseconds($0.timestamp) }
+        do {
+            try await store.save(chunk)
+            try await store.updateRun(runId) {
+                $0.recordedThroughSeq = max($0.recordedThroughSeq, lastSeq)
+                $0.lastPointMs = max($0.lastPointMs ?? .min, lastPointMs ?? .min)
+                $0.sealedSensorsMarkMs = max($0.sealedSensorsMarkMs ?? .min, mark)
+            }
+        } catch {
+            buffer = taken.buffer + buffer
+            sources = taken.sources + sources
+            motion = taken.motion + motion
+            steps = taken.steps + steps
+            motionBeforeWindow = taken.early ?? motionBeforeWindow
+            bufferStartedAt = taken.startedAt ?? bufferStartedAt
+            acceptsSensorsAfterMs = taken.accepts
+            throw error
+        }
     }
 }

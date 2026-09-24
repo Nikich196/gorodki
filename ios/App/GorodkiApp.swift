@@ -30,6 +30,8 @@ struct GorodkiApp: App {
                     await dependencies.realtime?.start()
                     await dependencies.syncScheduler()?.trigger(.appActive)
                 }
+                // Свежие правила — в фоне: «Старт» их не ждёт, берёт последнюю известную версию.
+                Task { try? await dependencies.rules.refresh() }
             case .background:
                 // В фоне подсказки некому показывать, а соединение тратит батарею: закрыть, а не ждать, пока iOS
                 // оборвёт его сама (у сервера — не больше трёх соединений на игрока).
