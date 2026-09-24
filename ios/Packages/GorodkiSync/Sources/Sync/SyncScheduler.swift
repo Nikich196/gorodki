@@ -281,7 +281,8 @@ public actor SyncScheduler {
     /// Проверкам: `action` зовётся, когда событие встало ждать идущего прохода.
     func onWaitingForPass(_ action: @escaping @Sendable () -> Void) { waitingForPass = action }
 
-    /// Остановить таймер (выход из аккаунта).
+    /// Остановить таймер — при смене игрока (`AppDependencies`). При выходе без смены расписание не останавливается:
+    /// взведённый таймер сработает ещё раз, но проход ничего не отправит — `SyncEngine` сверяет вошедшего игрока.
     public func stop() {
         timer?.cancel()
         timer = nil
