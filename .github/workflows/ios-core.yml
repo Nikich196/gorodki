@@ -7,9 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Новый коммит в PR отменяет прогон прежнего. Вне PR у каждого прогона своя группа: прогон коммита в main не отменяется
+# и не вытесняется следующим слиянием из очереди — Render выкатывает сервер, только если все проверки коммита
+# зелёные (render.yaml, autoDeployTrigger: checksPass), а отменённая проверка зелёной не бывает.
 concurrency:
-  group: ios-core-${{ github.ref }}
-  cancel-in-progress: true
+  group: ios-core-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -27,7 +30,7 @@ jobs:
 
       - name: Оформление кода (swift-format)
         working-directory: ios
-        run: swift format lint --strict --recursive --configuration .swift-format Packages App Widgets
+        run: swift format lint --strict --recursive --configuration .swift-format Packages App AppTests Widgets
 
       # После проверки оформления: в .build пакета лежат исходники зависимостей, их проверять не нужно.
       - name: Клиент API (GorodkiAPI) — генерация из contracts/openapi.v1.json и тесты

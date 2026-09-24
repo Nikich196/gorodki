@@ -1,5 +1,6 @@
 # Сборка iOS-приложения на Mac в GitHub Actions (своего Mac пока нет).
-#  ios-build        — Xcode 27 (раннер xcode-27, public preview): Debug для симулятора и Release для iPhone;
+#  ios-build        — Xcode 27 (раннер xcode-27, public preview): Debug для симулятора и Release для iPhone,
+#                      затем дымовой запуск и тесты приложения на симуляторе;
 #  ios-build-xcode26 — раз в неделю резервная сборка на Xcode 26 (раннер macos-26),
 #                      чтобы не зависеть только от preview-раннера.
 # -skipPackagePluginValidation: клиент API (пакет GorodkiAPI) генерируется плагином при сборке, а xcodebuild
@@ -14,9 +15,12 @@ on:
     - cron: "0 3 * * 1" # понедельник, 06:00 по Минску
   workflow_dispatch:
 
+# Новый коммит в PR отменяет прогон прежнего. Вне PR у каждого прогона своя группа: прогон коммита в main не отменяется
+# и не вытесняется следующим слиянием из очереди — Render выкатывает сервер, только если все проверки коммита
+# зелёные (render.yaml, autoDeployTrigger: checksPass), а отменённая проверка зелёной не бывает.
 concurrency:
-  group: ios-${{ github.ref }}
-  cancel-in-progress: true
+  group: ios-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -87,6 +91,128 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/dd" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet
+
+      # Имена симуляторов меняются от Xcode к Xcode, поэтому не зашиты: iPhone новейшей из установленных iOS.
+      # Сбой симулятора на preview-раннере красит ios-build, а с ним не слить PR и не выкатить сервер (Render,
+      # checksPass). Начнёт сбоить — повтор после simctl shutdown и erase, но не continue-on-error: тот спрячет и
+      # настоящее падение.
+      - name: Симулятор iPhone
+        id: simulator
+        timeout-minutes: 10
+        run: |
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          ios = [key for key, devices in runtimes.items() if ".SimRuntime.iOS-" in key and any(d["name"].startswith("iPhone") for d in devices)]
+          if not ios: sys.exit("На раннере нет симулятора iPhone. Среды: " + ", ".join(runtimes))
+          newest = max(ios, key=lambda key: [int(part) for part in key.rsplit("iOS-", 1)[1].split("-")])
+          print(next(d["udid"] for d in runtimes[newest] if d["name"].startswith("iPhone")))
+          ')
+          xcrun simctl list devices | grep "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      # Дымовой запуск. Код приложения ещё ни разу не исполнялся (Mac нет, S2 впереди): ошибки запуска — Info.plist,
+      # регистрация фоновых задач, ловушки изоляции Swift 6 — иначе впервые проявились бы на iPhone. Приложение —
+      # из шага «Debug-Free для симулятора», без подписи, как все сборки здесь: без entitlements (App Group, Keychain)
+      # оно тоже обязано запускаться. Шагомер и Live Activity симулятор не проверит — это S1/S2 на телефоне.
+      # После переднего плана — фон (scenePhase .background, BackgroundSync.enterBackground): время на досылку
+      # (beginBackgroundTask) и заявки BGTaskScheduler — свой путь со своими ловушками изоляции. Адреса сервера в сборке
+      # нет, так что проход синхронизации и реальное время в фоне не участвуют, а системные вызовы — да.
+      - name: Дымовой запуск на симуляторе
+        timeout-minutes: 5
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          app="$RUNNER_TEMP/dd/Build/Products/Debug-Free-iphonesimulator/Gorodki.app"
+          bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Info.plist")
+          reports="$HOME/Library/Logs/DiagnosticReports"
+          mkdir -p "$reports"
+          touch "$RUNNER_TEMP/launch-mark"
+          xcrun simctl install "$UDID" "$app"
+          launched=$(xcrun simctl launch --stdout="$RUNNER_TEMP/app-stdout.log" --stderr="$RUNNER_TEMP/app-stderr.log" \
+            "$UDID" "$bundle_id")
+          pid=${launched##* }
+          echo "Запущено: $launched"
+
+          # Имя процесса — из заголовка отчёта .ips (первая строка — JSON): под «Gorodki*» попадает и расширение
+          # GorodkiWidgets, а упасть могло и оно.
+          process_of() {
+            head -n 1 "$1" | python3 -c '
+          import json, sys
+          header = json.load(sys.stdin)
+          print(header.get("app_name") or header.get("name") or "?")
+          ' 2>/dev/null || echo "?"
+          }
+
+          # Подождать $2 секунд: процесс жив и новых отчётов о падении нет — дальше; иначе журнал, отчёты и ошибка.
+          alive_after() {
+            sleep "$2"
+            crashes=$(find "$reports" -name "Gorodki*" -newer "$RUNNER_TEMP/launch-mark")
+            if kill -0 "$pid" 2>/dev/null && [ -z "$crashes" ]; then
+              echo "$1: приложение живо, отчётов о падении нет."
+              return 0
+            fi
+            crashed=""
+            for report in $crashes; do
+              crashed="$crashed $(process_of "$report")"
+            done
+            echo "::error::$1: приложение упало или закрылось (pid $pid; отчёты о падении:${crashed:- нет})"
+            cat "$RUNNER_TEMP/app-stdout.log" "$RUNNER_TEMP/app-stderr.log" || true
+            for report in $crashes; do
+              echo "── $report"
+              head -n 120 "$report"
+            done
+            exit 1
+          }
+
+          alive_after "20 секунд на переднем плане" 20
+          # Настройки выходят на передний план — «Городки» уходят в фон, как при переключении приложений.
+          xcrun simctl launch "$UDID" com.apple.Preferences \
+            || { echo "::error::Симулятор не открыл Настройки — сбой симулятора, а не приложения"; exit 1; }
+          alive_after "10 секунд в фоне" 10
+          xcrun simctl terminate "$UDID" "$bundle_id"
+          xcrun simctl uninstall "$UDID" "$bundle_id"
+
+      # Тесты склейки приложения с iOS (цель GorodkiTests, ios/AppTests) — внутри приложения на том же симуляторе.
+      # Без -quiet: в журнале видно, какие тесты прошли. «TEST SUCCEEDED» xcodebuild пишет и при нуле тестов (тесты
+      # не собрались в цель или не нашлись), поэтому итог сверяется по пакету результатов: тестов не меньше, чем @Test
+      # в ios/AppTests, упавших нет. Сводка — `xcresulttool get test-results summary` (Xcode 16+), она всегда JSON.
+      - name: Тесты приложения на симуляторе
+        timeout-minutes: 20
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          results="$RUNNER_TEMP/app-tests.xcresult"
+          xcodebuild test \
+            -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Debug-Free \
+            -destination "id=$UDID" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -resultBundlePath "$results" \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
+          xcrun xcresulttool get test-results summary --path "$results" > "$RUNNER_TEMP/app-tests-summary.json" \
+            || { echo "::error::xcresulttool не выдал сводку тестов приложения"; exit 1; }
+          declared=$({ grep -rhE '^[[:space:]]*@Test' ios/AppTests || true; } | wc -l | tr -d ' ')
+          python3 - "$RUNNER_TEMP/app-tests-summary.json" "$declared" <<'PY'
+          import json, sys
+          try:
+              summary = json.load(open(sys.argv[1]))
+          except ValueError:
+              print(open(sys.argv[1]).read())
+              print("::error::Сводка тестов приложения — не JSON (вывод xcresulttool выше)")
+              sys.exit(1)
+          declared = int(sys.argv[2])
+          total, failed = summary.get("totalTestCount"), summary.get("failedTests")
+          print(f"Тестов приложения: всего {total}, прошли {summary.get('passedTests')}, упали {failed}, "
+                f"пропущены {summary.get('skippedTests')}; @Test в ios/AppTests: {declared}")
+          if isinstance(total, int) and isinstance(failed, int) and total >= declared and failed == 0:
+              sys.exit(0)
+          # Ключи сводки могли смениться с новым Xcode — вся сводка в журнал, чтобы было видно, что пришло.
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          print(f"::error::Тесты приложения: всего {total} при {declared} объявленных, упали {failed}")
+          sys.exit(1)
+          PY
 
   ios-build-xcode26:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
