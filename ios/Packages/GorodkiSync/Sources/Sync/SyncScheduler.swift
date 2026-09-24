@@ -52,7 +52,7 @@ public struct SyncBackoff: Sendable, Equatable {
     public static let claimPoll: Duration = .seconds(30)
     public static let limitRetry: Duration = .seconds(3_600)
 
-    /// Неудачных проходов подряд.
+    /// Неудачных проходов подряд — пока шаг растёт: на потолке счёт останавливается.
     public private(set) var failures = 0
 
     public init() {}
@@ -70,10 +70,10 @@ public struct SyncBackoff: Sendable, Equatable {
         case .accountDeleting:
             return .blocked(.accountDeleting)
         case .offline:
-            failures += 1
+            failed()
             return .after(backoff)
         case .rateLimited:
-            failures += 1
+            failed()
             return .after(max(backoff, Self.rateLimited))
         case nil:
             failures = 0
@@ -92,9 +92,22 @@ public struct SyncBackoff: Sendable, Equatable {
         return waits.min().map(SyncWake.after) ?? .idle
     }
 
+    private mutating func failed() {
+        if backoff < Self.longest {
+            failures += 1
+        }
+    }
+
+    /// Шаг после `failures` неудач: 15 с, вдвое больше за каждую следующую, не больше `longest`. Считается удвоением
+    /// в `Duration`, а не через секунды: 15 · 2ⁿ с при переводе в `Duration` (Int128 аттосекунд) переполнялось
+    /// на 65-й неудаче подряд и роняло приложение ещё до `min` — а неудачи копятся весь забег без связи, проход идёт
+    /// на каждый запечатанный кусок.
     private var backoff: Duration {
-        let seconds = 15.0 * pow(2.0, Double(max(failures - 1, 0)))
-        return min(.seconds(seconds), Self.longest)
+        var wait = Self.first
+        for _ in 1..<max(failures, 1) where wait < Self.longest {
+            wait *= 2
+        }
+        return min(wait, Self.longest)
     }
 }
 

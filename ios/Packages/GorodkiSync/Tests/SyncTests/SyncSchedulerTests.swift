@@ -32,6 +32,23 @@ struct SyncSchedulerTests {
         #expect(backoff.next(after: Self.report(.offline), backlog: .init(), appActive: true) == .after(.seconds(15)))
     }
 
+    @Test("Сотни неудач подряд (забег без связи, проход на каждый кусок) — шаг держится на 15 минутах, без падения")
+    func endlessFailuresStayAtLongest() {
+        var backoff = SyncBackoff()
+        var waits: [SyncWake] = []
+        for attempt in 0..<300 {
+            waits.append(
+                backoff.next(
+                    after: Self.report(attempt.isMultiple(of: 7) ? .rateLimited : .offline), backlog: .init(),
+                    appActive: false))
+        }
+
+        #expect(waits.dropFirst(6).allSatisfy { $0 == .after(.seconds(900)) })
+        #expect(backoff.failures == 7)  // на потолке счёт не растёт
+        #expect(backoff.next(after: Self.report(), backlog: .init(), appActive: true) == .idle)
+        #expect(backoff.next(after: Self.report(.offline), backlog: .init(), appActive: true) == .after(.seconds(15)))
+    }
+
     @Test("Слишком частые запросы — не раньше чем через минуту")
     func rateLimitedWaitsAtLeastAMinute() {
         var backoff = SyncBackoff()
