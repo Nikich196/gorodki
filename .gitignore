@@ -9,6 +9,8 @@ desktop.ini
 *.swp
 .vscode/*
 !.vscode/extensions.json
+# Рабочие копии агентов Claude Code — отдельные git worktree: `git add -A` добавил бы их как вложенный репозиторий.
+.claude/worktrees/
 
 # ── iOS / Xcode ──────────────────────────────────────────
 # Проект .xcodeproj генерируется из ios/project.yml (XcodeGen) и в git не хранится.
