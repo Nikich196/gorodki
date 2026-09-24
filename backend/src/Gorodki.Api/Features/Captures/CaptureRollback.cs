@@ -116,7 +116,9 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
                 // откатываются, задание завершается, и администратор видит, что поставить откат нужно снова.
                 // Временный сбой базы (соединение, пул, взаимоблокировка) — не неудача захвата: иначе минутный обрыв
                 // связи завершил бы задание с неоткаченными захватами. Он уходит наверх, задание остаётся ожидающим и
-                // повторяется в следующем проходе; уже откаченные захваты список второй раз не вернёт.
+                // повторяется в следующем проходе; уже откаченные захваты список второй раз не вернёт. Предела попыток
+                // нет: чтение, которое на этих данных всегда упирается в тайм-аут клиента (30 с, вне statement_timeout
+                // записи), повторялось бы каждый проход — для редкого задания администратора это приемлемо, в логе видно.
                 db.ChangeTracker.Clear();
                 failed++;
                 lastError = Truncate($"Захват {captureId}: {e.Message}");
@@ -124,6 +126,12 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
             }
         }
 
+        // «Откачено» и «возвращено» — по базе, а не по счётчикам этого прохода: после временного сбоя задание повторяется,
+        // и захваты, откаченные в прежних попытках, этот проход уже не видит. «Не тронуто» (skipped) отдельно у захвата
+        // не хранится — оно за последнюю попытку.
+        var ours = db.Captures.Where(c => c.RollbackId == rollbackId);
+        rolledBack = await ours.CountAsync(cancellationToken);
+        restoredArea = await ours.SumAsync(c => c.RolledBackArea ?? 0, cancellationToken);
         var finishedAt = time.GetUtcNow();
         await db.CaptureRollbacks
             .Where(r => r.Id == rollbackId && r.Status == CaptureRollbackStatus.Pending)
