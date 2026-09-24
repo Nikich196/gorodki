@@ -4,7 +4,6 @@ using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Territory;
 using Microsoft.EntityFrameworkCore;
-using NetTopologySuite.Geometries;
 using Npgsql;
 
 namespace Gorodki.Api.Features.Captures;
@@ -37,7 +36,10 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
         Conflict,
     }
 
-    /// <summary>Выполняет ожидающие задания отката по порядку. Возвращает, сколько выполнено.</summary>
+    /// <summary>
+    /// Выполняет ожидающие задания отката по порядку. Возвращает, сколько взято. Ошибка одного задания не мешает
+    /// остальным: оно остаётся ожидающим и повторится в следующем проходе.
+    /// </summary>
     public async Task<int> ProcessPendingAsync(CancellationToken cancellationToken)
     {
         var pending = await db.CaptureRollbacks.AsNoTracking()
@@ -48,7 +50,16 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
             .ToListAsync(cancellationToken);
         foreach (var id in pending)
         {
-            await ProcessAsync(id, cancellationToken);
+            try
+            {
+                await ProcessAsync(id, cancellationToken);
+            }
+            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                // Сюда доходят только ошибки базы (ошибка отката одного захвата считается внутри задания).
+                db.ChangeTracker.Clear();
+                logger.LogError(e, "Задание отката {RollbackId} не выполнено — повтор в следующем проходе", id);
+            }
         }
 
         return pending.Count;
@@ -72,15 +83,17 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
 
         foreach (var (captureId, league) in await CapturesOfAsync(job.UserId, cancellationToken))
         {
-            var changes = await CaptureJournal.LoadAsync(db, captureId, cancellationToken);
-            if (changes.Count == 0)
-            {
-                withoutJournal++; // старше недели или применён до журнала — откатывать не по чему
-                continue;
-            }
-
             try
             {
+                // Журнал читается внутри try: испорченная запись (FormatException из TWKB) — неудача этого захвата,
+                // а не всего задания, которое иначе стояло бы первым в очереди откатов навсегда.
+                var changes = await CaptureJournal.LoadAsync(db, captureId, cancellationToken);
+                if (changes.Count == 0)
+                {
+                    withoutJournal++; // старше недели или применён до журнала — откатывать не по чему
+                    continue;
+                }
+
                 var (outcome, restored, skipped) = await RollBackAsync(captureId, league, changes, rollbackId, job.UserId, cancellationToken);
                 switch (outcome)
                 {
@@ -95,8 +108,10 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
                         break;
                 }
             }
-            catch (Exception e) when (IsEngineFailure(e))
+            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
+                // Любая ошибка отката захвата — его неудача в итоге задания (failed, last_error): остальные захваты
+                // откатываются, задание завершается, и администратор видит, что поставить откат нужно снова.
                 db.ChangeTracker.Clear();
                 failed++;
                 lastError = Truncate($"Захват {captureId}: {e.Message}");
@@ -289,11 +304,6 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
             .Select(t => rows.FirstOrDefault(v => v.TileX == t.X && v.TileY == t.Y)?.Version ?? 0)
             .ToList();
     }
-
-    private static bool IsEngineFailure(Exception e) =>
-        e is TerritoryEngineException or TopologyException or FormatException
-        || (e is DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.CheckViolation } })
-        || e is PostgresException { SqlState: PostgresErrorCodes.CheckViolation };
 
     private static string Truncate(string text) => text.Length <= 500 ? text : text[..500];
 }

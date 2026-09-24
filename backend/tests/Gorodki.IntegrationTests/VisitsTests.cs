@@ -1,7 +1,11 @@
+using System.Net;
+using System.Net.Http.Json;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Territory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using static Gorodki.IntegrationTests.RunRequests;
 using static Gorodki.IntegrationTests.Walks;
 
 namespace Gorodki.IntegrationTests;
@@ -88,6 +92,81 @@ public sealed class VisitsTests(DatabaseFixture database)
         Assert.Equal(0, await VisitAsync(api, run.Id));
         var piece = Assert.Single(await LandAsync(annaId));
         Assert.Equal((1, captured.LastVisitAt), (piece.Level, piece.LastVisitAt));
+    }
+
+    [Fact]
+    public async Task Visit_waits_20_minutes_by_the_server_clock_when_the_phone_clock_is_behind()
+    {
+        // Часы телефона отстают на 30 минут: по ним забег закончился «полчаса назад» уже в момент завершения. По часам
+        // телефона визит засчитался бы сразу — и вся лига увидела бы, где игрок только что пробежал (§3.16).
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(21));
+
+        var run = await WalkAndFinishWithSkewAsync(api, anna, [(area.X - 300, area.Y + 50), (area.X + 400, area.Y + 50)], TimeSpan.FromMinutes(-30));
+
+        Assert.DoesNotContain(run.Id, await ReadyAsync(api));
+        Assert.Null(await VisitAsync(api, run.Id));
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        Assert.Contains(run.Id, await ReadyAsync(api));
+        Assert.Equal(1, await VisitAsync(api, run.Id));
+    }
+
+    [Fact]
+    public async Task Visit_waits_for_the_same_5_minute_boundary_as_the_public_map()
+    {
+        // Всё, что сообщает о чужих изменениях, раскрывается на одной границе — «сейчас − 20 минут» вниз до 5 минут
+        // (TerritoryReader.PublicHorizon). Ровно через 20 минут версия тайла выдала бы минуту конца забега.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(21));
+        var run = await WalkAndFinishAsync(Cancel, api, anna, [(area.X - 300, area.Y + 50), (area.X + 400, area.Y + 50)]);
+        DateTimeOffset endedAt;
+        await using (var db = database.CreateContext())
+        {
+            endedAt = (await db.Runs.AsNoTracking().SingleAsync(r => r.Id == run.Id, Cancel)).EndedAt!.Value;
+        }
+
+        // Первая граница 5 минут не раньше конца забега: до неё + 20 минут конец ещё не публичен.
+        var step = TerritoryReader.RevealStep.Ticks;
+        var boundary = new DateTimeOffset((endedAt.UtcTicks + step - 1) / step * step, TimeSpan.Zero);
+        api.Time.Advance(boundary + TerritoryReader.PublicDelay - TimeSpan.FromMilliseconds(1) - api.Time.GetUtcNow());
+
+        Assert.DoesNotContain(run.Id, await ReadyAsync(api));
+        Assert.Null(await VisitAsync(api, run.Id));
+        api.Time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.Contains(run.Id, await ReadyAsync(api));
+        Assert.Equal(1, await VisitAsync(api, run.Id));
+    }
+
+    /// <summary>Прогулка с завершением, когда часы телефона сбиты на <paramref name="skew"/>: всё время в запросах — по ним.</summary>
+    private async Task<StartRunRequest> WalkAndFinishWithSkewAsync(
+        ApiFactory api, HttpClient client, IReadOnlyList<(double X, double Y)> vertices, TimeSpan skew)
+    {
+        var skewMs = (long)skew.TotalMilliseconds;
+        var start = NewStart(api, startedAgo: TimeSpan.FromMinutes(20), clockSkewMs: skewMs);
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/runs", start, Json, Cancel)).StatusCode);
+        var points = WalkPoints(start, vertices);
+        foreach (var chunk in WalkChunks(api, points))
+        {
+            var put = await client.PutAsJsonAsync(
+                $"/runs/{start.Id}/chunks/{chunk.Points![0].Seq}", chunk with { SentAtMs = chunk.SentAtMs + skewMs }, Json, Cancel);
+            Assert.Equal(HttpStatusCode.Created, put.StatusCode);
+        }
+
+        var finish = await client.PostAsJsonAsync(
+            $"/runs/{start.Id}/finish",
+            new FinishRunRequest(points[^1].T, points.Count - 1, api.Time.GetUtcNow().ToUnixTimeMilliseconds() + skewMs),
+            Json,
+            Cancel);
+        Assert.Equal(HttpStatusCode.OK, finish.StatusCode);
+        return start;
     }
 
     private static async Task<List<Guid>> ReadyAsync(ApiFactory api)

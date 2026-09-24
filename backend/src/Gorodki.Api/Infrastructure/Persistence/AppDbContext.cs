@@ -298,7 +298,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             season.HasKey(s => s.Number);
             season.Property(s => s.Number).ValueGeneratedNever();
             season.Property(s => s.Name).HasMaxLength(40);
-            season.ToTable(t => t.HasCheckConstraint("ck_seasons_number", "number >= 0"));
+            season.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_seasons_number", "number >= 0");
+                // Сезоны вставляются вручную (SQL), а календарь сезон не с полуночи по Минску не принимает — и падали бы
+                // туман и GET /seasons. Пусть такую строку не примет сама база.
+                t.HasCheckConstraint("ck_seasons_minsk_midnight", "(starts_at AT TIME ZONE 'Europe/Minsk')::time = '00:00'");
+            });
 
             // Даты — из плана (PLAN.md, §3.4): С0 16–29.11 (бета), С1 30.11–13.12, С2 14.12 → показ. Полночь по Минску.
             season.HasData(

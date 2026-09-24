@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Realtime;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Microsoft.EntityFrameworkCore;
@@ -25,15 +26,16 @@ public sealed class AccountDeletion(
     private const int Batch = 20;
 
     /// <summary>
-    /// Стирает аккаунты, удаление которых запрошено. Не раньше чем через 20 минут после запроса и после последнего
-    /// захвата (публичная задержка, §3.16): стёртая земля становится ничьей, и контур недавней петли, ещё скрытой
-    /// от остальных, иначе проступил бы на карте. Возвращает, сколько стёрто.
+    /// Стирает аккаунты, удаление которых запрошено. Не раньше, чем запрос и последний захват станут публичными
+    /// (<see cref="TerritoryReader.PublicHorizon"/>: «сейчас − 20 минут» вниз до 5 минут, §3.16): стёртая земля становится
+    /// ничьей, и контур недавней петли, ещё скрытой от остальных, иначе проступил бы на карте. Граница — та же, что у
+    /// публичной проекции: «просто 20 минут» опережали бы её до 5 минут. Возвращает, сколько стёрто.
     /// </summary>
     public async Task<int> ProcessRequestedAsync(CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         var delay = TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
-        var publicBefore = now - delay;
+        var publicBefore = TerritoryReader.PublicHorizon(now, delay);
         var requested = await db.Users.AsNoTracking()
             .Where(u => u.DeletionRequestedAt != null && u.DeletionRequestedAt <= publicBefore
                 && !db.Captures.Any(c => c.UserId == u.Id && c.AppliedAt > publicBefore))

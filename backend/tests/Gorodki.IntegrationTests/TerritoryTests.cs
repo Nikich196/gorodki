@@ -239,6 +239,33 @@ public sealed class TerritoryTests(DatabaseFixture database)
 
     private static List<long> Ids(TileTerritory tile) => [.. tile.Parcels.Select(p => p.Id).Order()];
 
+    [Fact]
+    public async Task Damaged_journal_of_a_hidden_capture_empties_the_tile_instead_of_breaking_the_map()
+    {
+        // Запись журнала испорчена (ручная правка базы): проекция её не прочтёт. Карта не должна отвечать 500 каждому,
+        // кто смотрит эти тайлы, — тайл уходит пустым до раскрытия, как при ошибке движка.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+        await using (var db = database.CreateContext())
+        {
+            await db.CaptureJournal
+                .Where(j => j.CaptureId == claim.CaptureId)
+                .ExecuteUpdateAsync(set => set.SetProperty(j => j.Footprint, new byte[] { 0 }), Cancel);
+        }
+
+        var response = await vera.GetAsync($"/territory?league=run&tiles={tile.X}:{tile.Y}", Cancel);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var seen = await response.Content.ReadFromJsonAsync<TerritoryResponse>(Json, Cancel);
+        Assert.Empty(Assert.Single(seen!.Tiles).Parcels);
+    }
+
     private async Task<bool> IsUnchangedAsync(HttpClient client, TileKey tile, long known)
     {
         var response = await client.GetFromJsonAsync<TerritoryResponse>(

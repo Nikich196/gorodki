@@ -98,6 +98,8 @@ public static class CaptureEndpoints
                 r.League,
                 r.ConfigVersion,
                 r.LastSeq,
+                r.CreatedAt,
+                Purged = r.PointsPurgedAt != null,
                 Deleting = db.Users.Any(u => u.Id == userId && u.DeletionRequestedAt != null),
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -135,6 +137,13 @@ public static class CaptureEndpoints
             return IsSameClaim(existing, runId, request)
                 ? TypedResults.Ok(await DescribeAsync(db, existing, now, cancellationToken))
                 : Problem(StatusCodes.Status409Conflict, "claim_conflict", "Эта петля уже заявлена иначе.");
+        }
+
+        // Окно приёма — как у кусков: после него (и после стирания точек через 14 дней) петлю не по чему судить — судья
+        // получил бы пустой след, а заявка лишь занимала бы обработчик до too_many_attempts.
+        if (now > run.CreatedAt + RunLimits.UploadWindow || run.Purged)
+        {
+            return Problem(StatusCodes.Status409Conflict, "upload_window_closed", "Заявки этого забега больше не принимаются.");
         }
 
         var claimsInRun = await db.Captures.CountAsync(c => c.RunId == runId, cancellationToken);

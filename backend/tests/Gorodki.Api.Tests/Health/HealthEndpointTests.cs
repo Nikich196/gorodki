@@ -1,7 +1,10 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Health;
+using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -48,6 +51,40 @@ public sealed class HealthEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Equal("healthy", body.RootElement.GetProperty("status").GetString());
     }
 
+    [Fact]
+    public async Task Readiness_shows_why_the_database_failed_only_to_the_admin()
+    {
+        // База недоступна: в описании проверки — текст исключения (на Supabase это адрес пула или postgres.<ref проекта>).
+        // Посторонним и игрокам — только статусы, администратору — подробности.
+        await using var app = UnreachableDatabase.Server();
+        var tokens = app.Services.GetRequiredService<TokenService>();
+        var player = app.CreateClient();
+        player.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.CreateAccessToken(User(UserRole.Player)));
+        var admin = app.CreateClient();
+        admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.CreateAccessToken(User(UserRole.Admin)));
+
+        var detailed = await admin.GetAsync("/health/ready", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, detailed.StatusCode);
+        using var report = JsonDocument.Parse(await detailed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var error = report.RootElement.GetProperty("checks").GetProperty("storage").GetProperty("description").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(error));
+
+        foreach (var client in new[] { app.CreateClient(), player })
+        {
+            var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            var text = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.DoesNotContain(error!, text);
+            using var body = JsonDocument.Parse(text);
+            Assert.Equal("unhealthy", body.RootElement.GetProperty("status").GetString());
+            var storage = body.RootElement.GetProperty("checks").GetProperty("storage");
+            Assert.Equal("unhealthy", storage.GetProperty("status").GetString());
+            Assert.Equal(["status"], storage.EnumerateObject().Select(p => p.Name)); // ни описания, ни чисел
+        }
+    }
+
     [Theory]
     [InlineData(349, HealthStatus.Healthy)]
     [InlineData(350, HealthStatus.Degraded)]
@@ -67,4 +104,12 @@ public sealed class HealthEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
+
+    private static UserEntity User(UserRole role) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        DisplayName = "Тест",
+        NormalizedName = "тест",
+        Role = role,
+    };
 }

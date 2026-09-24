@@ -1,3 +1,4 @@
+using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
@@ -22,20 +23,40 @@ public sealed class FogProcessor(
     /// <summary>Закрытый сервером забег, который телефон так и не завершил, открывает туман через сутки — тем, что успело прийти.</summary>
     public static readonly TimeSpan ClosedRunGrace = TimeSpan.FromDays(1);
 
-    /// <summary>Забеги, готовые открыть туман, — сначала закончившиеся раньше.</summary>
+    /// <summary>
+    /// Забеги, готовые открыть туман, — сначала закончившиеся раньше. Забег, туман которого не открылся из-за ошибки,
+    /// ждёт своей паузы (<see cref="PostponeAsync"/>).
+    /// </summary>
     public Task<List<Guid>> RunsReadyAsync(int take, CancellationToken cancellationToken)
     {
-        var closedBefore = time.GetUtcNow() - ClosedRunGrace;
+        var now = time.GetUtcNow();
+        var closedBefore = now - ClosedRunGrace;
         return db.Runs.AsNoTracking()
             .Where(r => r.FogStampedAt == null
                 && r.PointsPurgedAt == null
                 && r.PrefixEndSeq >= 0
+                && (r.FogRetryAt == null || r.FogRetryAt <= now)
                 && ((r.Status == RunStatus.Finished && r.LastSeq != null && r.PrefixEndSeq >= r.LastSeq)
                     || (r.Status != RunStatus.Active && r.EndedAt < closedBefore)))
             .OrderBy(r => r.EndedAt)
             .Select(r => r.Id)
             .Take(take)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Туман забега не открылся из-за ошибки (испорченный кусок, неверный календарь сезонов): забег откладывается на
+    /// <see cref="CaptureWorker.RetryDelay"/>, чтобы не стоять первым в очереди и не обрывать проход.
+    /// </summary>
+    public async Task PostponeAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var failures = await db.Runs.Where(r => r.Id == runId).Select(r => r.FogFailures).SingleAsync(cancellationToken) + 1;
+        var retryAt = time.GetUtcNow() + CaptureWorker.RetryDelay(failures);
+        await db.Runs
+            .Where(r => r.Id == runId)
+            .ExecuteUpdateAsync(
+                set => set.SetProperty(r => r.FogFailures, failures).SetProperty(r => r.FogRetryAt, retryAt),
+                cancellationToken);
     }
 
     /// <summary>Открывает туман забега. Возвращает число новых клеток или null, если забег уже открывал туман.</summary>
