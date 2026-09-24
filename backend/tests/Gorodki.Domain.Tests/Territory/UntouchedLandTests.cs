@@ -196,46 +196,54 @@ public sealed class UntouchedLandTests
         AssertSamePieces([anna], projection.ParcelsIn(Tile));
     }
 
-    // ── Известный остаток: наклонная граница у изменённой земли ──────────────
+    // ── Наклонная граница у изменённой земли ─────────────────────────────────
 
     [Theory]
     [InlineData(false)] // новичок взял ничью землю за наклонным краем квадрата Анны: Анна — нетронутый сосед
     [InlineData(true)] // бывалый срезал часть земли Анны; Вера за наклонной границей побывала у себя позже петли
-    public void Hidden_capture_next_to_a_slanted_border_shows_in_the_projection_only_as_kinks_at_the_loop(bool cutsAnnasLand)
+    public void Hidden_capture_next_to_a_slanted_border_is_projected_with_the_same_pieces_and_ids(bool cutsAnnasLand)
     {
-        // Остаток BE-01 (docs/architecture/territory-map.md). Петля пересекает наклонную границу не в узле сетки 0,1 м,
-        // snap-rounding сдвигает точку пересечения, и граница изменённой земли ломается в ней — это настоящая геометрия,
-        // иначе куски налезли бы друг на друга. Тот же излом ложится на нетронутого соседа и на срезанный кусок, и проекция
-        // скрытого захвата собирает землю вместе с ним: куски не те же (у зрителя другие номера), а изломы стоят там, где
-        // прошла петля. На границах по GPS (они почти всегда наклонные) это обычный захват чужой земли, не редкость.
-        // Убрать остаток можно, только храня в журнале исходные контуры кусков. Тест держит его в рамках: изломы не дальше
-        // полудиагонали клетки, наложений нет, новые вершины — только у петли. Когда остаток закроют, упадёт последняя
-        // проверка: замени её на AssertSamePieces и поправь territory-map.md.
+        // Бывший остаток BE-01 (docs/architecture/territory-map.md). Петля пересекает наклонную границу не в узле сетки
+        // 0,1 м, snap-rounding сдвигает точку пересечения, и граница изменённой земли ломается в ней — это настоящая
+        // геометрия, иначе куски налезли бы друг на друга. Тот же излом ложится на нетронутого соседа и на срезанный кусок:
+        // в хранилище они переписаны. Откат по граням следа собирал землю вместе с изломом — у зрителя другие номера
+        // кусков, а изломы стоят там, где прошла петля. Точный откат (ExactUndo) возвращает удалённые захватом строки как
+        // они лежали: те же куски до вершины и с теми же номерами строк.
         var annaLand = GeoOps.Factory.CreatePolygon([At(100, 100), At(300, 100), At(300, 170), At(100, 137), At(100, 100)]);
         var veraLand = GeoOps.Factory.CreatePolygon([At(100, 137), At(300, 170), At(300, 300), At(100, 300), At(100, 137)]);
-        var map = new TerritoryMap();
-        Capture(map, Veteran(Anna, T0), annaLand);
+        var store = new FakeTerritoryStore();
+        store.Capture(annaLand, Veteran(Anna, T0));
         if (cutsAnnasLand)
         {
-            Capture(map, Veteran(Vera, T0.AddHours(2)), veraLand);
+            store.Capture(veraLand, Veteran(Vera, T0.AddHours(2)));
         }
 
-        var before = Copy(map);
+        var before = store.RowsIn(Tile);
         var loop = RectanglePolygon(150, 110, 100, 140);
         var context = cutsAnnasLand ? Veteran(Boris, T0.AddHours(1)) : Newcomer(T0.AddHours(1));
-        var result = Capture(map, context, loop);
-        Assert.True(result.Area(cutsAnnasLand ? PieceOutcome.Transferred : PieceOutcome.ClaimedNeutral) > 0);
-        Assert.True(result.Area(cutsAnnasLand ? PieceOutcome.Superseded : PieceOutcome.NewAccountLimited) > 0);
+        var hidden = store.Capture(loop, context);
+        var stored = MapOf(store.RowsIn(Tile).Select(r => r.Parcel));
+        Assert.Empty(TerritoryInvariants.Check(stored));
 
-        var projection = Copy(map);
-        projection.Restore(result.Changes);
+        // Хранилище: у соседа и у срезанного куска — излом, а не прежний контур (захват пишет настоящую геометрию).
+        Assert.Contains(before, b => !store.RowsIn(Tile).Any(r => r.Parcel.State == b.Parcel.State && r.Parcel.Geometry.EqualsExact(b.Parcel.Geometry)));
 
-        Assert.Empty(TerritoryInvariants.Check(projection));
-        Assert.Equal(before.ParcelsIn(Tile).Count, projection.ParcelsIn(Tile).Count);
+        var projection = store.Project(Tile, [hidden]);
+
+        Assert.Equal([UndoPath.Exact], projection.Paths);
+        ExactUndoTests.AssertSameRows(before, projection.Pieces);
+
+        // Запасной путь (откат по граням) этого не может: изломы у петли остаются — в пределах полудиагонали клетки, без
+        // наложений, новые вершины только у петли. Поэтому сценарий и отличает точный откат от запасного.
+        var fallback = MapOf(ExactUndo.Restore(
+            Tile, [.. store.RowsIn(Tile).Select(r => new ProjectedParcel(r.Id, r.Parcel))], hidden.Changes[Tile], store.Rules, new SliverSettings())
+            .Select(p => p.Parcel));
+        Assert.Empty(TerritoryInvariants.Check(fallback));
+        Assert.Equal(before.Count, fallback.ParcelsIn(Tile).Count);
         var exact = true;
-        foreach (var piece in before.ParcelsIn(Tile))
+        foreach (var (_, piece) in before)
         {
-            var projected = Assert.Single(projection.ParcelsIn(Tile), p => p.State == piece.State);
+            var projected = Assert.Single(fallback.ParcelsIn(Tile), p => p.State == piece.State);
             exact &= projected.Geometry.EqualsExact(piece.Geometry);
             Assert.True(
                 DiscreteHausdorffDistance.Distance(piece.Geometry.Boundary, projected.Geometry.Boundary) <= HalfDiagonal,
@@ -250,7 +258,14 @@ public sealed class UntouchedLandTests
             }
         }
 
-        Assert.False(exact, "проекция отдала куски теми же до вершины — остаток BE-01 закрыт, обнови тест и territory-map.md");
+        Assert.False(exact, "откат по граням отдал куски теми же до вершины — сценарий больше не отличает точный откат");
+    }
+
+    private static TerritoryMap MapOf(IEnumerable<Parcel> parcels)
+    {
+        var map = new TerritoryMap();
+        map.Load(parcels);
+        return map;
     }
 
     // ── Откат ────────────────────────────────────────────────────────────────
