@@ -41,7 +41,7 @@ jobs:
         run: dotnet test --solution Gorodki.slnx --configuration Release --no-build
 
       # После тестов: замечание об оформлении не прячет упавшие тесты.
-      # Исправить у себя: dotnet format backend/Gorodki.slnx
+      # Исправить у себя (из папки backend — там global.json с версией SDK): dotnet format Gorodki.slnx
       - name: Оформление кода (dotnet format)
         run: dotnet format Gorodki.slnx --verify-no-changes --no-restore
 

@@ -35,6 +35,25 @@ struct AppDependenciesTests {
         #expect(await dependencies.syncEngine() === second)
     }
 
+    @Test("Вышел и вошёл тот же игрок: без входа синхронизации нет, после входа — прежние движок и расписание")
+    func sameEngineAfterSignOutAndBack() async throws {
+        let dependencies = AppDependencies(
+            serverURL: try #require(Self.serverURL), tokenStorage: InMemoryTokenStorage())
+        await dependencies.tokens.signIn(Self.tokens(player: "player-1"))
+        let first = try #require(await dependencies.syncEngine())
+        let firstScheduler = try #require(await dependencies.syncScheduler())
+
+        await dependencies.tokens.signOut()
+        #expect(await dependencies.syncEngine() == nil)
+        #expect(await dependencies.syncScheduler() == nil)
+
+        // Выход движок игрока не сбрасывает: очередь та же, а проход, начатый до выхода и ещё идущий, на следующем
+        // запросе увидит, что вошёл снова он, и продолжит. Второй движок шёл бы рядом вперемешку и задваивал запросы.
+        await dependencies.tokens.signIn(Self.tokens(player: "player-1"))
+        #expect(await dependencies.syncEngine() === first)
+        #expect(await dependencies.syncScheduler() === firstScheduler)
+    }
+
     @Test("Без входа или без адреса сервера синхронизации нет — очередь просто копится")
     func noSyncWithoutPlayerOrServer() async throws {
         let signedOut = AppDependencies(serverURL: try #require(Self.serverURL), tokenStorage: InMemoryTokenStorage())
