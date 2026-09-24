@@ -7,9 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Новый коммит в PR отменяет прогон прежнего. Вне PR у каждого прогона своя группа: прогон коммита в main не отменяется
+# и не вытесняется следующим слиянием из очереди — Render выкатывает сервер, только если все проверки коммита
+# зелёные (render.yaml, autoDeployTrigger: checksPass), а отменённая проверка зелёной не бывает.
 concurrency:
-  group: backend-${{ github.ref }}
-  cancel-in-progress: true
+  group: backend-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -36,6 +39,11 @@ jobs:
 
       - name: Тесты
         run: dotnet test --solution Gorodki.slnx --configuration Release --no-build
+
+      # После тестов: замечание об оформлении не прячет упавшие тесты.
+      # Исправить у себя: dotnet format backend/Gorodki.slnx
+      - name: Оформление кода (dotnet format)
+        run: dotnet format Gorodki.slnx --verify-no-changes --no-restore
 
       - name: Docker-образ для Render
         run: docker build --tag gorodki-api:ci .

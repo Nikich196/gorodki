@@ -12,9 +12,12 @@ on:
       - ".github/workflows/ipa.yml"
   workflow_dispatch:
 
+# Новый коммит в PR отменяет прогон прежнего (у ipa запусков по PR нет, но правило — как у остальных). Вне PR у каждого
+# прогона своя группа: прогон коммита в main не отменяется и не вытесняется следующим слиянием из очереди — Render
+# выкатывает сервер, только если все проверки коммита зелёные (render.yaml, autoDeployTrigger: checksPass).
 concurrency:
-  group: ipa-${{ github.ref }}
-  cancel-in-progress: true
+  group: ipa-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

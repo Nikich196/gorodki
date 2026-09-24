@@ -15,9 +15,12 @@ on:
     - cron: "0 3 * * 1" # понедельник, 06:00 по Минску
   workflow_dispatch:
 
+# Новый коммит в PR отменяет прогон прежнего. Вне PR у каждого прогона своя группа: прогон коммита в main не отменяется
+# и не вытесняется следующим слиянием из очереди — Render выкатывает сервер, только если все проверки коммита
+# зелёные (render.yaml, autoDeployTrigger: checksPass), а отменённая проверка зелёной не бывает.
 concurrency:
-  group: ios-${{ github.ref }}
-  cancel-in-progress: true
+  group: ios-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
