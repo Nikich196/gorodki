@@ -101,12 +101,13 @@ public actor RunRecorder {
         sensorsMarkMs = windowStartMs
     }
 
-    /// Начать запись: забег попадает в очередь (сервер узнает о нём при первой синхронизации). Прерванные забеги того же
-    /// игрока (приложение выгрузили посреди записи) перед этим закрываются — иначе их петли ждали бы датчиков вечно.
+    /// Начать запись: забег попадает в очередь (сервер узнает о нём при первой синхронизации). Прерванные забеги
+    /// (приложение выгрузили посреди записи) перед этим закрываются — и чужие: на телефоне идёт один забег, а петли
+    /// незакрытого ждали бы датчиков вечно.
     public static func begin(
         _ run: LocalRun, store: any SyncStore, policy: ChunkPolicy = ChunkPolicy()
     ) async throws -> RunRecorder {
-        try await closeInterrupted(ownerId: run.ownerId, store: store)
+        try await closeInterrupted(except: nil, store: store)
         try await store.insert(run)
         return RunRecorder(run: run, store: store, policy: policy)
     }
@@ -134,11 +135,11 @@ public actor RunRecorder {
         return recorder
     }
 
-    /// Закрыть незавершённые забеги игрока: конец — последняя записанная точка, последний номер — последний
-    /// запечатанный. Вызывается при старте нового забега и при запуске приложения, если запись не продолжается.
-    public static func closeInterrupted(ownerId: String, store: any SyncStore) async throws {
+    /// Закрыть незавершённые забеги (любого игрока), кроме `except`: конец — последняя записанная точка, последний
+    /// номер — последний запечатанный. Вызывается при старте нового забега и при запуске приложения (`RunTracker.recover`).
+    public static func closeInterrupted(except kept: UUID?, store: any SyncStore) async throws {
         for run in try await store.runs()
-        where run.ownerId == ownerId && !run.isFinishedLocally && run.serverState != .rejected {
+        where run.id != kept && !run.isFinishedLocally && run.serverState != .rejected {
             try await store.updateRun(run.id) {
                 $0.endedAtMs = $0.lastPointMs ?? $0.startedAtMs
                 $0.lastSeq = $0.recordedThroughSeq
