@@ -333,6 +333,37 @@ struct SyncEngineTests {
         #expect(await server.receivedSeqs(of: run.id) == Array(0...14))
     }
 
+    @Test("Во время прохода вошёл другой игрок — прежний движок больше ничего не шлёт с его входом")
+    func ownerChangeStopsThePass() async throws {
+        try await Fixture.record(Fixture.run(), points: 25, into: store)
+        let signedIn = Player(Fixture.owner)
+        await server.whileStarting { await signedIn.set("0199ffff-0000-7000-8000-000000000000") }
+        let engine = SyncEngine(
+            store: store, api: server, ownerId: Fixture.owner, now: { Self.now },
+            signedInPlayer: { await signedIn.id })
+
+        let report = await engine.syncOnce()
+
+        #expect(report.stop == .unauthorized)
+        #expect(await server.log == ["start"])  // старт ушёл до смены, куски — уже нет
+    }
+
+    @Test("Никто не вошёл — ни одного запроса")
+    func signedOutSendsNothing() async throws {
+        try await Fixture.record(Fixture.run(), points: 5, into: store)
+        let engine = SyncEngine(
+            store: store, api: server, ownerId: Fixture.owner, now: { Self.now }, signedInPlayer: { nil })
+
+        #expect(await engine.syncOnce().stop == .unauthorized)
+        #expect(await server.log.isEmpty)
+    }
+
+    actor Player {
+        private(set) var id: String?
+        init(_ id: String) { self.id = id }
+        func set(_ id: String) { self.id = id }
+    }
+
     // MARK: - Отказы
 
     struct StartRefusal: Sendable, CustomTestStringConvertible {

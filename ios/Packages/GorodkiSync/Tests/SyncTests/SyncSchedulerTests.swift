@@ -216,7 +216,7 @@ struct SyncSchedulerTests {
         let requests = await server.log.count
         #expect(await scheduler.trigger(.backgroundTask) == .needsSignIn)
         #expect(await server.log.count == requests)
-        #expect(await scheduler.backgroundRequests.isEmpty)
+        #expect(await scheduler.backgroundRequests == [])
     }
 
     @Test("После прохода — какие фоновые пробуждения просить: нет сети — оба, доставлено с заявкой — короткое")
@@ -224,7 +224,7 @@ struct SyncSchedulerTests {
         try await Fixture.record(Fixture.run(), points: 25, into: store, claims: [Fixture.loop(2, 14)])
         let scheduler = scheduler()
         let quarter = BackgroundSyncPlan.minimumDelay
-        #expect(await scheduler.backgroundRequests.isEmpty)
+        #expect(await scheduler.backgroundRequests == nil)  // прохода не было: прежние заявки не трогать
 
         await server.fail("start", with: .offline)
         await scheduler.trigger(.backgroundTask)
@@ -237,7 +237,33 @@ struct SyncSchedulerTests {
         #expect(await scheduler.backgroundRequests == [BackgroundRequest(.refresh, after: quarter)])
 
         await scheduler.stop()
-        #expect(await scheduler.backgroundRequests.isEmpty)
+        #expect(await scheduler.backgroundRequests == [])  // вышел — заявки снимаются
+    }
+
+    @Test("Фоновая задача во время прохода ждёт его и следующего — пробуждения по свежей очереди, а не «не знаю»")
+    func backgroundTaskWaitsForRunningPass() async throws {
+        try await Fixture.record(Fixture.run(), points: 25, into: store, claims: [Fixture.loop(2, 14)])
+        let scheduler = scheduler()
+        let background = Box()
+        await server.whileStarting {
+            await background.set(
+                Task {
+                    await scheduler.trigger(.backgroundTask)
+                    return await scheduler.backgroundRequests
+                })
+            try? await Task.sleep(for: .milliseconds(100))  // задача успевает встать в очередь за идущим проходом
+        }
+
+        await scheduler.trigger(.appActive)
+        let requests = await (try #require(await background.task)).value
+
+        #expect(await server.log.contains("finish"))
+        #expect(requests == [BackgroundRequest(.refresh, after: BackgroundSyncPlan.minimumDelay)])
+    }
+
+    actor Box {
+        private(set) var task: Task<[BackgroundRequest]?, Never>?
+        func set(_ task: Task<[BackgroundRequest]?, Never>) { self.task = task }
     }
 
     @Test("Очередь игрока: недоставленные забеги и заявки без итога")

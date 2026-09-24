@@ -40,6 +40,8 @@ final class AppDependencies: Sendable {
     let rules: RulesStore
     /// Идентификатор установки — `deviceId` каждого забега (Keychain, своя запись).
     let installation: InstallationID
+    /// Очередь переживёт выгрузку приложения (в базе). `false` — база не открылась, очередь в памяти.
+    let queueSurvivesRestart: Bool
     /// «Сейчас» для синхронизации, секунды Unix: часы внедряются, чтобы их можно было подменить в проверках.
     private let now: @Sendable () -> Double
     private let engine = Mutex<(ownerId: String, engine: SyncEngine, scheduler: SyncScheduler)?>(nil)
@@ -68,6 +70,7 @@ final class AppDependencies: Sendable {
         self.syncStore = syncStore
         self.rules = RulesStore(api: api, storage: rulesStorage)
         self.installation = InstallationID(storage: installationStorage)
+        self.queueSurvivesRestart = !(syncStore is InMemorySyncStore)
         self.now = now
     }
 
@@ -89,7 +92,8 @@ final class AppDependencies: Sendable {
     }
 
     /// Очередь в базе приложения (Application Support). Если базу не открыть (например, нет места), — в памяти:
-    /// приложение не падает, забеги этого запуска уйдут, пока его не выгрузили.
+    /// приложение не падает, но забег, не доставленный до выгрузки приложения, пропадёт — `queueSurvivesRestart`
+    /// скажет об этом экрану забега (этап 2).
     private static func liveSyncStore() -> any SyncStore {
         do {
             return GRDBSyncStore(try AppDatabase.live())
@@ -137,17 +141,24 @@ final class AppDependencies: Sendable {
     private func sync() async -> (engine: SyncEngine, scheduler: SyncScheduler)? {
         guard let api, let ownerId = await tokens.current()?.playerId else { return nil }
         let store = syncStore
-        return engine.withLock { cached in
+        let tokens = self.tokens
+        let (current, replaced) = engine.withLock { cached in
             if let cached, cached.ownerId == ownerId {
-                return (cached.engine, cached.scheduler)
+                return ((cached.engine, cached.scheduler), SyncScheduler?.none)
             }
-            let created = SyncEngine(store: store, api: api, ownerId: ownerId, now: now)
+            let created = SyncEngine(
+                store: store, api: api, ownerId: ownerId, now: now,
+                signedInPlayer: { await tokens.current()?.playerId })
             let scheduler = SyncScheduler(
                 engine: created,
                 backlog: { (try? await SyncBacklog.of(store, ownerId: ownerId)) ?? SyncBacklog() },
                 appActive: { await MainActor.run { UIApplication.shared.applicationState == .active } })
+            let previous = cached?.scheduler
             cached = (ownerId, created, scheduler)
-            return (created, scheduler)
+            return ((created, scheduler), previous)
         }
+        // Таймер прежнего игрока больше не нужен; его идущий проход остановится сам на следующем запросе.
+        await replaced?.stop()
+        return current
     }
 }

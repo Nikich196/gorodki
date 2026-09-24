@@ -42,17 +42,22 @@ enum BackgroundSync {
     }
 
     /// Проход синхронизации и фоновые пробуждения по его итогу. Сервер не задан или никто не вошёл — пробуждения
-    /// снимаются.
+    /// снимаются. Итога нет (проход не дошёл до конца) — прежние заявки остаются.
     private static func pass() async {
         guard let scheduler = await AppDependencies.shared.syncScheduler() else {
             schedule([])
             return
         }
         await scheduler.trigger(.backgroundTask)
-        schedule(await scheduler.backgroundRequests)
+        if let requests = await scheduler.backgroundRequests {
+            schedule(requests)
+        }
     }
 
     private static func run(_ task: BGTask) {
+        // Разбудившая заявка уже израсходована. Если iOS оборвёт задачу раньше итога прохода, без новой заявки
+        // приложение больше не проснётся, — поэтому сразу такая же, её заменит итог прохода.
+        resubmit(task.identifier)
         let completion = Completion(task)
         let work = Task {
             await pass()
@@ -64,6 +69,11 @@ enum BackgroundSync {
         }
     }
 
+    private static func resubmit(_ identifier: String) {
+        let kind: BackgroundRequest.Kind = identifier == uploadIdentifier ? .upload : .refresh
+        submit(BackgroundRequest(kind, after: BackgroundSyncPlan.minimumDelay), as: identifier)
+    }
+
     /// Попросить у iOS эти пробуждения, остальные — снять. Новая заявка с тем же идентификатором заменяет прежнюю.
     private static func schedule(_ requests: [BackgroundRequest]) {
         let scheduler = BGTaskScheduler.shared
@@ -73,23 +83,27 @@ enum BackgroundSync {
                 scheduler.cancel(taskRequestWithIdentifier: identifier)
                 continue
             }
-            let taskRequest: BGTaskRequest
-            switch kind {
-            case .refresh:
-                taskRequest = BGAppRefreshTaskRequest(identifier: identifier)
-            case .upload:
-                let processing = BGProcessingTaskRequest(identifier: identifier)
-                processing.requiresNetworkConnectivity = true
-                processing.requiresExternalPower = false
-                taskRequest = processing
-            }
-            taskRequest.earliestBeginDate = Date.now.addingTimeInterval(Double(request.earliest.components.seconds))
-            do {
-                try scheduler.submit(taskRequest)
-            } catch {
-                // Симулятор, выключенное «Обновление контента» или лимит заявок: очередь дошлётся, когда приложение
-                // откроют.
-            }
+            submit(request, as: identifier)
+        }
+    }
+
+    private static func submit(_ request: BackgroundRequest, as identifier: String) {
+        let taskRequest: BGTaskRequest
+        switch request.kind {
+        case .refresh:
+            taskRequest = BGAppRefreshTaskRequest(identifier: identifier)
+        case .upload:
+            let processing = BGProcessingTaskRequest(identifier: identifier)
+            processing.requiresNetworkConnectivity = true
+            processing.requiresExternalPower = false
+            taskRequest = processing
+        }
+        taskRequest.earliestBeginDate = Date.now.addingTimeInterval(Double(request.earliest.components.seconds))
+        do {
+            try BGTaskScheduler.shared.submit(taskRequest)
+        } catch {
+            // Симулятор, выключенное «Обновление контента» или лимит заявок: очередь дошлётся, когда приложение
+            // откроют.
         }
     }
 }

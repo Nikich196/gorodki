@@ -39,7 +39,10 @@ public enum SignInFailure: Equatable, Sendable {
     case inviteRequired
     /// Не подтверждён возраст 16+ (`age_confirmation_required`).
     case ageNotConfirmed
-    /// Сервер ждёт соглашение новее того, что показало приложение (`consent_required`): нужно обновить приложение.
+    /// Игрок не отметил согласие с правилами (`consent_required` на регистрацию без согласия).
+    case consentRequired
+    /// Сервер ждёт соглашение новее того, что показало приложение (`consent_required` на регистрацию с согласием):
+    /// нужно обновить приложение.
     case consentOutdated
     /// Аккаунт удаляется — войти нельзя (`account_deleting`).
     case accountDeleting
@@ -61,6 +64,8 @@ public enum SignInFailure: Equatable, Sendable {
             "Нужен код приглашения — попроси его у того, кто позвал тебя в игру."
         case .ageNotConfirmed:
             "Играть можно с 16 лет — подтверди возраст."
+        case .consentRequired:
+            "Чтобы играть, прими правила игры и политику конфиденциальности."
         case .consentOutdated:
             "Правила игры обновились. Обнови приложение, чтобы принять новые."
         case .accountDeleting:
@@ -114,7 +119,7 @@ public struct SignInService: Sendable {
                 if status == 409, code == "sign_in_conflict", attempt == 1 {
                     continue
                 }
-                return Self.outcome(status: status, code: code, registering: registration != nil)
+                return Self.outcome(status: status, code: code, registration: registration)
             }
         }
         return .failed(.unexpected(status: 409))
@@ -129,13 +134,13 @@ public struct SignInService: Sendable {
         await tokens.signOut()
     }
 
-    static func outcome(status: Int, code: String?, registering: Bool) -> SignInOutcome {
+    static func outcome(status: Int, code: String?, registration: Registration?) -> SignInOutcome {
         switch (status, code) {
         case (403, "age_confirmation_required"), (403, "consent_required"), (403, "invite_required"):
-            guard registering else { return .registrationNeeded }
+            guard let registration else { return .registrationNeeded }
             switch code {
             case "age_confirmation_required": return .failed(.ageNotConfirmed)
-            case "consent_required": return .failed(.consentOutdated)
+            case "consent_required": return .failed(registration.consentAccepted ? .consentOutdated : .consentRequired)
             default: return .failed(.inviteRequired)
             }
         case (403, "invite_invalid"):

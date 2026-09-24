@@ -55,16 +55,24 @@ public actor SyncEngine {
     private let api: any APIProtocol
     private let ownerId: String
     private let now: @Sendable () -> Double
+    private let signedInPlayer: (@Sendable () async -> String?)?
     private var current: Task<SyncReport, Never>?
 
     /// - Parameters:
     ///   - ownerId: вошедший игрок — синхронизируются только его забеги.
     ///   - now: «сейчас» по часам телефона, секунды Unix (уходит в каждом запросе как `sentAtMs`).
-    public init(store: any SyncStore, api: any APIProtocol, ownerId: String, now: @escaping @Sendable () -> Double) {
+    ///   - signedInPlayer: кто вошёл сейчас. Клиент API подставляет токен текущего входа, поэтому после смены
+    ///     аккаунта прежний движок слал бы забеги прежнего игрока с чужим токеном — перед каждым запросом он
+    ///     сверяется и, если вошёл другой, останавливается (`unauthorized`).
+    public init(
+        store: any SyncStore, api: any APIProtocol, ownerId: String, now: @escaping @Sendable () -> Double,
+        signedInPlayer: (@Sendable () async -> String?)? = nil
+    ) {
         self.store = store
         self.api = api
         self.ownerId = ownerId
         self.now = now
+        self.signedInPlayer = signedInPlayer
     }
 
     /// Проход по всей очереди. Если проход уже идёт (таймер и возврат сети сработали вместе), второй вызов дожидается
@@ -548,6 +556,9 @@ public actor SyncEngine {
     /// Вызов API. Ошибка транспорта (нет сети, тайм-аут) — остановить проход и повторить позже. Ответ, который клиент
     /// не смог разобрать, — по коду: 401 и 429 могут прийти без тела (проверка входа, ограничитель частоты).
     private func call<T>(_ body: () async throws -> T) async throws -> T {
+        if let signedInPlayer, await signedInPlayer() != ownerId {
+            throw Stop(.unauthorized)  // вошёл другой игрок (или никто): его токеном чужие забеги не шлются
+        }
         do {
             return try await body()
         } catch let error as ClientError {

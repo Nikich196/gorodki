@@ -113,6 +113,10 @@ public actor FogCache {
         var updated: Set<FogTileRef> = []
         for view in response.tiles {
             let key = FogTileRef(x: Int(view.x), y: Int(view.y))
+            // Ответ на более ранний запрос мог прийти позже: туман только растёт, более новую версию он не затирает.
+            if let known = tiles[key], known.version > view.version {
+                continue
+            }
             // Повреждённый (или не сошёлся с `cellCount`) — прежний тайл остаётся и будет перезапрошен.
             guard let words = try? FogTileCodec.words(fromCompressed: Data(view.bits.data)),
                 FogTileCodec.cellCount(words) == Int(view.cellCount)

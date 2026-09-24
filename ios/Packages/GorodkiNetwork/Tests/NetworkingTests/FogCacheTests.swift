@@ -103,12 +103,11 @@ struct FogCacheTests {
         func corrupt(_ key: FogTileRef) { corrupt.insert(key) }
         func heal(_ key: FogTileRef) { corrupt.remove(key) }
         func lieAboutCount(_ key: FogTileRef) { wrongCount.insert(key) }
-        /// Пока придержан — ответ ждёт `release()`.
+        /// Следующий ответ — готов, но придержан до `release()`: как медленная сеть.
         private var held: CheckedContinuation<Void, Never>?
         private var holding = false
         func hold() { holding = true }
         func release() {
-            holding = false
             held?.resume()
             held = nil
         }
@@ -146,6 +145,7 @@ struct FogCacheTests {
                 }
             }
             if holding {
+                holding = false
                 await withCheckedContinuation { held = $0 }
             }
             let json =
@@ -281,6 +281,22 @@ struct FogCacheTests {
         #expect(await cache.count == 0)
         try await cache.refresh(visible: Self.near)
         #expect(await server.requests.last?.tiles == ["9270:5404@0", "9271:5404@0"])
+    }
+
+    @Test("Ответ на ранний запрос пришёл позже нового — новая версия не затирается старой")
+    func olderResponseDoesNotOverwrite() async throws {
+        await seed()
+        let cache = cache()
+        await server.hold()
+
+        let slow = Task { try await cache.refresh(visible: [Self.a]) }  // соберёт версию 3
+        try await server.waitUntilHeld()
+        await server.set(Self.a, version: 4)
+        #expect(try await cache.refresh(visible: [Self.a]) == [Self.a])  // тайла ещё нет — второй запрос
+        await server.release()
+
+        #expect(try await slow.value.isEmpty)
+        #expect(await cache.tile(Self.a)?.version == 4)
     }
 
     @Test("Ответ, начатый до смены аккаунта, выбрасывается: чужой туман в кэш не попадает")
