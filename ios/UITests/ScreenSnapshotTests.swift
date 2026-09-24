@@ -141,10 +141,10 @@ final class ScreenSnapshotTests: XCTestCase {
     /// Строка списка с переходом (`NavigationLink`): SwiftUI показывает её кнопкой, но бывает и ячейкой.
     @MainActor
     private func button(in app: XCUIApplication, containing label: String) -> XCUIElement {
-        let types = [XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.cell.rawValue]
-        return app.descendants(matching: .any)
-            .matching(NSPredicate(format: "elementType IN %@ AND label CONTAINS %@", types, label))
-            .firstMatch
+        let rowOrButton = NSPredicate(
+            format: "(elementType == %lu OR elementType == %lu) AND label CONTAINS %@",
+            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.cell.rawValue, label)
+        return app.descendants(matching: .any).matching(rowOrButton).firstMatch
     }
 
     /// Строка списка вида «Вход — не выполнен» бывает одним элементом (текст — в `value`) или двумя (в `label`).
