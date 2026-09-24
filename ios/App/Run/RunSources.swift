@@ -68,12 +68,16 @@ final class RunMotionSource {
         queue.name = "Городки: датчики забега"
         return queue
     }()
+    /// Остановлено ли включение: история CoreMotion приходит позже, и без отметки живые обновления включились бы уже
+    /// после `stop()`.
+    private var stopped = StopFlag()
 
     /// - Parameter since: с какого момента нужны записи. После перезапуска — с отметки уже отправленных датчиков:
     ///   за время выгрузки CoreMotion отдаёт историю.
     func start(sending tracker: RunTracker, since: Date) {
+        stopped = StopFlag()
         if CMMotionActivityManager.isActivityAvailable() {
-            Self.startActivity(activity, queue: queue, since: since, tracker: tracker)
+            Self.startActivity(activity, queue: queue, since: since, tracker: tracker, stopped: stopped)
         }
         if CMPedometer.isStepCountingAvailable() {
             Self.startSteps(pedometer, queue: queue, since: since, tracker: tracker)
@@ -85,9 +89,11 @@ final class RunMotionSource {
 
     /// Сначала история (после перезапуска — за время выгрузки), потом живые обновления: порядок сохраняется.
     private nonisolated static func startActivity(
-        _ activity: CMMotionActivityManager, queue: OperationQueue, since: Date, tracker: RunTracker
+        _ activity: CMMotionActivityManager, queue: OperationQueue, since: Date, tracker: RunTracker,
+        stopped: StopFlag
     ) {
         activity.queryActivityStarting(from: since, to: .now, to: queue) { history, _ in
+            guard !stopped.isSet else { return }
             for item in history ?? [] {
                 tracker.send(.motion(sample(item)))
             }
@@ -116,6 +122,7 @@ final class RunMotionSource {
     }
 
     func stop() {
+        stopped.set()
         activity.stopActivityUpdates()
         pedometer.stopUpdates()
     }
@@ -127,6 +134,13 @@ final class RunMotionSource {
             } else if activity.walking { .walking } else if activity.stationary { .stationary } else { .unknown }
         return MotionSample(timestamp: activity.startDate.timeIntervalSince1970, activity: kind)
     }
+}
+
+/// Отметка «остановлено» — читается на очереди CoreMotion.
+private final class StopFlag: Sendable {
+    private let value = Mutex(false)
+    var isSet: Bool { value.withLock { $0 } }
+    func set() { value.withLock { $0 = true } }
 }
 
 /// Накопленное число шагов → интервалы «шаги за отрезок».

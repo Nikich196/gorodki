@@ -63,13 +63,15 @@ final class RunRecordingBuffer: Sendable {
                         latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude,
                         time: fix.timestamp - start, horizontalAccuracy: fix.horizontalAccuracy, speed: fix.speed,
                         flags: fix.source.rawValue))
+            // Датчик пришёл не раньше уже записанного: в повторе он должен прийти в том же порядке, иначе запоздавшая
+            // в оригинале запись (её отбросили) в повторе была бы принята, и вердикты судьи разошлись бы.
             case .motion(let sample):
                 entry = .init(
-                    at: sample.timestamp - start,
+                    at: max(sample.timestamp - start, lastAt(state.entries)),
                     input: .motion(time: sample.timestamp - start, activity: sample.activity))
             case .steps(let sample):
                 entry = .init(
-                    at: sample.end - start,
+                    at: max(sample.end - start, lastAt(state.entries)),
                     input: .steps(start: sample.start - start, end: sample.end - start, steps: sample.steps))
             case .tick:
                 return  // таймер повтор создаёт сам — по своему времени
@@ -77,6 +79,8 @@ final class RunRecordingBuffer: Sendable {
             state.entries.append(entry)
         }
     }
+
+    private func lastAt(_ entries: [RunRecording.Entry]) -> Double { entries.last?.at ?? -.infinity }
 
     /// Забег закончился сам (предел длины): конец — последнее поступление.
     func finishAtLastEntry() -> RunRecording {

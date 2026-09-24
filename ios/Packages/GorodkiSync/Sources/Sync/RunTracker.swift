@@ -59,6 +59,8 @@ public actor RunTracker {
         case input(TrackerInput)
         case finish(at: Double, CheckedContinuation<Void, any Error>)
         case drain(CheckedContinuation<Void, Never>)
+        /// Забег подключён: накопленное, пока он начинался, — в него, по порядку.
+        case attached(CheckedContinuation<Void, Never>)
     }
 
     private let onQueued: @Sendable () -> Void
@@ -68,6 +70,11 @@ public actor RunTracker {
     private var loop: Task<Void, Never>?
     private var session: RunSession?
     private var starting = false
+    /// Пока забег начинается или продолжается, поступившее копится здесь, в порядке очереди, и уходит в него после
+    /// подключения. Иначе терялись бы первые точки и первая запись CoreMotion о текущем виде движения (с давним
+    /// временем начала: следующей может не быть до смены вида движения).
+    private var buffering = false
+    private var pending: [TrackerInput] = []
     private var sealed = 0
     /// Идёт запись для демо-повтора — пишется прямо из `send`, в порядке поступления.
     private nonisolated let recording = Mutex<RunRecordingBuffer?>(nil)
@@ -102,14 +109,22 @@ public actor RunTracker {
     public func start(recording: Bool = false, _ makeSession: @Sendable () async throws -> RunSession) async throws {
         guard session == nil, !starting else { throw TrackerError.alreadyRunning }
         starting = true
+        buffering = true
         defer { starting = false }
-        let session = try await makeSession()
+        let session: RunSession
+        do {
+            session = try await makeSession()
+        } catch {
+            buffering = false
+            pending = []
+            throw error
+        }
         finishedRecording = nil
         if recording {
             let buffer = RunRecordingBuffer(startedAt: Double(session.startedAtMs) / 1_000, league: session.league)
             self.recording.withLock { $0 = buffer }
         }
-        attach(session, stats: RunStats(), sealed: 0)
+        await attach(session, stats: RunStats(), sealed: 0)
         onQueued()  // забег в очереди: сервер узнает о нём раньше первой петли
     }
 
@@ -122,7 +137,10 @@ public actor RunTracker {
     /// Продолжить забег после перезапуска приложения (`recover`). Поступившее до этого обрабатывается уже в нём.
     public func resume(_ session: RunSession) async throws {
         guard self.session == nil, !starting else { throw TrackerError.alreadyRunning }
-        attach(session, stats: await session.stats, sealed: await session.sealedChunks)
+        starting = true
+        buffering = true
+        defer { starting = false }
+        await attach(session, stats: await session.stats, sealed: await session.sealedChunks)
     }
 
     /// Дождаться, пока обработано всё поступившее. Без забега оно выбрасывается: так после перезапуска, когда продолжать
@@ -139,7 +157,7 @@ public actor RunTracker {
         try await withCheckedThrowingContinuation { queue.yield(.finish(at: seconds, $0)) }
     }
 
-    private func attach(_ session: RunSession, stats: RunStats, sealed: Int) {
+    private func attach(_ session: RunSession, stats: RunStats, sealed: Int) async {
         self.session = session
         self.sealed = sealed
         var fresh = TrackerState()
@@ -149,6 +167,18 @@ public actor RunTracker {
         fresh.stats = stats
         state = fresh
         ensureLoop()
+        // Всё, что уже в очереди, — после накопленного: метка встаёт в ту же очередь.
+        await withCheckedContinuation { queue.yield(.attached($0)) }
+    }
+
+    private func releasePending(into session: RunSession) async {
+        guard buffering else { return }
+        buffering = false
+        let inputs = pending
+        pending = []
+        for input in inputs {
+            await process(input, in: session)
+        }
     }
 
     private func ensureLoop() {
@@ -165,10 +195,15 @@ public actor RunTracker {
     private func handle(_ command: Command) async {
         switch command {
         case .input(let input):
+            if buffering { return pending.append(input) }
             guard let session else { return }  // забега нет: поступление не относится ни к одному
             await process(input, in: session)
+        case .attached(let done):
+            if let session { await releasePending(into: session) }
+            done.resume()
         case .finish(let seconds, let done):
             guard let session else { return done.resume() }
+            await releasePending(into: session)  // «Финиш» раньше метки: накопленное — до конца забега
             do {
                 try await session.finish(endedAt: seconds)
             } catch {
@@ -191,6 +226,7 @@ public actor RunTracker {
             switch input {
             case .fix(let fix, let receivedAt):
                 events = try await session.handle(fix, now: receivedAt)
+                state.storageFailed = false  // запись точки удалась
             case .motion(let sample):
                 await session.record(sample)
             case .steps(let sample):
@@ -199,7 +235,6 @@ public actor RunTracker {
                 await session.sensorsComplete(through: now - Self.sensorLagSeconds)
                 events = try await session.tick(now: now)
             }
-            state.storageFailed = false
         } catch {
             state.storageFailed = true
         }
@@ -245,7 +280,8 @@ public actor RunTracker {
         var chosen: (run: LocalRun, rules: PhoneRules)?
         let open = try await store.runs().filter { !$0.isFinishedLocally && $0.serverState != .rejected }
         for run in open.sorted(by: { $0.startedAtMs > $1.startedAtMs }) {
-            guard run.deviceId == deviceId, playerId == nil || run.ownerId == playerId,
+            // Демо-повтор не продолжается: настоящая геопозиция в забеге-повторе была бы подделкой.
+            guard run.source == .live, run.deviceId == deviceId, playerId == nil || run.ownerId == playerId,
                 let known = await rules(run.configVersion)
             else { continue }
             let limitMs = run.startedAtMs + Int64(known.maxRunHours * 3_600_000)

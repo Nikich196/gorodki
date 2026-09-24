@@ -55,7 +55,8 @@ public actor RunRecorder {
     public let runId: UUID
     private let store: any SyncStore
     private let policy: ChunkPolicy
-    private let windowStartMs: Int64
+    /// Начало окна забега (мс): старт минус минута.
+    public let windowStartMs: Int64
     /// Конец окна забега (мс): точки позже — не этого забега, пора завершать.
     public let windowEndMs: Int64
     private let maxSeq: Int
@@ -260,7 +261,12 @@ public actor RunRecorder {
     public func finish(endedAt seconds: Double) async throws {
         guard !finished else { return }
         finishing = true  // до первого ожидания: точка, пришедшая во время записи остатка, не войдёт в `lastSeq`
-        try await seal()  // сначала все куски, потом отметка конца: увидев конец, синхронизация видит и все куски
+        do {
+            try await seal()  // сначала все куски, потом отметка конца: увидев конец, синхронизация видит и все куски
+        } catch {
+            finishing = false  // «Финиш» не удался — забег продолжается, точки снова принимаются
+            throw error
+        }
         let endedAtMs = StoragePrecision.milliseconds(seconds)
         let lastSeq = nextSeq - 1
         try await store.updateRun(runId) {
