@@ -172,11 +172,19 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
     /// Считать ли землю нетронутой: (текущее состояние, состояние сразу после захвата). По умолчанию — равенство. Откат нарушителя
     /// не считает касанием его собственные визиты на отнятую землю — иначе, побегав по ней, он бы её «отмыл».
     /// </param>
+    /// <param name="replayVisits">
+    /// Земля, которую после захвата меняли только визиты владельца (<see cref="VisitReplay.Trace"/>), тоже возвращается:
+    /// прежнее состояние с теми же визитами, если владелец до и после захвата один (жертва пробежала по треснувшей части,
+    /// автор — по своей освежённой земле), иначе просто прежнее (автор пробежал по взятому — в мире без захвата этой
+    /// земли у него нет). Так визиты, засчитанные, пока захват скрыт, не выдают его раньше времени (PLAN.md, §3.16).
+    /// Выключено по умолчанию: без него «тронутая» земля — любая изменённая, как в растровом оракуле отката.
+    /// </param>
     /// <exception cref="TerritoryEngineException">Самопроверка не сошлась — карта не изменена.</exception>
     public RestoreResult Restore(
         IReadOnlyList<TileChange> changes,
         Func<ParcelState, ParcelState?>? adjust = null,
-        Func<ParcelState?, ParcelState?, bool>? untouched = null)
+        Func<ParcelState?, ParcelState?, bool>? untouched = null,
+        bool replayVisits = false)
     {
         var rebuilt = new List<(TileKey Tile, List<Parcel> Pieces)>();
         var restored = 0.0;
@@ -190,7 +198,13 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
             }
 
             var pieces = RestoreTile(
-                change, adjust ?? (state => state), untouched ?? ((current, after) => current == after), ref restored, ref skipped, ref sliverArea);
+                change,
+                adjust ?? (state => state),
+                untouched ?? ((current, after) => current == after),
+                replayVisits,
+                ref restored,
+                ref skipped,
+                ref sliverArea);
             if (pieces is not null)
             {
                 rebuilt.Add((change.Tile, pieces));
@@ -333,6 +347,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         TileChange change,
         Func<ParcelState, ParcelState?> adjust,
         Func<ParcelState?, ParcelState?, bool> untouched,
+        bool replayVisits,
         ref double restored,
         ref double skipped,
         ref double sliverArea)
@@ -360,14 +375,30 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
 
             var area = face.Geometry.Area;
             insideArea += area;
-            if (!untouched(face.Old, StateAt(after, face.Point)))
+            var written = StateAt(after, face.Point);
+            var previous = StateAt(before, face.Point);
+            ParcelState? returned;
+            if (untouched(face.Old, written))
+            {
+                returned = previous;
+            }
+            else if (replayVisits && face.Old is { } current && written is not null
+                     && VisitReplay.Trace(written, current, Rules) is { } visits)
+            {
+                // После захвата здесь были только визиты владельца. Тот же владелец и до захвата (жертва на треснувшей
+                // части, автор на своей освежённой земле) — визиты ложатся на прежнее состояние, как легли бы без захвата;
+                // другой (автор на взятой земле) — в мире без захвата эта земля не его, и визитов на ней нет.
+                returned = previous is not null && previous.OwnerId == written.OwnerId
+                    ? VisitReplay.Apply(previous, visits, Rules)
+                    : previous;
+            }
+            else
             {
                 skipped += area; // после захвата здесь уже что-то поменялось — не трогаем
                 continue;
             }
 
-            var previous = StateAt(before, face.Point);
-            face.New = previous is null ? null : adjust(previous);
+            face.New = returned is null ? null : adjust(returned);
             restored += area;
             if (previous is not null)
             {
