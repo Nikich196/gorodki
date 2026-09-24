@@ -34,7 +34,7 @@ struct RunRecorderTests {
         await slow.holdChunkSaves()
 
         let finishing = Task { try await recorder.finish(endedAt: start + 3) }
-        try await slow.waitUntilSaving()
+        await slow.waitUntilSaving()
         await #expect(throws: RecorderError.alreadyFinished) {
             try await recorder.record(Fixture.point(3))
         }
@@ -287,5 +287,53 @@ struct RunRecorderTests {
         // ждал бы датчиков вечно. Его точки не запечатаны (кусок по 10) — конец — старт, последний номер −1.
         let closedOther = try #require(await store.runs().first { $0.id == other.id })
         #expect(closedOther.lastSeq == -1 && closedOther.endedAtMs == StoragePrecision.milliseconds(start + 10))
+    }
+
+    @Test("Прогресс забега не записался (нет места) — куска без прогресса в очереди нет, точки уйдут следующим куском")
+    func sealWritesChunkAndProgressTogether() async throws {
+        let store = FailingOnceStore()
+        let run = Fixture.run()
+        let recorder = try await RunRecorder.begin(run, store: store, policy: Fixture.policy(maxPoints: 3))
+        try await recorder.record(Fixture.point(0))
+        try await recorder.record(Fixture.point(1))
+
+        await store.failNextRunWrite()
+        await #expect(throws: FailingOnceStore.DiskFull.self) { try await recorder.record(Fixture.point(2)) }
+        // Кусок без прогресса закрыл бы прерванный забег с последним номером меньше, чем в куске.
+        #expect(await store.chunks(of: run.id).isEmpty)
+        #expect(try #require(await store.runs().first).recordedThroughSeq == -1)
+
+        try await recorder.record(Fixture.point(3))
+        try await RunRecorder.closeInterrupted(except: nil, store: store)
+        #expect(await store.chunks(of: run.id).map { $0.firstSeq...$0.lastSeq } == [0...3])
+        #expect(try #require(await store.runs().first).lastSeq == 3)
+    }
+
+    @Test(
+        "Кусок записан без прогресса (сбой прежней версии) — прерванный забег закрывается по куску, сервер его принимает"
+    )
+    func closesInterruptedByLastChunk() async throws {
+        let store = InMemorySyncStore()
+        let run = Fixture.run()
+        try await Fixture.record(run, points: 5, into: store, finish: false, policy: Fixture.policy(maxPoints: 5))
+        // Прежняя версия записала кусок 5…9, а прогресс забега — нет: приложение выгрузили между двумя записями.
+        let points = (5...9).map { Fixture.point($0).quantizedForStorage() }
+        await store.save(
+            SealedChunk(
+                runId: run.id, firstSeq: 5, points: points, motion: [], steps: [],
+                sensorsCompleteThroughMs: run.startedAtMs))
+        #expect(try #require(await store.runs().first).recordedThroughSeq == 4)
+
+        try await RunRecorder.closeInterrupted(except: nil, store: store)
+
+        let closed = try #require(await store.runs().first)
+        #expect(closed.lastSeq == 9 && closed.endedAtMs == StoragePrecision.milliseconds(start + 9))
+        let server = FakeServer()
+        let now = start + 7_200
+        let report = await SyncEngine(store: store, api: server, ownerId: Fixture.owner, now: { now }).syncOnce()
+        #expect(report.finishedRuns == 1)  // не 409 last_seq_too_small: номер конца не меньше номеров в кусках
+        let delivered = try #require(await store.runs().first)
+        #expect(delivered.finishRejectCode == nil && delivered.confirmedComplete)
+        #expect(await server.receivedSeqs(of: run.id) == Array(0...9))
     }
 }

@@ -43,7 +43,7 @@ public struct RunRecording: Codable, Sendable, Equatable {
     }
 }
 
-/// Идёт запись: поступления трекера с временем от старта. Пишется из любого потока (источники шлют без ожидания).
+/// Идёт запись: поступления трекера с временем от старта — то, что получил забег, в порядке его очереди.
 final class RunRecordingBuffer: Sendable {
     private let state: Mutex<(startedAt: Double, league: League, entries: [RunRecording.Entry])>
 
@@ -91,7 +91,7 @@ final class RunRecordingBuffer: Sendable {
     func finish(at seconds: Double) -> RunRecording {
         state.withLock { state in
             let duration = max(0, seconds - state.startedAt)
-            // Поступившее после «Финиша» (оно уже в очереди трекера) в забег не вошло — и в запись не входит.
+            // Поступившее позже конца (по времени получения) в запись не входит: повтор кончается на этом времени.
             return RunRecording(
                 league: state.league, duration: duration,
                 entries: state.entries.filter { $0.at <= duration }.sorted { $0.at < $1.at })

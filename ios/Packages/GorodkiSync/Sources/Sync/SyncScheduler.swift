@@ -41,8 +41,11 @@ public enum SyncWake: Equatable, Sendable {
 ///
 /// - Нет сети или сервер не ответил — повтор через 15 с, 30 с, 1 мин… до 15 минут (холодный старт сервера на Render Free
 ///   бывает дольше минуты, но и часами молчать нельзя). Слишком частые запросы — не раньше чем через минуту.
-/// - Забег отложен (лимит забегов в сутки, часы) или исчерпан суточный объём — через час.
-/// - Сервер попросил дослать точки — почти сразу.
+/// - Забег отложен (лимит забегов в сутки, часы) или исчерпан суточный объём — через час: такой забег остаётся
+///   недоставленным, но повтор раньше получит тот же отказ.
+/// - Сервер попросил дослать точки, забыл забег (404) или ещё не видит завершения — почти сразу.
+/// - Недоставленный забег, о котором проход ничего не сказал, — через 15 минут: страховка, чтобы он не ждал до следующего
+///   события.
 /// - Заявки ждут итога, приложение открыто — опрос раз в 30 с: подсказка «заявка решена» по реальному времени обычно
 ///   приходит раньше, опрос — страховка.
 public struct SyncBackoff: Sendable, Equatable {
@@ -52,7 +55,7 @@ public struct SyncBackoff: Sendable, Equatable {
     public static let claimPoll: Duration = .seconds(30)
     public static let limitRetry: Duration = .seconds(3_600)
 
-    /// Неудачных проходов подряд.
+    /// Неудачных проходов подряд — пока шаг растёт: на потолке счёт останавливается.
     public private(set) var failures = 0
 
     public init() {}
@@ -70,21 +73,29 @@ public struct SyncBackoff: Sendable, Equatable {
         case .accountDeleting:
             return .blocked(.accountDeleting)
         case .offline:
-            failures += 1
+            failed()
             return .after(backoff)
         case .rateLimited:
-            failures += 1
+            failed()
             return .after(max(backoff, Self.rateLimited))
         case nil:
             failures = 0
         }
 
+        // Когда продолжать доставку, говорит итог прохода, а не очередь: отложенный забег в ней тоже недоставленный,
+        // и по одной очереди его повторяли бы каждые 15 с — до суток отказов 429 и 400.
         var waits: [Duration] = []
-        if report.requeuedChunks > 0 || backlog.unfinishedDeliveries > 0 {
-            waits.append(Self.first)  // досылка; число кругов ограничивает сам SyncEngine
+        // Круги досылки и повтора завершения ограничивает сам SyncEngine (`maxResendRounds`), а забег, забытый сервером
+        // (404), — нет: следующий проход начинает его заново. Зацикливания нет: новый старт создаёт забег у сервера или
+        // кончается отказом, отсрочкой, остановкой прохода — снова 404 будет, только если сервер опять потеряет забег.
+        if report.requeuedChunks > 0 || report.forgottenRuns > 0 || report.unconfirmedFinishes > 0 {
+            waits.append(Self.first)
         }
         if report.deferredRuns > 0 || report.storageLimitReached {
             waits.append(Self.limitRetry)
+        }
+        if waits.isEmpty && backlog.unfinishedDeliveries > 0 {
+            waits.append(Self.longest)
         }
         if backlog.unsettledClaims > 0 && appActive {
             waits.append(Self.claimPoll)
@@ -92,9 +103,22 @@ public struct SyncBackoff: Sendable, Equatable {
         return waits.min().map(SyncWake.after) ?? .idle
     }
 
+    private mutating func failed() {
+        if backoff < Self.longest {
+            failures += 1
+        }
+    }
+
+    /// Шаг после `failures` неудач: 15 с, вдвое больше за каждую следующую, не больше `longest`. Считается удвоением
+    /// в `Duration`, а не через секунды: 15 · 2ⁿ с при переводе в `Duration` (Int128 аттосекунд) переполнялось
+    /// на 65-й неудаче подряд и роняло приложение ещё до `min` — а неудачи копятся весь забег без связи, проход идёт
+    /// на каждый запечатанный кусок.
     private var backoff: Duration {
-        let seconds = 15.0 * pow(2.0, Double(max(failures - 1, 0)))
-        return min(.seconds(seconds), Self.longest)
+        var wait = Self.first
+        for _ in 1..<max(failures, 1) where wait < Self.longest {
+            wait *= 2
+        }
+        return min(wait, Self.longest)
     }
 }
 
@@ -183,6 +207,8 @@ public actor SyncScheduler {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     /// Был ли хоть один проход (или выход): до него очередь неизвестна.
     private var knowsBacklog = false
+    /// Проверкам: событие встало ждать идущего прохода — гонку проверяют порядком событий, а не сном.
+    private var waitingForPass: (@Sendable () -> Void)?
 
     /// Последнее решение «когда снова» — для экрана «Синхронизация» и проверок.
     public var nextWake: SyncWake { wake }
@@ -228,7 +254,10 @@ public actor SyncScheduler {
         if running {
             rerun = true
             if reason == .backgroundTask {
-                await withCheckedContinuation { waiters.append($0) }
+                await withCheckedContinuation {
+                    waiters.append($0)
+                    waitingForPass?()
+                }
             }
             return wake
         }
@@ -249,7 +278,11 @@ public actor SyncScheduler {
         return wake
     }
 
-    /// Остановить таймер (выход из аккаунта).
+    /// Проверкам: `action` зовётся, когда событие встало ждать идущего прохода.
+    func onWaitingForPass(_ action: @escaping @Sendable () -> Void) { waitingForPass = action }
+
+    /// Остановить таймер — при смене игрока (`AppDependencies`). При выходе без смены расписание не останавливается:
+    /// взведённый таймер сработает ещё раз, но проход ничего не отправит — `SyncEngine` сверяет вошедшего игрока.
     public func stop() {
         timer?.cancel()
         timer = nil

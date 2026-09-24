@@ -21,7 +21,7 @@ public enum SyncStop: Equatable, Sendable {
 /// Что сделал проход синхронизации.
 public struct SyncReport: Equatable, Sendable {
     public var startedRuns = 0
-    /// Забеги, отложенные до следующего прохода (лимит забегов в сутки, сбитые назад часы).
+    /// Забеги, отложенные до следующего прохода (лимит забегов в сутки, сбитые назад часы — начало или точки «из будущего»).
     public var deferredRuns = 0
     public var uploadedChunks = 0
     /// Куски, которые у сервера уже были (повтор после потерянного ответа).
@@ -36,6 +36,10 @@ public struct SyncReport: Equatable, Sendable {
     public var finishedRuns = 0
     /// Куски, снова поставленные в очередь по списку `missing`.
     public var requeuedChunks = 0
+    /// Забеги, которых сервер не знает (404): следующий проход начнёт их заново.
+    public var forgottenRuns = 0
+    /// Завершения, которых сервер ещё не видит (забег у него не завершён): следующий проход повторит их.
+    public var unconfirmedFinishes = 0
     /// Исчерпан суточный объём: куски ждут завтрашнего прохода, заявки на уже доставленные точки ушли.
     public var storageLimitReached = false
     public var stop: SyncStop?
@@ -213,9 +217,7 @@ public actor SyncEngine {
             $0.serverState = .rejected
             $0.rejectCode = code ?? "rejected"
         }
-        for chunk in try await store.chunks(of: run.id) {
-            try await store.deleteChunk(of: run.id, firstSeq: chunk.firstSeq)
-        }
+        try await store.deleteChunks(of: run.id)  // все, с нечитаемыми: по прочитанному они остались бы навсегда
     }
 
     // MARK: - Куски
@@ -232,7 +234,7 @@ public actor SyncEngine {
             case .next:
                 guard try await sendReadyClaims(&run, &report) == .next else { return .forgotten }
             case .forgotten:
-                try await forget(&run)
+                try await forget(&run, &report)
                 return .forgotten
             case .later:
                 return .later
@@ -271,7 +273,8 @@ public actor SyncEngine {
             let problems = Self.problems(
                 try response.body.application_problem_plus_json.additionalProperties["problems"])
             if problems.contains(where: { $0.rule == "time_future" }) {
-                return .later  // часы переведены назад: те же точки станут «не из будущего» позже
+                report.deferredRuns += 1  // часы переведены назад: те же точки станут «не из будущего» позже
+                return .later
             }
             if !problems.isEmpty, problems.allSatisfy({ $0.field.hasPrefix("motion") || $0.field.hasPrefix("steps") }) {
                 // Испорчены только датчики: точки уходят без них — иначе пропала бы вся дальнейшая территория забега.
@@ -352,7 +355,7 @@ public actor SyncEngine {
         for claim in try await store.claims(of: run.id) where !claim.sent && claim.refusedCode == nil {
             guard chunks.allSatisfy({ $0.sent || $0.firstSeq > claim.loop.endSeq }) else { continue }
             guard try await send(claim, &report) == .next else {
-                try await forget(&run)
+                try await forget(&run, &report)
                 return .forgotten
             }
         }
@@ -461,7 +464,7 @@ public actor SyncEngine {
             }
             return .next
         case .notFound:
-            try await forget(&run)
+            try await forget(&run, &report)
             return .forgotten
         case .undocumented(let status, _):
             throw Self.stop(status)
@@ -478,7 +481,7 @@ public actor SyncEngine {
         case .ok(let response):
             serverRun = try response.body.json
         case .notFound:
-            try await forget(&run)
+            try await forget(&run, &report)
             return
         case .undocumented(let status, _):
             throw Self.stop(status)
@@ -490,6 +493,7 @@ public actor SyncEngine {
                 $0.finishSent = false
                 $0.resendRounds += 1
             }
+            report.unconfirmedFinishes += 1
             return
         }
         let missing = serverRun.missing.map { Int($0.firstSeq)...Int($0.lastSeq) }
@@ -498,9 +502,8 @@ public actor SyncEngine {
         if requeue.isEmpty || gaveUp {
             // Всё дошло — или недостающих точек на телефоне нет (кусок отвергнут, окно закрыто) и дослать нечего.
             // Сначала куски, потом отметка: если приложение выгрузят посередине, проверка просто повторится.
-            for chunk in chunks {
-                try await store.deleteChunk(of: run.id, firstSeq: chunk.firstSeq)
-            }
+            // Стираются все куски забега, а не прочитанные: нечитаемый иначе остался бы в базе навсегда.
+            try await store.deleteChunks(of: run.id)
             try await update(&run) { $0.confirmedComplete = true }
         } else {
             try await update(&run) { $0.resendRounds += 1 }
@@ -521,7 +524,8 @@ public actor SyncEngine {
 
     /// Сервер ответил 404: он не знает забега (удалён или данные потеряны). Всё, что ещё хранится, отправляется заново
     /// после нового `POST /runs` — повторы сервер распознает сам.
-    private func forget(_ run: inout LocalRun) async throws {
+    private func forget(_ run: inout LocalRun, _ report: inout SyncReport) async throws {
+        report.forgottenRuns += 1
         try await update(&run) {
             $0.serverState = .unknown
             $0.finishSent = false

@@ -17,12 +17,23 @@ public protocol SyncStore: Sendable {
     func chunks(of runId: UUID) async throws -> [SealedChunk]
     /// Сохраняет кусок (ключ — забег и номер первой точки).
     func save(_ chunk: SealedChunk) async throws
+    /// Запечатанный кусок и прогресс записи его забега (`RunRecorder`) — одной операцией, в GRDB — одной транзакцией.
+    /// Выгрузка приложения между двумя записями оставила бы кусок без прогресса: прерванный забег закрылся бы с последним
+    /// номером меньше, чем в куске, и сервер отказал бы в завершении (`last_seq_too_small`).
+    func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) async throws
     /// Заменяет кусок другими одной транзакцией (разрезание после 409): точки не теряются, если приложение выгрузят.
     func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) async throws
     func deleteChunk(of runId: UUID, firstSeq: Int) async throws
+    /// Стирает все куски забега — и те, что `chunks(of:)` не вернула: в GRDB нечитаемая строка при чтении пропускается,
+    /// и стирание по прочитанному оставило бы её в базе навсегда.
+    func deleteChunks(of runId: UUID) async throws
 
     /// Заявки забега по возрастанию номера.
     func claims(of runId: UUID) async throws -> [PendingClaim]
+    /// Наибольший номер заявки забега (`nil` — заявок нет), считая и те, что `claims(of:)` не вернула: номер нечитаемой
+    /// заявки мог уже уйти на сервер — новая заявка под ним получила бы окончательный отказ (`claim_conflict`), а в базе
+    /// молча заменила бы нечитаемую.
+    func lastClaimNo(of runId: UUID) async throws -> Int?
     /// Сохраняет заявку (ключ — забег и номер заявки).
     func save(_ claim: PendingClaim) async throws
 }
@@ -53,6 +64,11 @@ public actor InMemorySyncStore: SyncStore {
 
     public func save(_ chunk: SealedChunk) { storedChunks[chunk.runId, default: [:]][chunk.firstSeq] = chunk }
 
+    public func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) {
+        save(chunk)
+        updateRun(chunk.runId, progress)
+    }
+
     public func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) {
         storedChunks[runId]?[firstSeq] = nil
         for piece in pieces {
@@ -62,9 +78,13 @@ public actor InMemorySyncStore: SyncStore {
 
     public func deleteChunk(of runId: UUID, firstSeq: Int) { storedChunks[runId]?[firstSeq] = nil }
 
+    public func deleteChunks(of runId: UUID) { storedChunks[runId] = nil }
+
     public func claims(of runId: UUID) -> [PendingClaim] {
         (storedClaims[runId] ?? [:]).values.sorted { $0.claimNo < $1.claimNo }
     }
+
+    public func lastClaimNo(of runId: UUID) -> Int? { storedClaims[runId]?.keys.max() }
 
     public func save(_ claim: PendingClaim) { storedClaims[claim.runId, default: [:]][claim.claimNo] = claim }
 }

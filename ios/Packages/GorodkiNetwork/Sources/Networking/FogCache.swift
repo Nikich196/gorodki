@@ -18,9 +18,10 @@ public struct FogTileRef: Hashable, Sendable, Comparable {
 /// Свой туман на телефоне — тайлы `GET /fog` одного слоя и сезона с версиями.
 ///
 /// Туман меняется только от своих забегов: сервер открывает его один раз за забег, когда тот доставлен. Поэтому опроса
-/// нет — тайл запрашивается, если его нет в кэше или после `invalidate()` (синхронизация доставила забег). Версии свои
-/// у каждого игрока — при смене аккаунта кэш очищается (`reset`). Повреждённый тайл пропускается и считается
-/// в `corruptedTiles`, остальные — нет.
+/// нет — тайл запрашивается, если его нет в кэше или после `invalidate()`: его зовёт приложение по подсказке сервера
+/// «туман изменился» (`FogChanged`) и при каждом подключении реального времени (подсказки за время разрыва
+/// потеряны). Версии свои у каждого игрока — при смене аккаунта кэш очищается (`reset`). Повреждённый тайл пропускается
+/// и считается в `corruptedTiles`, остальные — нет.
 public actor FogCache {
     /// Не больше стольких тайлов за запрос — предел сервера.
     public static let maxTilesPerRequest = 25
@@ -43,6 +44,9 @@ public actor FogCache {
     private let now: @Sendable () -> Double
     private var tiles: [FogTileRef: Tile] = [:]
     private var stale: Set<FogTileRef> = []
+    /// Сколько раз туман объявлялся изменившимся (`invalidate`): ответ на запрос, начатый до последнего раза, мог быть
+    /// собран до изменения — пометку «устарел» он не снимает.
+    private var invalidations = 0
     private var lastWanted: [FogTileRef: Double] = [:]
     /// Номер «поколения»: `reset` его меняет, и ответ, начатый до смены аккаунта, выбрасывается.
     private var generation = 0
@@ -62,8 +66,10 @@ public actor FogCache {
 
     public var count: Int { tiles.count }
 
-    /// Туман мог измениться (забег доставлен): все тайлы в кэше перезапросить с версиями, когда карта их покажет.
+    /// Туман мог измениться: все тайлы в кэше — и те, что запрашиваются сейчас, — перезапросить с версиями, когда карта
+    /// их покажет.
     public func invalidate() {
+        invalidations += 1
         stale.formUnion(tiles.keys)
     }
 
@@ -97,6 +103,7 @@ public actor FogCache {
         // Неизвестный тайл — с версией 0: пустой тайл сервер не хранит и вернёт в `unchanged`, а не промолчит.
         let query = keys.map { key in "\(key.x):\(key.y)@\(tiles[key]?.version ?? 0)" }
         let requestedIn = generation
+        let invalidationsBefore = invalidations
         let output = try await api.getFog(
             query: .init(layer: layer.rawValue, tiles: query.joined(separator: ","), season: season.map { Int32($0) }))
         let response: Components.Schemas.FogResponse
@@ -134,6 +141,11 @@ public actor FogCache {
             if tiles[key] == nil {
                 tiles[key] = Tile(key: key, version: 0, cellCount: 0, words: [])  // пустой тайл
             }
+        }
+        // `invalidate`, пришедший во время запроса, мог опоздать к ответу: сервер собрал его до того, как открыл туман.
+        // Такие тайлы остаются устаревшими — иначе свежий туман не показался бы до следующей подсказки.
+        if invalidations != invalidationsBefore {
+            stale.formUnion(keys.filter { tiles[$0] != nil })
         }
         return updated
     }

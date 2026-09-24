@@ -71,14 +71,18 @@ struct RunTrackerTests {
     func secondStartIsRejected() async throws {
         let tracker = RunTracker()
         let make = session()
+        let entered = Gate()
+        let written = Gate()
         let first = Task {
             try await tracker.start {
-                try await Task.sleep(for: .milliseconds(200))
+                entered.open()
+                await written.wait()  // первый забег ещё пишется в базу
                 return try await make()
             }
         }
-        try await Task.sleep(for: .milliseconds(50))
+        await entered.wait()
         await #expect(throws: TrackerError.alreadyRunning) { try await tracker.start(session()) }
+        written.open()
         try await first.value
 
         let calls = Counter()

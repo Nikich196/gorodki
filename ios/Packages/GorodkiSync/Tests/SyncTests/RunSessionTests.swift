@@ -97,6 +97,60 @@ struct RunSessionTests {
         #expect(await session.stats.loops == 1)
     }
 
+    /// Когда повторяется заявка петли, не записанная с первого раза.
+    enum ClaimRetry: String, CaseIterable, Sendable, CustomTestStringConvertible {
+        case point = "следующая точка"
+        case tick = "тик"
+        case finish = "«Финиш»"
+
+        var testDescription: String { rawValue }
+    }
+
+    @Test(
+        "Заявка петли не записалась (нет места) — ошибка не глотается, петля заявляется снова: точка, тик, «Финиш»",
+        arguments: ClaimRetry.allCases)
+    func unsavedClaimIsRetried(retry: ClaimRetry) async throws {
+        let store = FailingOnceStore()
+        let session = try await RunSession.start(Fixture.run(), store: store, rules: .version1)
+        var walk = Walk()
+        let square = walk.square(side: 80)
+        await store.failNextClaimSave()
+
+        var failedAt: Int?
+        for (index, fix) in square.enumerated() {
+            do {
+                _ = try await session.handle(fix, now: fix.timestamp + 1)
+            } catch {
+                #expect(error is FailingOnceStore.DiskFull)
+                failedAt = index
+                break
+            }
+        }
+        // Детектор эту петлю больше не найдёт: проглоченная ошибка потеряла бы захват молча.
+        let index = try #require(failedAt, "ошибка записи заявки проглочена")
+        #expect(await session.stats.loops == 0)
+        #expect(await store.claims(of: session.runId).isEmpty)
+
+        var events: [RunEvent] = []
+        switch retry {
+        case .point:
+            let next = square.indices.contains(index + 1) ? square[index + 1] : walk.fix(east: 1.4, north: 0)
+            events = try await session.handle(next, now: next.timestamp + 1)
+        case .tick:
+            events = try await session.tick(now: square[index].timestamp + 5)
+        case .finish:
+            try await session.finish(endedAt: square[index].timestamp + 5)
+        }
+
+        let claims = await store.claims(of: session.runId)
+        #expect(claims.map(\.claimNo) == [0])
+        #expect(await session.stats.loops == 1)
+        let claim = try #require(claims.first)
+        if retry != .finish {
+            #expect(events.contains(.loopClaimed(claimNo: 0, claim.loop)))
+        }
+    }
+
     @Test("Судья и детектор — из правил версии конфига, а не из чисел сборки")
     func rulesComeFromConfigVersion() async throws {
         var strict = PhoneRules.version1
@@ -198,7 +252,7 @@ struct RunSessionTests {
         await slow.holdChunkSaves()
 
         let point = Task { try await session.handle(a, now: a.timestamp) }
-        try await slow.waitUntilSaving()
+        await slow.waitUntilSaving()
         let finishing = Task { try await session.finish(endedAt: a.timestamp + 1) }
         try await Task.sleep(for: .milliseconds(200))
         #expect(await !session.isFinished)  // «Финиш» ждёт, пока точка запишется
@@ -269,7 +323,7 @@ struct RunSessionTests {
         await slow.holdChunkSaves()
 
         let first = Task { try await session.handle(a, now: a.timestamp) }  // кусок из одной точки записывается
-        try await slow.waitUntilSaving()
+        await slow.waitUntilSaving()
         let second = Task { try await session.handle(b, now: b.timestamp) }
         try await Task.sleep(for: .milliseconds(200))
         #expect(await slow.saveAttempts == 1)  // вторая точка не обгоняет первую
@@ -290,7 +344,7 @@ struct RunSessionTests {
         await slow.holdChunkSaves()
 
         let sealing = Task { try await session.tick(now: Fixture.start + 7_200) }  // кусок «созрел»
-        try await slow.waitUntilSaving()
+        await slow.waitUntilSaving()
         let during = walk.fix(east: 10, north: 0)
         let point = Task { try await session.handle(during, now: during.timestamp) }
         await session.record(MotionSample(timestamp: during.timestamp, activity: .walking))  // датчики очереди не ждут
@@ -519,8 +573,8 @@ struct RunSessionTests {
 actor GatedStore: SyncStore {
     let inner = InMemorySyncStore()
     private var holding = false
-    private var saving = false
     private var gate: [CheckedContinuation<Void, Never>] = []
+    private let saving = Gate()
     private(set) var saveAttempts = 0
 
     func holdChunkSaves() { holding = true }
@@ -531,10 +585,10 @@ actor GatedStore: SyncStore {
         gate = []
     }
 
-    func waitUntilSaving() async throws {
-        for _ in 0..<2_500 where !saving {
-            try await Task.sleep(for: .milliseconds(2))
-        }
+    /// Дождаться, пока запись куска придержана, — без сна: иначе на медленной машине проверка шла бы дальше раньше,
+    /// чем кусок начал записываться, и проверяла бы не то.
+    func waitUntilSaving(sourceLocation: SourceLocation = #_sourceLocation) async {
+        await saving.wait(sourceLocation: sourceLocation)
     }
 
     func runs() async -> [LocalRun] { await inner.runs() }
@@ -544,17 +598,26 @@ actor GatedStore: SyncStore {
     }
     func chunks(of runId: UUID) async -> [SealedChunk] { await inner.chunks(of: runId) }
     func save(_ chunk: SealedChunk) async {
+        await holdIfAsked()
+        await inner.save(chunk)
+    }
+    func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) async {
+        await holdIfAsked()
+        await inner.seal(chunk, progress: progress)
+    }
+    private func holdIfAsked() async {
         saveAttempts += 1
         if holding {
-            saving = true
+            saving.open()
             await withCheckedContinuation { gate.append($0) }
         }
-        await inner.save(chunk)
     }
     func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) async {
         await inner.replaceChunk(of: runId, firstSeq: firstSeq, with: pieces)
     }
     func deleteChunk(of runId: UUID, firstSeq: Int) async { await inner.deleteChunk(of: runId, firstSeq: firstSeq) }
+    func deleteChunks(of runId: UUID) async { await inner.deleteChunks(of: runId) }
     func claims(of runId: UUID) async -> [PendingClaim] { await inner.claims(of: runId) }
+    func lastClaimNo(of runId: UUID) async -> Int? { await inner.lastClaimNo(of: runId) }
     func save(_ claim: PendingClaim) async { await inner.save(claim) }
 }
