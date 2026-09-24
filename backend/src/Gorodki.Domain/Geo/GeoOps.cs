@@ -126,11 +126,16 @@ public static class GeoOps
             EndCapStyle = EndCapStyle.Flat,
         }).IsEmpty;
 
-    /// <summary>Часть линии вне области (без сетки: длины и так считаются в метрах).</summary>
+    /// <summary>Часть линии вне области.</summary>
+    /// <remarks>
+    /// Сетка здесь тоже есть: OverlayNG без явной точности берёт её у первой геометрии, а линии строятся через
+    /// <see cref="Factory"/>. Поэтому это тот же snap-rounding на 0,1 м, что и у остальных операций фасада: точки линии
+    /// сдвигаются не дальше полудиагонали клетки (0,0707 м) — для визитов (от 50 м пути) это ничто.
+    /// </remarks>
     public static Geometry LineOutside(Geometry line, Geometry area) =>
         OverlayNG.Overlay(line, area, SpatialFunction.Difference);
 
-    /// <summary>Длина части линии внутри многоугольника, метры (граница — тоже «внутри»).</summary>
+    /// <summary>Длина части линии внутри многоугольника, метры (граница — тоже «внутри»; сетка — как у <see cref="LineOutside"/>).</summary>
     public static double LengthInside(Geometry line, Geometry area) =>
         OverlayNG.Overlay(line, area, SpatialFunction.Intersection).Length;
 
