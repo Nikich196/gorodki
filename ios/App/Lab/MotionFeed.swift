@@ -4,21 +4,23 @@ import GameCore
 
 /// Датчики движения и шагомер для античита (PLAN.md, §3.9): «транспорт», «велосипед», шаги.
 /// Если датчики недоступны или запрещены, игра просто не получает этих подсказок — это «неизвестно», а не нарушение.
+/// Вместе с записью приходит время её получения (секунды Unix) — для замера запаздывания в спайке S1.
 @MainActor
 final class MotionFeed {
     private let activityManager = CMMotionActivityManager()
     private let pedometer = CMPedometer()
 
     func start(
-        onActivity: @escaping @MainActor @Sendable (MotionSample) -> Void,
-        onSteps: @escaping @MainActor @Sendable (PedometerSample) -> Void
+        onActivity: @escaping @MainActor @Sendable (MotionSample, Double) -> Void,
+        onSteps: @escaping @MainActor @Sendable (PedometerSample, Double) -> Void
     ) {
         if CMMotionActivityManager.isActivityAvailable() {
             activityManager.startActivityUpdates(to: .main) { activity in
                 guard let activity else { return }
+                let receivedAt = Date.now.timeIntervalSince1970
                 let sample = MotionSample(
                     timestamp: activity.startDate.timeIntervalSince1970, activity: Self.kind(of: activity))
-                Task { @MainActor in onActivity(sample) }
+                Task { @MainActor in onActivity(sample, receivedAt) }
             }
         }
 
@@ -35,15 +37,16 @@ final class MotionFeed {
     /// в `nonisolated`, а в главный поток запись попадает через `Task`.
     private nonisolated static func startSteps(
         _ pedometer: CMPedometer, from start: Date, counter: StepCounter,
-        onSteps: @escaping @MainActor @Sendable (PedometerSample) -> Void
+        onSteps: @escaping @MainActor @Sendable (PedometerSample, Double) -> Void
     ) {
         pedometer.startUpdates(from: start) { data, _ in
             guard let data else { return }
+            let receivedAt = Date.now.timeIntervalSince1970
             let steps = data.numberOfSteps.intValue
             let end = data.endDate.timeIntervalSince1970
             Task { @MainActor in
                 if let sample = counter.interval(totalSteps: steps, at: end) {
-                    onSteps(sample)
+                    onSteps(sample, receivedAt)
                 }
             }
         }
