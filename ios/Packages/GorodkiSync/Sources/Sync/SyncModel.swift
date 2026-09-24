@@ -27,6 +27,9 @@ public struct LocalRun: Codable, Sendable, Hashable, Identifiable {
     public var deviceId: UUID
     public var appVersion: String
     public var motionAuthorized: Bool
+    /// Судился ли забег на телефоне как забег новичка (порог точности `capture.newcomerMaxAccuracyMeters`): тем же
+    /// порогом его судят после перезапуска приложения. Необязательное — старые записи очереди без него читаются.
+    public var judgedAsNewcomer: Bool?
 
     // Поля записи (меняет только `RunRecorder`).
 

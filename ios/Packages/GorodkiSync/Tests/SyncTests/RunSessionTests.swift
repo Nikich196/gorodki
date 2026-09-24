@@ -42,8 +42,10 @@ struct RunSessionTests {
 
     private let store = InMemorySyncStore()
 
-    private func start(policy: ChunkPolicy = Fixture.policy(maxPoints: 120)) async throws -> RunSession {
-        try await RunSession.start(Fixture.run(), store: store, policy: policy)
+    private func start(
+        policy: ChunkPolicy = Fixture.policy(maxPoints: 120), rules: PhoneRules = .version1
+    ) async throws -> RunSession {
+        try await RunSession.start(Fixture.run(), store: store, rules: rules, policy: policy)
     }
 
     private func feed(_ session: RunSession, _ fixes: [LocationFix]) async throws -> [RunEvent] {
@@ -93,6 +95,135 @@ struct RunSessionTests {
         let sealed = await store.chunks(of: session.runId)
         #expect(sealed.last?.lastSeq ?? -1 >= loop.endSeq)
         #expect(await session.stats.loops == 1)
+    }
+
+    @Test("Судья и детектор — из правил версии конфига, а не из чисел сборки")
+    func rulesComeFromConfigVersion() async throws {
+        var strict = PhoneRules.version1
+        strict.run.maxAccuracyMeters = 10  // точка с точностью 15 м — отброшена
+        strict.loopDetector.minPathMeters = 1_000  // квадрат 80 м (320 м пути) — не петля
+        let session = try await start(rules: strict)
+        var walk = Walk()
+        var fixes = walk.square(side: 80)
+        fixes[3].horizontalAccuracy = 15
+
+        let events = try await feed(session, fixes)
+
+        #expect(events[3] == .ignored(.poorAccuracy))
+        #expect(!events.contains { if case .loopClaimed = $0 { true } else { false } })
+    }
+
+    @Test("Новичок: порог точности 35 м вместо 25 — как сервер; после перезапуска — тот же порог")
+    func newcomerAccuracy() async throws {
+        let session = try await RunSession.start(
+            Fixture.run(), store: store, rules: .version1, newcomer: true, policy: Fixture.policy(maxPoints: 5))
+        var walk = Walk()
+        var fixes = walk.straight(seconds: 10)
+        fixes[2].horizontalAccuracy = 30
+        let events = try await feed(session, Array(fixes.prefix(6)))
+        #expect(events[2] == .accepted)
+
+        let resumed = try #require(
+            try await RunSession.resume(
+                runId: session.runId, store: store, rules: .version1, policy: Fixture.policy(maxPoints: 5)))
+        var late = fixes[7]
+        late.horizontalAccuracy = 30
+        #expect(try await resumed.handle(late, now: late.timestamp) == [.accepted])
+
+        let veteran = try await RunSession.start(Fixture.run(), store: InMemorySyncStore(), rules: .version1)
+        var veteranWalk = Walk()
+        var veteranFixes = veteranWalk.straight(seconds: 3)
+        veteranFixes[1].horizontalAccuracy = 30
+        #expect(try await feed(veteran, veteranFixes)[1] == .ignored(.poorAccuracy))
+    }
+
+    @Test("Новичок — пока в очереди нет ни одной засчитанной заявки этого игрока")
+    func newcomerFromQueue() async throws {
+        #expect(try await RunSession.isNewcomer(ownerId: Fixture.owner, store: store))
+        try await Fixture.record(Fixture.run(), points: 25, into: store, claims: [Fixture.loop(2, 14)])
+        #expect(try await RunSession.isNewcomer(ownerId: Fixture.owner, store: store))
+
+        let runId = try #require(await store.runs().first?.id)
+        var claim = try #require(await store.claims(of: runId).first)
+        claim.outcome = ClaimOutcome(status: "applied", waitingFor: nil, rejectCode: nil, areaSquareMeters: 5_000)
+        await store.save(claim)
+
+        #expect(try await !RunSession.isNewcomer(ownerId: Fixture.owner, store: store))
+        #expect(try await RunSession.isNewcomer(ownerId: "someone-else", store: store))
+    }
+
+    @Test("Устаревшая точка (старше 10 с по часам телефона) не нумеруется и не уходит на сервер")
+    func staleFixIsNotNumbered() async throws {
+        let session = try await start()
+        var walk = Walk()
+        let cached = walk.fix(east: 0, north: 0)  // запомненная CoreLocation точка
+        let fresh = walk.fix(east: 1.4, north: 0)
+
+        #expect(try await session.handle(cached, now: cached.timestamp + 30) == [.ignored(.staleFix)])
+        #expect(try await session.handle(fresh, now: fresh.timestamp) == [.accepted])
+        try await session.finish(endedAt: fresh.timestamp)
+
+        let points = await store.chunks(of: session.runId).flatMap(\.points)
+        #expect(points.map(\.seq) == [0])
+        #expect(points.map(\.timestamp) == [fresh.timestamp])
+        #expect(await session.isFinished)
+    }
+
+    @Test("Точка раньше начала забега больше чем на минуту — не этого забега: отброшена, забег продолжается")
+    func pointBeforeStartIsDropped() async throws {
+        let session = try await start()
+        let early = LocationFix(
+            coordinate: Walk().plane.unproject(PlanarPoint(east: 0, north: 0)), timestamp: Fixture.start - 120,
+            horizontalAccuracy: 5)
+
+        #expect(try await session.handle(early, now: early.timestamp + 1) == [.dropped])
+        #expect(await !session.isFinished)
+        var walk = Walk()
+        let next = walk.fix(east: 0, north: 0)
+        #expect(try await session.handle(next, now: next.timestamp) == [.accepted])
+    }
+
+    @Test("Точка, пришедшая, пока предыдущая записывается, ждёт её конца; обе записаны подряд")
+    func concurrentFixesAreSerialized() async throws {
+        let slow = GatedStore()
+        let session = try await RunSession.start(
+            Fixture.run(), store: slow, rules: .version1, policy: Fixture.policy(maxPoints: 1, maxAgeSeconds: 3_600))
+        var walk = Walk()
+        let a = walk.fix(east: 0, north: 0)
+        let b = walk.fix(east: 1.4, north: 0)
+        await slow.holdChunkSaves()
+
+        let first = Task { try await session.handle(a, now: a.timestamp) }  // кусок из одной точки записывается
+        try await slow.waitUntilSaving()
+        let second = Task { try await session.handle(b, now: b.timestamp) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await slow.saveAttempts == 1)  // вторая точка не обгоняет первую
+        await slow.release()
+
+        #expect(try await first.value == [.accepted])
+        #expect(try await second.value == [.accepted])
+        #expect(await slow.inner.chunks(of: session.runId).flatMap(\.points).map(\.seq) == [0, 1])
+    }
+
+    @Test("Точка пришла, пока кусок записывался, — попадает в следующий кусок, не теряется")
+    func pointDuringSealIsKept() async throws {
+        let slow = GatedStore()
+        let session = try await RunSession.start(
+            Fixture.run(), store: slow, rules: .version1, policy: Fixture.policy(maxPoints: 120, maxAgeSeconds: 3_600))
+        var walk = Walk()
+        _ = try await feed(session, walk.straight(seconds: 5))
+        await slow.holdChunkSaves()
+
+        let sealing = Task { try await session.tick(now: Fixture.start + 7_200) }  // кусок «созрел»
+        try await slow.waitUntilSaving()
+        let during = walk.fix(east: 10, north: 0)
+        #expect(try await session.handle(during, now: during.timestamp) == [.accepted])
+        await slow.release()
+        try await sealing.value
+        try await session.finish(endedAt: walk.time)
+
+        let seqs = await slow.inner.chunks(of: session.runId).flatMap(\.points).map(\.seq)
+        #expect(seqs == Array(0..<6))
     }
 
     @Test("Точка с тем же временем (повтор GPS) отброшена, номер не израсходован")
@@ -160,9 +291,9 @@ struct RunSessionTests {
 
     @Test("Предел длины забега — забег завершается сам, дальше точки не принимаются")
     func maxRunLengthFinishesTheRun() async throws {
-        var policy = Fixture.policy(maxPoints: 120)
-        policy.maxRunHours = 0.01  // 36 с + 10 мин запаса сервера
-        let session = try await start(policy: policy)
+        var rules = PhoneRules.version1
+        rules.maxRunHours = 0.01  // 36 с + 10 мин запаса сервера — из правил версии конфига
+        let session = try await start(rules: rules)
         var walk = Walk()
         _ = try await feed(session, walk.straight(seconds: 20))
         walk.time += 700  // за пределом окна
@@ -182,11 +313,12 @@ struct RunSessionTests {
         _ = try await feed(session, walk.straight(seconds: 25))  // запечатаны 0…19, хвост 20…24 потерян
 
         let resumed = try #require(
-            try await RunSession.resume(runId: session.runId, store: store, policy: Fixture.policy(maxPoints: 10)))
+            try await RunSession.resume(
+                runId: session.runId, store: store, rules: .version1, policy: Fixture.policy(maxPoints: 10)))
         let stale = LocationFix(
             coordinate: walk.plane.unproject(PlanarPoint(east: 0, north: 0)), timestamp: Fixture.start + 5,
             horizontalAccuracy: 5)
-        #expect(try await resumed.handle(stale, now: walk.time) == [.dropped])
+        #expect(try await resumed.handle(stale, now: stale.timestamp + 1) == [.dropped])
         let next = walk.fix(east: 40, north: 0)
         #expect(try await resumed.handle(next, now: next.timestamp) == [.accepted])
         try await resumed.finish(endedAt: next.timestamp)
@@ -202,8 +334,8 @@ struct RunSessionTests {
         _ = try await feed(session, walk.straight(seconds: 5))
         try await session.finish(endedAt: walk.time)
 
-        #expect(try await RunSession.resume(runId: session.runId, store: store) == nil)
-        #expect(try await RunSession.resume(runId: UUID(), store: store) == nil)
+        #expect(try await RunSession.resume(runId: session.runId, store: store, rules: .version1) == nil)
+        #expect(try await RunSession.resume(runId: UUID(), store: store, rules: .version1) == nil)
     }
 
     @Test("Туман открывается с запаздыванием 30 с; в конце забега — весь хвост")
@@ -249,15 +381,42 @@ struct RunSessionTests {
         #expect(!opened(fixes[breakIndex]))
 
         // Телепорт: путь до скачка честный — открыт весь, сам скачок — нет.
-        let jumped = try await RunSession.start(Fixture.run(), store: InMemorySyncStore())
+        let jumped = try await RunSession.start(Fixture.run(), store: InMemorySyncStore(), rules: .version1)
         var jumpWalk = Walk()
         var jumpFixes = jumpWalk.straight(seconds: 100)
         let jump = jumpWalk.fix(east: 50_000, north: 0)
         jumpFixes.append(jump)
         #expect(try await feed(jumped, jumpFixes).contains(.broken(.teleport)))
+        try await jumped.finish(endedAt: jumpWalk.time)  // до скачка — ждёт своих 30 с; конец забега засчитывает всё
         let jumpedFog = await jumped.fog
         #expect(jumpFixes.dropLast().allSatisfy { jumpedFog.isRevealed(FogGrid.cell(of: $0.coordinate)) })
         #expect(!jumpedFog.isRevealed(FogGrid.cell(of: jump.coordinate)))
+    }
+
+    @Test("Телепорт, а следом машина: путь до телепорта в 30-секундном окне машины тоже не открывает туман")
+    func teleportThenVehicleBreak() async throws {
+        // Бег 3 м/с на восток 100 с, скачок на 5 км, оттуда — «транспорт» по датчикам: судья рвёт след через 20 с.
+        let session = try await start()
+        var walk = Walk()
+        var fixes = (0..<100).map { walk.fix(east: 3 * Double($0), north: 0) }
+        let jump = walk.fix(east: 5_000, north: 5_000)
+        fixes.append(jump)
+        var events = try await feed(session, fixes)
+        await session.record(MotionSample(timestamp: jump.timestamp, activity: .automotive))
+        let driving = (1...40).map { walk.fix(east: 5_000 + 3 * Double($0), north: 5_000) }
+        events += try await feed(session, driving)
+        fixes += driving
+        try await session.finish(endedAt: walk.time)
+
+        #expect(events.contains(.broken(.teleport)))
+        let vehicleBreak = try #require(events.firstIndex(of: .broken(.vehicle)))
+        let breakTime = fixes[vehicleBreak].timestamp
+        let fog = await session.fog
+        let excludedBeforeTeleport = fixes[..<100].filter { breakTime - $0.timestamp <= 30 }
+        #expect(!excludedBeforeTeleport.isEmpty)
+        // Последние точки перед скачком — дальше 25 м от засчитанных: их клетки открылись бы только ими самими.
+        #expect(!fog.isRevealed(FogGrid.cell(of: try #require(excludedBeforeTeleport.last).coordinate)))
+        #expect(fog.isRevealed(FogGrid.cell(of: fixes[10].coordinate)))
     }
 
     @Test("Датчики уходят и судье, и в очередь — в точности хранения")
@@ -275,4 +434,49 @@ struct RunSessionTests {
         #expect(chunk.steps.map(\.steps) == [9])
         #expect(chunk.steps.first?.end == StoragePrecision.time(Fixture.start + 6.0004))
     }
+}
+
+/// Хранилище, которое по команде придерживает запись кусков — как медленный диск: пока кусок записывается, актор
+/// записи принимает следующие точки.
+actor GatedStore: SyncStore {
+    let inner = InMemorySyncStore()
+    private var holding = false
+    private var saving = false
+    private var gate: [CheckedContinuation<Void, Never>] = []
+    private(set) var saveAttempts = 0
+
+    func holdChunkSaves() { holding = true }
+
+    func release() {
+        holding = false
+        gate.forEach { $0.resume() }
+        gate = []
+    }
+
+    func waitUntilSaving() async throws {
+        for _ in 0..<2_500 where !saving {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+
+    func runs() async -> [LocalRun] { await inner.runs() }
+    func insert(_ run: LocalRun) async { await inner.insert(run) }
+    func updateRun(_ id: UUID, _ change: @Sendable (inout LocalRun) -> Void) async -> LocalRun? {
+        await inner.updateRun(id, change)
+    }
+    func chunks(of runId: UUID) async -> [SealedChunk] { await inner.chunks(of: runId) }
+    func save(_ chunk: SealedChunk) async {
+        saveAttempts += 1
+        if holding {
+            saving = true
+            await withCheckedContinuation { gate.append($0) }
+        }
+        await inner.save(chunk)
+    }
+    func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) async {
+        await inner.replaceChunk(of: runId, firstSeq: firstSeq, with: pieces)
+    }
+    func deleteChunk(of runId: UUID, firstSeq: Int) async { await inner.deleteChunk(of: runId, firstSeq: firstSeq) }
+    func claims(of runId: UUID) async -> [PendingClaim] { await inner.claims(of: runId) }
+    func save(_ claim: PendingClaim) async { await inner.save(claim) }
 }

@@ -39,6 +39,9 @@ flowchart LR
 | `signIn` | `SignInService` — вход и выход ([ниже](#вход)) | `nil` |
 | `realtime` | `RealtimeClient` с подключением `SignalRConnector` ([ниже](#реальное-время)) | `nil` |
 | `syncStore` | Очередь синхронизации, общая для `RunRecorder` и `SyncEngine` | Работает: забеги копятся |
+| `rules` | `RulesStore` — правила для нового забега (`GET /config`, файл `rules.json`) | Работает: версия 1, с которой собрано приложение |
+| `installation` | `InstallationID` — `deviceId` забегов (Keychain, сервис — bundle ID + `.install`) | Работает |
+| `startRun(league:motionAuthorized:)` | Забег с правилами последней известной версии, установкой и игроком → `RunSession`, проход синхронизации | Забег копится в очереди; без входа — `nil` |
 | `syncEngine()` | `SyncEngine` вошедшего игрока (`sub` из access-токена), один на игрока | `nil` |
 
 Очередь хранится в базе приложения (`GRDBSyncStore`, [sync.md](sync.md#хранилище-очереди-grdb)) и переживает выгрузку

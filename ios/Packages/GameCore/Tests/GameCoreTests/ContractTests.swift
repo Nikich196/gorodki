@@ -49,6 +49,25 @@ struct ContractTests {
         #expect(try Self.load().capture.loopDetector == LoopDetectorSettings())
     }
 
+    @Test("Правила телефона из конфига целиком — ровно версия 1, с которой собрано приложение")
+    func phoneRules() throws {
+        let relative = "contracts/game-config.v1.json"
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        var data: Data?
+        for _ in 0..<10 where data == nil {
+            let candidate = directory.appendingPathComponent(relative)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                data = try Data(contentsOf: candidate)
+            }
+            directory.deleteLastPathComponent()
+        }
+        let rules = try JSONDecoder().decode(PhoneRules.self, from: try #require(data))
+
+        #expect(rules == .version1)
+        #expect(rules.maxRunHours == 4)
+        #expect(rules.rules(for: .bike) == .bike)
+    }
+
     @Test("Туман — те же радиус, разрывы и «Радар»")
     func exploration() throws {
         let exploration = try Self.load().exploration
