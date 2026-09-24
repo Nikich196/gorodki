@@ -123,12 +123,14 @@ public actor RunRecorder {
         else { return nil }
         let chunks = try await store.chunks(of: runId)
         let claims = try await store.claims(of: runId)
+        // Номер новой заявки — не по прочитанным: нечитаемая заявка тоже заняла свой (`SyncStore.lastClaimNo`).
+        let lastClaimNo = try await store.lastClaimNo(of: runId)
         let recorder = RunRecorder(run: run, store: store, policy: policy)
         let last = lastRecorded(run, chunks)
         await recorder.restore(
             recordedThroughSeq: last.seq, lastPointMs: last.pointMs,
             sealedMarkMs: ([run.sealedSensorsMarkMs] + chunks.map(\.sensorsCompleteThroughMs)).compactMap { $0 }.max(),
-            claims: claims)
+            claims: claims, lastClaimNo: lastClaimNo)
         return recorder
     }
 
@@ -157,10 +159,12 @@ public actor RunRecorder {
         return (max(run.recordedThroughSeq, last?.lastSeq ?? -1), pointMs.compactMap { $0 }.max())
     }
 
-    private func restore(recordedThroughSeq: Int, lastPointMs: Int64?, sealedMarkMs: Int64?, claims: [PendingClaim]) {
+    private func restore(
+        recordedThroughSeq: Int, lastPointMs: Int64?, sealedMarkMs: Int64?, claims: [PendingClaim], lastClaimNo: Int?
+    ) {
         nextSeq = recordedThroughSeq + 1
         self.lastPointMs = lastPointMs
-        nextClaimNo = (claims.map(\.claimNo).max() ?? -1) + 1
+        nextClaimNo = (lastClaimNo ?? -1) + 1
         claimedEnds = Set(claims.map(\.loop.endSeq))
         if let sealedMarkMs {
             acceptsSensorsAfterMs = max(acceptsSensorsAfterMs, sealedMarkMs)

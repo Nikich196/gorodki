@@ -554,6 +554,38 @@ struct SyncEngineTests {
         #expect(await server.log.count == before)
     }
 
+    // MARK: - Нечитаемые куски
+
+    @Test("Нечитаемый кусок (повреждённая строка в базе) стирается вместе с остальными, когда забег подтверждён")
+    func unreadableChunkWipedOnConfirm() async throws {
+        let store = UnreadableChunkStore()
+        let run = Fixture.run()
+        try await Fixture.record(run, points: 25, into: store)
+        await store.makeUnreadable(run.id, firstSeq: 10)
+
+        let report = await SyncEngine(store: store, api: server, ownerId: Fixture.owner, now: { Self.now }).syncOnce()
+
+        // Точек нечитаемого куска сервер недосчитается, дослать их нечем — забег подтверждается без них.
+        #expect(report.stop == nil)
+        #expect(await server.receivedSeqs(of: run.id) == Array(0...9) + Array(20...24))
+        #expect(await store.runs().first?.confirmedComplete == true)
+        #expect(await store.storedChunks(of: run.id).isEmpty)
+    }
+
+    @Test("Нечитаемый кусок стирается и у отвергнутого забега")
+    func unreadableChunkWipedOnReject() async throws {
+        let store = UnreadableChunkStore()
+        let run = Fixture.run()
+        try await Fixture.record(run, points: 25, into: store)
+        await store.makeUnreadable(run.id, firstSeq: 10)
+        await server.answerStart(of: run.id, status: 422, code: "config_invalid")
+
+        _ = await SyncEngine(store: store, api: server, ownerId: Fixture.owner, now: { Self.now }).syncOnce()
+
+        #expect(await store.runs().first?.serverState == .rejected)
+        #expect(await store.storedChunks(of: run.id).isEmpty)
+    }
+
     // MARK: - Запрос
 
     @Test("Кусок в запросе: миллисекунды, точность хранения, источник координат, датчики")
@@ -579,4 +611,38 @@ struct SyncEngineTests {
         #expect(request.steps?.first?.steps == nil && request.steps?.first?.end == 1_790_000_001_000)
         #expect(request.sensorsCompleteThroughMs == 1_790_000_000_900 && request.sentAtMs == 1_790_000_002_000)
     }
+}
+
+/// Хранилище, в котором часть кусков не читается, — как повреждённые строки в базе: `GRDBSyncStore` их пропускает,
+/// `chunks(of:)` их не возвращает, но в хранилище они есть.
+actor UnreadableChunkStore: SyncStore {
+    let inner = InMemorySyncStore()
+    private var unreadable: [UUID: Set<Int>] = [:]
+
+    func makeUnreadable(_ runId: UUID, firstSeq: Int) { unreadable[runId, default: []].insert(firstSeq) }
+
+    /// Все куски забега, какие есть в хранилище, — и нечитаемые.
+    func storedChunks(of runId: UUID) async -> [SealedChunk] { await inner.chunks(of: runId) }
+
+    func runs() async -> [LocalRun] { await inner.runs() }
+    func insert(_ run: LocalRun) async { await inner.insert(run) }
+    func updateRun(_ id: UUID, _ change: @Sendable (inout LocalRun) -> Void) async -> LocalRun? {
+        await inner.updateRun(id, change)
+    }
+    func chunks(of runId: UUID) async -> [SealedChunk] {
+        let hidden = unreadable[runId] ?? []
+        return await inner.chunks(of: runId).filter { !hidden.contains($0.firstSeq) }
+    }
+    func save(_ chunk: SealedChunk) async { await inner.save(chunk) }
+    func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) async {
+        await inner.seal(chunk, progress: progress)
+    }
+    func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) async {
+        await inner.replaceChunk(of: runId, firstSeq: firstSeq, with: pieces)
+    }
+    func deleteChunk(of runId: UUID, firstSeq: Int) async { await inner.deleteChunk(of: runId, firstSeq: firstSeq) }
+    func deleteChunks(of runId: UUID) async { await inner.deleteChunks(of: runId) }
+    func claims(of runId: UUID) async -> [PendingClaim] { await inner.claims(of: runId) }
+    func lastClaimNo(of runId: UUID) async -> Int? { await inner.lastClaimNo(of: runId) }
+    func save(_ claim: PendingClaim) async { await inner.save(claim) }
 }

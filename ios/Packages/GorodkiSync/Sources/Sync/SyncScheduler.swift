@@ -85,8 +85,11 @@ public struct SyncBackoff: Sendable, Equatable {
         // Когда продолжать доставку, говорит итог прохода, а не очередь: отложенный забег в ней тоже недоставленный,
         // и по одной очереди его повторяли бы каждые 15 с — до суток отказов 429 и 400.
         var waits: [Duration] = []
+        // Круги досылки и повтора завершения ограничивает сам SyncEngine (`maxResendRounds`), а забег, забытый сервером
+        // (404), — нет: следующий проход начинает его заново. Зацикливания нет: новый старт создаёт забег у сервера или
+        // кончается отказом, отсрочкой, остановкой прохода — снова 404 будет, только если сервер опять потеряет забег.
         if report.requeuedChunks > 0 || report.forgottenRuns > 0 || report.unconfirmedFinishes > 0 {
-            waits.append(Self.first)  // число кругов ограничивает сам SyncEngine
+            waits.append(Self.first)
         }
         if report.deferredRuns > 0 || report.storageLimitReached {
             waits.append(Self.limitRetry)

@@ -616,6 +616,8 @@ actor GatedStore: SyncStore {
         await inner.replaceChunk(of: runId, firstSeq: firstSeq, with: pieces)
     }
     func deleteChunk(of runId: UUID, firstSeq: Int) async { await inner.deleteChunk(of: runId, firstSeq: firstSeq) }
+    func deleteChunks(of runId: UUID) async { await inner.deleteChunks(of: runId) }
     func claims(of runId: UUID) async -> [PendingClaim] { await inner.claims(of: runId) }
+    func lastClaimNo(of runId: UUID) async -> Int? { await inner.lastClaimNo(of: runId) }
     func save(_ claim: PendingClaim) async { await inner.save(claim) }
 }

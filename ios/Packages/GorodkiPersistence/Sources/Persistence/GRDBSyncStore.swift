@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import Sync
+import Synchronization
 
 #if canImport(os)
     import os
@@ -84,10 +85,23 @@ public struct GRDBSyncStore: SyncStore {
         _ = try await writer.write { db in try ChunkRow.deleteOne(db, key: ChunkRow.key(runId, firstSeq)) }
     }
 
+    public func deleteChunks(of runId: UUID) async throws {
+        // По столбцу, а не по прочитанным кускам: так стирается и нечитаемая строка.
+        _ = try await writer.write { db in try ChunkRow.filter(Column("runId") == runId.uuidString).deleteAll(db) }
+    }
+
     public func claims(of runId: UUID) async throws -> [PendingClaim] {
         try await writer.read { db in
             Self.readable(
                 try ClaimRow.filter(Column("runId") == runId.uuidString).order(Column("claimNo")).fetchAll(db))
+        }
+    }
+
+    public func lastClaimNo(of runId: UUID) async throws -> Int? {
+        // По столбцу, а не по прочитанным заявкам: номер нечитаемой тоже занят.
+        try await writer.read { db in
+            try Int.fetchOne(
+                db, sql: "SELECT MAX(claimNo) FROM syncClaim WHERE runId = ?", arguments: [runId.uuidString])
         }
     }
 
@@ -96,25 +110,38 @@ public struct GRDBSyncStore: SyncStore {
         try await writer.write { db in try row.upsert(db) }
     }
 
-    /// Записи, которые читаются. Нечитаемая (файл повреждён или модель изменилась несовместимо) пропускается и остаётся
-    /// в таблице: иначе одна строка роняла бы всю очередь — «Старт» (новичок ли игрок), продолжение забега и каждый проход
-    /// синхронизации, навсегда. Версия приложения, которая её прочитает, ещё сможет её доставить.
+    /// Записи, которые читаются. Нечитаемая (файл повреждён или модель изменилась несовместимо) пропускается: иначе одна
+    /// строка роняла бы всю очередь — «Старт» (новичок ли игрок), продолжение забега и каждый проход синхронизации,
+    /// навсегда. Её данные считаются потерянными: чтение строку не стирает, но и не доставит её никто. Нечитаемый кусок
+    /// стирается вместе с остальными, когда забег подтверждён или отвергнут (`deleteChunks`); номер нечитаемой заявки
+    /// новая не займёт (`lastClaimNo`).
     private static func readable<Row: QueueRow>(_ rows: [Row]) -> [Row.Value] {
         rows.compactMap { row in
             do {
                 return try row.decoded()
             } catch {
-                #if canImport(os)
-                    let table = Row.databaseTableName
-                    let key = row.logKey
-                    let reason = String(describing: error)
-                    Logger(subsystem: Bundle.main.bundleIdentifier ?? "Gorodki", category: "SyncStore").error(
-                        "Пропущена нечитаемая запись: \(table, privacy: .public) \(key, privacy: .public), \(reason, privacy: .private)"
-                    )
-                #endif
+                reportUnreadable(table: Row.databaseTableName, key: row.logKey, error)
                 return nil
             }
         }
+    }
+
+    /// Нечитаемые строки, о которых уже написано в журнал (таблица и ключ). `chunks(of:)` за один проход зовётся много
+    /// раз — без этого одна повреждённая строка заливала бы журнал одной и той же записью.
+    private static let reportedUnreadable = Mutex<Set<String>>([])
+
+    /// Строка в системный журнал о нечитаемой записи — одна за запуск приложения на каждую строку.
+    /// - Returns: написано сейчас; `false` — об этой строке уже писали.
+    @discardableResult
+    static func reportUnreadable(table: String, key: String, _ error: any Error) -> Bool {
+        guard reportedUnreadable.withLock({ $0.insert("\(table) \(key)").inserted }) else { return false }
+        #if canImport(os)
+            let reason = String(describing: error)
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "Gorodki", category: "SyncStore").error(
+                "Пропущена нечитаемая запись: \(table, privacy: .public) \(key, privacy: .public), \(reason, privacy: .private)"
+            )
+        #endif
+        return true
     }
 }
 

@@ -153,6 +153,22 @@ struct SyncStoreContractTests {
         #expect(try await store.chunks(of: run).map(\.firstSeq) == [0, 6])
     }
 
+    @Test("Стирание кусков забега убирает все его куски, чужие остаются", arguments: StoreKind.allCases)
+    func deleteAllChunksOfRun(kind: StoreKind) async throws {
+        let store = try kind.make()
+        let run = UUID()
+        let other = UUID()
+        try await store.save(Sample.chunk(run, firstSeq: 0))
+        try await store.save(Sample.chunk(run, firstSeq: 3))
+        try await store.save(Sample.chunk(other, firstSeq: 0))
+
+        try await store.deleteChunks(of: run)
+        try await store.deleteChunks(of: UUID())  // нет такого забега — не ошибка
+
+        #expect(try await store.chunks(of: run).isEmpty)
+        #expect(try await store.chunks(of: other).count == 1)
+    }
+
     @Test(
         "Запечатывание: кусок сохранён, прогресс забега изменён; без забега кусок всё равно сохранён",
         arguments: StoreKind.allCases)
@@ -186,6 +202,18 @@ struct SyncStoreContractTests {
         #expect(claims.map(\.claimNo) == [0, 1])
         #expect(claims.last?.isSettled == true)
         #expect(try await store.claims(of: UUID()).isEmpty)
+    }
+
+    @Test("Последний номер заявки — наибольший в забеге; заявок нет — nil", arguments: StoreKind.allCases)
+    func lastClaimNoIsLargest(kind: StoreKind) async throws {
+        let store = try kind.make()
+        let run = UUID()
+        try await store.save(Sample.claim(run, 2))
+        try await store.save(Sample.claim(run, 0))
+        try await store.save(Sample.claim(UUID(), 7))
+
+        #expect(try await store.lastClaimNo(of: run) == 2)
+        #expect(try await store.lastClaimNo(of: UUID()) == nil)
     }
 
     @Test("Всё записанное читается без потерь", arguments: StoreKind.allCases)

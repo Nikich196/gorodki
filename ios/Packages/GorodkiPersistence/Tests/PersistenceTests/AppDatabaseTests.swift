@@ -1,8 +1,10 @@
 import Foundation
 import GRDB
-import Persistence
+import GameCore
 import Sync
 import Testing
+
+@testable import Persistence
 
 /// База приложения: очередь переживает перезапуск, схема ведётся миграциями, старая запись читается новой версией.
 @Suite("База приложения (GRDB)")
@@ -77,7 +79,79 @@ struct AppDatabaseTests {
         let rows = try await database.writer.read { db in
             try ["syncRun", "syncChunk", "syncClaim"].map { try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") }
         }
-        #expect(rows == [2, 2, 2])  // не стёрты: версия, которая их прочтёт, ещё доставит
+        #expect(rows == [2, 2, 2])  // чтение ничего не стирает
+    }
+
+    @Test("Нечитаемый кусок стирается вместе с остальными кусками забега; куски других забегов остаются")
+    func unreadableChunkIsDeletedWithRun() async throws {
+        let database = try AppDatabase.inMemory()
+        let store = GRDBSyncStore(database)
+        let run = UUID()
+        let other = UUID()
+        try await store.save(Sample.chunk(run, firstSeq: 3))
+        try await store.save(Sample.chunk(other, firstSeq: 0))
+        try await database.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO syncChunk (runId, firstSeq, payload) VALUES (?, 0, ?)",
+                arguments: [run.uuidString, Data("не JSON".utf8)])
+        }
+
+        try await store.deleteChunks(of: run)
+
+        let left = try await database.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT runId FROM syncChunk")
+        }
+        #expect(left == [other.uuidString])
+    }
+
+    @Test("Продолженный забег: новая заявка не занимает номер нечитаемой и не затирает её строку")
+    func newClaimSkipsUnreadableNumber() async throws {
+        let database = try AppDatabase.inMemory()
+        let store = GRDBSyncStore(database)
+        let run = Sample.run()
+        try await store.insert(run)
+        try await store.save(Sample.claim(run.id, 0))
+        // Заявка 1 не читается, но могла уже уйти на сервер: номер 1 занят.
+        try await database.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO syncClaim (runId, claimNo, payload) VALUES (?, 1, ?)",
+                arguments: [run.id.uuidString, Data("не JSON".utf8)])
+        }
+
+        let recorder = try #require(try await RunRecorder.resume(runId: run.id, store: store))
+        for point in Sample.chunk(run.id, firstSeq: 0, count: 5).points {
+            try await recorder.record(point)
+        }
+        let claimNo = try await recorder.claim(
+            LoopClaim(startSeq: 0, endSeq: 4, closure: .crossing, estimatedArea: 5_000))
+
+        #expect(claimNo == 2)
+        #expect(try await store.claims(of: run.id).map(\.claimNo) == [0, 2])
+        let rows = try await database.writer.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM syncClaim")
+        }
+        #expect(rows == 3)
+    }
+
+    @Test("О нечитаемой строке журнал пишет один раз, хоть её и читают много раз за проход")
+    func unreadableRowIsReportedOnce() async throws {
+        let database = try AppDatabase.inMemory()
+        let store = GRDBSyncStore(database)
+        let run = UUID()
+        try await database.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO syncChunk (runId, firstSeq, payload) VALUES (?, 0, ?)",
+                arguments: [run.uuidString, Data("не JSON".utf8)])
+        }
+        struct Broken: Error {}
+
+        for _ in 0..<3 {
+            #expect(try await store.chunks(of: run).isEmpty)
+        }
+
+        // Чтение уже написало об этой строке — повтор не пишет; о другой строке — пишет.
+        #expect(!GRDBSyncStore.reportUnreadable(table: "syncChunk", key: "\(run.uuidString)/0", Broken()))
+        #expect(GRDBSyncStore.reportUnreadable(table: "syncChunk", key: "\(run.uuidString)/1", Broken()))
     }
 
     @Test("Схема доведена до последней миграции; повторное открытие ничего не ломает")

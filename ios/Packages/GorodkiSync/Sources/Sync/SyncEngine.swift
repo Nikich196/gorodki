@@ -217,9 +217,7 @@ public actor SyncEngine {
             $0.serverState = .rejected
             $0.rejectCode = code ?? "rejected"
         }
-        for chunk in try await store.chunks(of: run.id) {
-            try await store.deleteChunk(of: run.id, firstSeq: chunk.firstSeq)
-        }
+        try await store.deleteChunks(of: run.id)  // все, с нечитаемыми: по прочитанному они остались бы навсегда
     }
 
     // MARK: - Куски
@@ -504,9 +502,8 @@ public actor SyncEngine {
         if requeue.isEmpty || gaveUp {
             // Всё дошло — или недостающих точек на телефоне нет (кусок отвергнут, окно закрыто) и дослать нечего.
             // Сначала куски, потом отметка: если приложение выгрузят посередине, проверка просто повторится.
-            for chunk in chunks {
-                try await store.deleteChunk(of: run.id, firstSeq: chunk.firstSeq)
-            }
+            // Стираются все куски забега, а не прочитанные: нечитаемый иначе остался бы в базе навсегда.
+            try await store.deleteChunks(of: run.id)
             try await update(&run) { $0.confirmedComplete = true }
         } else {
             try await update(&run) { $0.resendRounds += 1 }
