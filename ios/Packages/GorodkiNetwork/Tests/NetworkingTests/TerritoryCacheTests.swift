@@ -18,9 +18,22 @@ struct TerritoryCacheTests {
         private var versions: [TileKey: Int64] = [:]
         private(set) var requests: [[String]] = []
         private var failWith: Int?
+        private var holdNext = false
+        private var held: CheckedContinuation<Void, Never>?
 
         func set(_ key: TileKey, version: Int64) { versions[key] = version }
         func fail(status: Int) { failWith = status }
+        /// Следующий ответ — готов, но придержан до `release()`: как медленная сеть.
+        func holdNextResponse() { holdNext = true }
+        func release() {
+            held?.resume()
+            held = nil
+        }
+        func waitUntilHeld() async throws {
+            for _ in 0..<2_500 where held == nil {
+                try await Task.sleep(for: .milliseconds(2))
+            }
+        }
 
         func send(
             _ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String
@@ -44,6 +57,10 @@ struct TerritoryCacheTests {
                     tiles.append(
                         #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"parcels":[\#(Self.parcel(version))]}"#)
                 }
+            }
+            if holdNext {
+                holdNext = false
+                await withCheckedContinuation { held = $0 }
             }
             let json =
                 #"{"league":"run","tiles":[\#(tiles.joined(separator: ","))],"unchanged":[\#(unchanged.joined(separator: ","))]}"#
@@ -192,6 +209,61 @@ struct TerritoryCacheTests {
         #expect(await cache.tile(TileKey(x: 99, y: 5775)) == nil)
         #expect(await cache.tile(TileKey(x: 100, y: 5775)) != nil)
         #expect(await cache.tile(TileKey(x: 499, y: 5775)) != nil)
+    }
+
+    @Test("Подсказка пришла, пока тайл запрашивался, — тайл остаётся помеченным и перезапрашивается снова")
+    func hintDuringRequestIsKept() async throws {
+        let key = TileKey(x: 9270, y: 5775)
+        await server.set(key, version: 1)
+        let cache = cache()
+        try await cache.refresh(visible: [key])
+        await server.set(key, version: 2)
+        await cache.markChanged([key])
+        await server.holdNextResponse()
+
+        let loading = Task { try await cache.refresh(visible: [key]) }
+        try await server.waitUntilHeld()  // ответ с версией 2 уже собран
+        await server.set(key, version: 3)
+        await cache.markChanged([key])
+        await server.release()
+        #expect(try await loading.value == [key])
+        #expect(await cache.tile(key)?.version == 2)
+
+        #expect(try await cache.refresh(visible: [key]) == [key])
+        #expect(await cache.tile(key)?.version == 3)
+    }
+
+    @Test("Ответ на ранний запрос пришёл позже нового — новая версия не затирается старой")
+    func olderResponseDoesNotOverwrite() async throws {
+        let key = TileKey(x: 9270, y: 5775)
+        await server.set(key, version: 1)
+        let cache = cache()
+        await server.holdNextResponse()
+
+        let slow = Task { try await cache.refresh(visible: [key]) }
+        try await server.waitUntilHeld()
+        await server.set(key, version: 2)
+        #expect(try await cache.refresh(visible: [key]) == [key])  // тайла ещё нет — второй запрос
+        await server.release()
+
+        #expect(try await slow.value.isEmpty)
+        #expect(await cache.tile(key)?.version == 2)
+    }
+
+    @Test("Ответ, начатый до смены аккаунта, выбрасывается: версии прежнего зрителя в кэш не попадают")
+    func responseAfterResetIsDropped() async throws {
+        let key = TileKey(x: 9270, y: 5775)
+        await server.set(key, version: 4)
+        let cache = cache()
+        await server.holdNextResponse()
+
+        let loading = Task { try await cache.refresh(visible: [key]) }
+        try await server.waitUntilHeld()
+        await cache.reset()
+        await server.release()
+
+        #expect(try await loading.value.isEmpty)
+        #expect(await cache.count == 0)
     }
 
     @Test("Ошибка сервера — исключение; тайлы, пришедшие до неё, остаются")

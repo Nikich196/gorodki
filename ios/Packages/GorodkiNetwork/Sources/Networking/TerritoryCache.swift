@@ -38,8 +38,13 @@ public actor TerritoryCache {
     private let api: any APIProtocol
     private let now: @Sendable () -> Double
     private var tiles: [TileKey: Tile] = [:]
-    private var changed: Set<TileKey> = []
+    /// Тайлы с подсказкой → номер последней подсказки: ответ снимает пометку, только если после его запроса новых
+    /// подсказок про тайл не было.
+    private var changed: [TileKey: Int] = [:]
+    private var hints = 0
     private var lastWanted: [TileKey: Double] = [:]
+    /// Номер «поколения»: `reset` его меняет, и ответ, начатый до смены аккаунта, выбрасывается.
+    private var generation = 0
 
     /// - Parameter now: часы в секундах — подменяются в проверках.
     public init(
@@ -57,14 +62,18 @@ public actor TerritoryCache {
 
     /// Подсказка реального времени: эти тайлы изменились — перезапросить, когда карта их покажет.
     public func markChanged(_ keys: some Sequence<TileKey>) {
-        changed.formUnion(keys)
+        hints += 1
+        for key in keys {
+            changed[key] = hints
+        }
     }
 
     /// Смена аккаунта: версии прежнего зрителя новому не подходят.
     public func reset() {
         tiles = [:]
-        changed = []
+        changed = [:]
         lastWanted = [:]
+        generation += 1
     }
 
     /// Обновить тайлы, которые показывает карта. Запросы — по 25 тайлов.
@@ -78,7 +87,7 @@ public actor TerritoryCache {
         }
         let due = visible.filter { key in
             guard let tile = tiles[key] else { return true }
-            return changed.contains(key) || time - tile.checkedAt >= Self.pollInterval
+            return changed[key] != nil || time - tile.checkedAt >= Self.pollInterval
         }
         .sorted()
         var updated: Set<TileKey> = []
@@ -98,6 +107,8 @@ public actor TerritoryCache {
             }
             return "\(key.x):\(key.y)"
         }
+        let requestedIn = generation
+        let marks = keys.map { changed[$0] }
         let output = try await api.getTerritory(
             query: .init(league: league.rawValue, tiles: query.joined(separator: ",")))
         let response: Components.Schemas.TerritoryResponse
@@ -110,17 +121,30 @@ public actor TerritoryCache {
             throw TerritoryCacheError.unexpectedStatus(status)
         }
 
+        guard generation == requestedIn else { return [] }  // пока шёл запрос, аккаунт сменился
+
+        // Подсказка, пришедшая во время запроса, могла опоздать к ответу — такой тайл остаётся помеченным.
+        for (key, mark) in zip(keys, marks) where changed[key] == mark {
+            changed[key] = nil
+        }
         var updated: Set<TileKey> = []
         for tile in response.tiles {
             let key = TileKey(x: Int(tile.x), y: Int(tile.y))
+            // Ответ на более ранний запрос мог прийти позже: более новую версию он не затирает. Видимая версия у зрителя
+            // только растёт; при равной — угасание новее у того, кто загружен позже.
+            if let known = tiles[key],
+                known.version > tile.version || (known.version == tile.version && known.loadedAt > time)
+            {
+                continue
+            }
             tiles[key] = Tile(key: key, version: tile.version, parcels: tile.parcels, loadedAt: time, checkedAt: time)
-            changed.remove(key)
             updated.insert(key)
         }
         for ref in response.unchanged {
             let key = TileKey(x: Int(ref.x), y: Int(ref.y))
-            tiles[key]?.checkedAt = time
-            changed.remove(key)
+            if let checked = tiles[key]?.checkedAt {
+                tiles[key]?.checkedAt = max(checked, time)
+            }
         }
         return updated
     }
@@ -133,7 +157,7 @@ public actor TerritoryCache {
         for key in oldest.prefix(tiles.count - Self.capacity) {
             tiles[key] = nil
             lastWanted[key] = nil
-            changed.remove(key)
+            changed[key] = nil
         }
     }
 }

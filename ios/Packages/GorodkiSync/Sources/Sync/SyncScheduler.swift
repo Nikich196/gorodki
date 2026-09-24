@@ -179,13 +179,18 @@ public actor SyncScheduler {
     private var timer: Task<Void, Never>?
     private var running = false
     private var rerun = false
+    /// Ждут конца идущего прохода (и следующего за ним, который учтёт их событие).
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    /// Был ли хоть один проход (или выход): до него очередь неизвестна.
+    private var knowsBacklog = false
 
     /// Последнее решение «когда снова» — для экрана «Синхронизация» и проверок.
     public var nextWake: SyncWake { wake }
 
-    /// Какие фоновые пробуждения попросить у iOS после последнего прохода (`BackgroundSyncPlan`).
-    public var backgroundRequests: [BackgroundRequest] {
-        BackgroundSyncPlan.requests(after: wake, backlog: lastBacklog)
+    /// Какие фоновые пробуждения попросить у iOS после последнего прохода (`BackgroundSyncPlan`). `nil` — прохода ещё
+    /// не было и очередь неизвестна: прежние заявки трогать нельзя (пустой список их бы снял).
+    public var backgroundRequests: [BackgroundRequest]? {
+        knowsBacklog ? BackgroundSyncPlan.requests(after: wake, backlog: lastBacklog) : nil
     }
 
     public init(
@@ -200,7 +205,9 @@ public actor SyncScheduler {
         self.sleep = sleep
     }
 
-    /// Событие. Возвращает, когда синхронизация решила проснуться снова (после прохода, если он был).
+    /// Событие. Возвращает, когда синхронизация решила проснуться снова (после прохода, если он был). Фоновая задача,
+    /// пришедшая во время прохода, ждёт его и следующего (он учтёт её событие): пробуждения у iOS просятся по итогу
+    /// прохода, а не по состоянию до него.
     @discardableResult
     public func trigger(_ reason: Reason) async -> SyncWake {
         switch reason {
@@ -220,18 +227,25 @@ public actor SyncScheduler {
 
         if running {
             rerun = true
+            if reason == .backgroundTask {
+                await withCheckedContinuation { waiters.append($0) }
+            }
             return wake
         }
 
         running = true
-        defer { running = false }
         repeat {
             rerun = false
             let report = await engine.syncOnce()
             lastBacklog = await backlog()
             wake = backoff.next(after: report, backlog: lastBacklog, appActive: await appActive())
+            knowsBacklog = true
         } while rerun
+        running = false
         schedule(wake)
+        let done = waiters
+        waiters = []
+        done.forEach { $0.resume() }
         return wake
     }
 
@@ -241,6 +255,7 @@ public actor SyncScheduler {
         timer = nil
         wake = .idle
         lastBacklog = SyncBacklog()
+        knowsBacklog = true
     }
 
     private func schedule(_ wake: SyncWake) {

@@ -106,13 +106,13 @@ struct SignInServiceTests {
         #expect(sent.consentVersion == Int32(SignInService.consentVersion))
     }
 
-    @Test("Соглашение не принято — версия не отправляется")
+    @Test("Соглашение не принято — версия не отправляется; игроку — «прими правила», а не «обнови приложение»")
     func consentNotAccepted() async throws {
         let server = Server(.problem(status: 403, code: "consent_required"))
         let (service, _) = Self.service(server)
         let registration = Registration(inviteCode: "BREST-2026", ageConfirmed: true, consentAccepted: false)
 
-        #expect(await service.signIn(idToken: "G1", registration: registration) == .failed(.consentOutdated))
+        #expect(await service.signIn(idToken: "G1", registration: registration) == .failed(.consentRequired))
         #expect(try #require(await server.signIns.first).consentVersion == nil)
     }
 
@@ -207,7 +207,7 @@ struct SignInServiceTests {
     func messages() {
         let failures: [SignInFailure] = [
             .offline, .notConfigured, .googleRejected, .inviteInvalid, .inviteRequired, .ageNotConfirmed,
-            .consentOutdated, .accountDeleting, .unexpected(status: 418),
+            .consentRequired, .consentOutdated, .accountDeleting, .unexpected(status: 418),
         ]
         let texts = failures.map(\.message)
         #expect(Set(texts).count == failures.count)
