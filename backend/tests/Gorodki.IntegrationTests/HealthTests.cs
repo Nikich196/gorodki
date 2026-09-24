@@ -1,10 +1,14 @@
 using System.Net;
 using System.Text.Json;
+using Gorodki.Api.Infrastructure.Persistence;
 using static Gorodki.IntegrationTests.Walks;
 
 namespace Gorodki.IntegrationTests;
 
-/// <summary>Готовность сервера на настоящей базе (PLAN.md, §7): база отвечает, бюджет хранения виден в ответе.</summary>
+/// <summary>
+/// Готовность сервера на настоящей базе (PLAN.md, §7): база отвечает, бюджет хранения виден администратору; остальным —
+/// только статусы.
+/// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class HealthTests(DatabaseFixture database)
 {
@@ -16,9 +20,19 @@ public sealed class HealthTests(DatabaseFixture database)
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (client, _) = await api.CreatePlayerClientAsync();
+        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
         await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, client, Square(NewArea(), 0, 0, 100))).RunId);
 
-        var response = await api.CreateClient().GetAsync("/health/ready", Cancel);
+        var anonymous = await api.CreateClient().GetAsync("/health/ready", Cancel);
+        var response = await admin.GetAsync("/health/ready", Cancel);
+
+        // Пингеру хватает кода и статусов: размер базы и число соединений посторонним не нужны.
+        Assert.Equal(HttpStatusCode.OK, anonymous.StatusCode);
+        using (var brief = JsonDocument.Parse(await anonymous.Content.ReadAsStringAsync(Cancel)))
+        {
+            Assert.Equal("healthy", brief.RootElement.GetProperty("status").GetString());
+            Assert.Equal(["status"], brief.RootElement.GetProperty("checks").GetProperty("storage").EnumerateObject().Select(p => p.Name));
+        }
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Cancel));

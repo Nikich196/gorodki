@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
+using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -20,7 +22,8 @@ public static class HealthEndpoints
             .WithSummary("Сервер жив: версия, коммит, игровой день по Минску");
 
         // «Готов ли обслуживать игроков»: база отвечает и в ней есть место. Его вызывает пингер (реальный запрос к базе
-        // не даёт Supabase уснуть); 503 — повод посмотреть тело ответа: база недоступна или заполнена больше чем на 350 МБ.
+        // не даёт Supabase уснуть); 503 — повод посмотреть тело ответа: какая проверка не прошла — база недоступна
+        // (database) или заполнена больше чем на 350 МБ (storage).
         app.MapHealthChecks("/health/ready", new HealthCheckOptions
         {
             ResultStatusCodes =
@@ -44,18 +47,29 @@ public static class HealthEndpoints
             MinskTime: clock.MinskNow,
             GameDay: clock.Today));
 
-    /// <summary>Итог проверок в JSON: общий статус и по каждой проверке — статус, описание и числа.</summary>
+    /// <summary>
+    /// Итог проверок в JSON: общий статус и статус каждой проверки. Описание и числа — только администратору (роль из
+    /// токена, а не из базы: база как раз может быть недоступна). В описании упавшей проверки — текст исключения Npgsql:
+    /// адрес пула или имя пользователя вида <c>postgres.&lt;ref проекта&gt;</c>, а размер базы и число соединений
+    /// посторонним тоже ни к чему. Адрес открыт всем — пингеру хватает кода 200/503.
+    /// </summary>
     private static Task WriteReport(HttpContext context, HealthReport report)
     {
         context.Response.ContentType = "application/json; charset=utf-8";
-        var body = new
-        {
-            status = Name(report.Status),
-            durationMs = Math.Round(report.TotalDuration.TotalMilliseconds),
-            checks = report.Entries.ToDictionary(
-                e => e.Key,
-                e => new { status = Name(e.Value.Status), description = e.Value.Description, data = e.Value.Data }),
-        };
+        object body = context.User.HasClaim(TokenService.RoleClaim, AdminRole)
+            ? new
+            {
+                status = Name(report.Status),
+                durationMs = Math.Round(report.TotalDuration.TotalMilliseconds),
+                checks = report.Entries.ToDictionary(
+                    e => e.Key,
+                    e => new { status = Name(e.Value.Status), description = e.Value.Description, data = e.Value.Data }),
+            }
+            : new
+            {
+                status = Name(report.Status),
+                checks = report.Entries.ToDictionary(e => e.Key, e => new { status = Name(e.Value.Status) }),
+            };
         return context.Response.WriteAsync(JsonSerializer.Serialize(body, ReportJson), context.RequestAborted);
     }
 
@@ -67,6 +81,9 @@ public static class HealthEndpoints
     };
 
     private static readonly JsonSerializerOptions ReportJson = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Значение роли администратора в access-токене (<see cref="TokenService.CreateAccessToken"/>).</summary>
+    private static readonly string AdminRole = UserRole.Admin.ToString().ToLowerInvariant();
 
     private static readonly string AppVersion =
         typeof(HealthEndpoints).Assembly

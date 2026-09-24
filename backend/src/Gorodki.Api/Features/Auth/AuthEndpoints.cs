@@ -132,6 +132,12 @@ public static class AuthEndpoints
         TimeProvider time,
         CancellationToken cancellationToken)
     {
+        // JSON не проверяет, что поле пришло: без него здесь null — это «нужно войти заново», а не 500 с ошибкой в логе.
+        if (string.IsNullOrEmpty(request.RefreshToken))
+        {
+            return Problem(StatusCodes.Status401Unauthorized, "refresh_invalid", "Нужно войти заново.");
+        }
+
         var hash = TokenService.Hash(request.RefreshToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var current = await db.RefreshTokens
@@ -187,6 +193,12 @@ public static class AuthEndpoints
         TimeProvider time,
         CancellationToken cancellationToken)
     {
+        // Без токена отзывать нечего — как и с неизвестным токеном, ответ 204.
+        if (string.IsNullOrEmpty(request.RefreshToken))
+        {
+            return TypedResults.NoContent();
+        }
+
         var hash = TokenService.Hash(request.RefreshToken);
         var current = await db.RefreshTokens.SingleOrDefaultAsync(t => t.TokenHash == hash, cancellationToken);
         if (current is not null)

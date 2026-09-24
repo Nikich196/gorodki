@@ -91,6 +91,35 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Account_is_not_erased_before_its_last_capture_is_public_on_the_map()
+    {
+        // Граница — та же, что у публичной проекции (вниз до 5 минут). «Просто 20 минут» опередили бы её: стёртая земля
+        // проступила бы у соседей раньше, чем они увидели бы сам захват.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var step = TerritoryReader.RevealStep;
+        var intoStep = TimeSpan.FromTicks(api.Time.GetUtcNow().UtcTicks % step.Ticks);
+        api.Time.Advance(step - intoStep + (step / 2)); // захват — посреди 5-минутного окна
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100))).RunId);
+        Assert.Equal(HttpStatusCode.Accepted, (await anna.DeleteAsync("/me", Cancel)).StatusCode);
+
+        api.Time.Advance(TerritoryReader.PublicDelay + TimeSpan.FromSeconds(1));
+        await DeleteRequestedAsync(api);
+        Assert.True(await ExistsAsync(annaId)); // 20 минут прошло, а граница публичности до захвата не дошла
+
+        api.Time.Advance(step / 2);
+        await DeleteRequestedAsync(api);
+        Assert.False(await ExistsAsync(annaId));
+    }
+
+    private async Task<bool> ExistsAsync(Guid userId)
+    {
+        await using var db = database.CreateContext();
+        return await db.Users.AnyAsync(u => u.Id == userId, Cancel);
+    }
+
+    [Fact]
     public async Task Deletion_needs_sign_in()
     {
         database.RequireDatabase();

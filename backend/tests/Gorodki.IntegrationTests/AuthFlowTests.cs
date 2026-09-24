@@ -6,6 +6,7 @@ using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Gorodki.IntegrationTests;
 
@@ -134,6 +135,39 @@ public sealed class AuthFlowTests(DatabaseFixture database)
         Assert.Equal(HttpStatusCode.OK, c.Status);
         Assert.Equal("refresh_reused", stolen.Code);
         Assert.Equal(HttpStatusCode.Unauthorized, sneaky.Status);
+    }
+
+    [Fact]
+    public async Task Expired_refresh_tokens_are_erased_and_the_rest_stay()
+    {
+        // Каждое обновление (раз в 15 минут на телефон) добавляет строку — без часовой чистки таблица росла бы вечно.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (_, userId) = await api.CreatePlayerClientAsync();
+        var tokens = api.Services.GetRequiredService<TokenService>();
+        var now = api.Time.GetUtcNow();
+        var live = tokens.CreateRefreshToken(userId, Guid.CreateVersion7()).Entity;
+        // Заменённый, но не истёкший — остаётся: по нему узнаётся повтор украденного токена (refresh_reused).
+        var replaced = tokens.CreateRefreshToken(userId, live.FamilyId).Entity;
+        replaced.RevokedAt = now;
+        replaced.ReplacedById = live.Id;
+        var expired = tokens.CreateRefreshToken(userId, Guid.CreateVersion7()).Entity;
+        expired.CreatedAt = now.AddDays(-31);
+        expired.ExpiresAt = now.AddSeconds(-1);
+        await using (var db = database.CreateContext())
+        {
+            db.RefreshTokens.AddRange(live, replaced, expired);
+            await db.SaveChangesAsync(Cancel);
+        }
+
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            Assert.True(await scope.ServiceProvider.GetRequiredService<RefreshTokenRetention>().PurgeExpiredAsync(Cancel) >= 1);
+        }
+
+        await using var check = database.CreateContext();
+        var left = await check.RefreshTokens.Where(t => t.UserId == userId).Select(t => t.Id).ToListAsync(Cancel);
+        Assert.Equal(new[] { live.Id, replaced.Id }.Order(), left.Order());
     }
 
     [Fact]

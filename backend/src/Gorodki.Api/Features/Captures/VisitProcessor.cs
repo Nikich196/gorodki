@@ -2,6 +2,7 @@ using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Runs;
@@ -25,30 +26,53 @@ public sealed class VisitProcessor(
     AppDbContext db, RunJudgements judgements, GameConfigStore configs, RealtimeHints hints, TimeProvider time)
 {
     /// <summary>
-    /// Забеги, готовые к подсчёту визитов, — сначала закончившиеся раньше. Не раньше чем через 20 минут после конца
-    /// забега (публичная задержка, §3.16): визит меняет землю и версию тайла, и сразу он выдал бы «игрок только что пробежал
-    /// здесь». Забеги демо-аккаунта — сразу, как его захваты.
+    /// Забеги, готовые к подсчёту визитов, — сначала закончившиеся раньше. Не раньше, чем конец забега станет публичным
+    /// (<see cref="TerritoryReader.PublicHorizon"/>: «сейчас − 20 минут» вниз до 5 минут, §3.16): визит меняет землю и
+    /// версию тайла, и раньше он выдал бы «игрок только что пробежал здесь». Конец — по часам сервера: у телефона с
+    /// отстающими часами он иначе «в прошлом» уже в момент завершения. Забеги демо-аккаунта — сразу, как его захваты.
+    /// Забег, визиты которого не посчитались из-за ошибки, ждёт своей паузы (<see cref="PostponeAsync"/>).
     /// </summary>
     public async Task<List<Guid>> RunsReadyAsync(int take, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         var closedBefore = now - FogProcessor.ClosedRunGrace;
-        var publicBefore = now - await DelayAsync(cancellationToken);
+        var horizon = TerritoryReader.PublicHorizon(now, await DelayAsync(cancellationToken));
         return await db.Runs.AsNoTracking()
             .Where(r => r.VisitsProcessedAt == null
                 && r.PointsPurgedAt == null
                 && r.PrefixEndSeq >= 0
+                && (r.VisitsRetryAt == null || r.VisitsRetryAt <= now)
                 && ((r.Status == RunStatus.Finished && r.LastSeq != null && r.PrefixEndSeq >= r.LastSeq)
                     || (r.Status != RunStatus.Active && r.EndedAt < closedBefore))
-                && (r.EndedAt <= publicBefore || db.Users.Any(u => u.Id == r.UserId && u.Role == UserRole.Demo)))
+                && (r.EndedAt!.Value.AddSeconds(-r.ClockSkewMs / 1000.0) <= horizon
+                    || db.Users.Any(u => u.Id == r.UserId && u.Role == UserRole.Demo)))
             .OrderBy(r => r.EndedAt)
             .Select(r => r.Id)
             .Take(take)
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Визиты забега не посчитались из-за ошибки: забег откладывается на <see cref="CaptureWorker.RetryDelay"/>, чтобы
+    /// не стоять первым в очереди и не обрывать проход.
+    /// </summary>
+    public async Task PostponeAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var failures = await db.Runs.Where(r => r.Id == runId).Select(r => r.VisitsFailures).SingleAsync(cancellationToken) + 1;
+        var retryAt = time.GetUtcNow() + CaptureWorker.RetryDelay(failures);
+        await db.Runs
+            .Where(r => r.Id == runId)
+            .ExecuteUpdateAsync(
+                set => set.SetProperty(r => r.VisitsFailures, failures).SetProperty(r => r.VisitsRetryAt, retryAt),
+                cancellationToken);
+    }
+
     private async Task<TimeSpan> DelayAsync(CancellationToken cancellationToken) =>
         TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
+
+    /// <summary>Публичен ли уже конец забега: его конец по часам сервера — не позже границы публичности.</summary>
+    private static bool EndIsPublic(DateTimeOffset endedAt, long clockSkewMs, DateTimeOffset horizon) =>
+        endedAt.AddSeconds(-clockSkewMs / 1000.0) <= horizon;
 
     /// <summary>
     /// Засчитывает визиты забега. Возвращает, сколько кусков освежено, или null — забег уже обработан или ещё рано
@@ -63,7 +87,8 @@ public sealed class VisitProcessor(
         }
 
         var demo = await db.Users.AnyAsync(u => u.Id == run.UserId && u.Role == UserRole.Demo, cancellationToken);
-        if (!demo && (run.EndedAt is not { } endedAt || endedAt > time.GetUtcNow() - await DelayAsync(cancellationToken)))
+        if (!demo && (run.EndedAt is not { } endedAt
+            || !EndIsPublic(endedAt, run.ClockSkewMs, TerritoryReader.PublicHorizon(time.GetUtcNow(), await DelayAsync(cancellationToken)))))
         {
             return null;
         }

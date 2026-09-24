@@ -218,6 +218,18 @@ public sealed class RunEntity
     /// Когда стёрты сырые точки забега (через 14 дней, PLAN.md §3.16): содержимое кусков пустое, номера и время остались.
     /// </summary>
     public DateTimeOffset? PointsPurgedAt { get; set; }
+
+    /// <summary>Сколько раз подряд туман забега не открылся из-за ошибки — для паузы перед повтором.</summary>
+    public int FogFailures { get; set; }
+
+    /// <summary>Туман забега, который не открылся, не пробуется раньше этого момента: он не стоит первым в очереди.</summary>
+    public DateTimeOffset? FogRetryAt { get; set; }
+
+    /// <summary>Сколько раз подряд визиты забега не посчитались из-за ошибки.</summary>
+    public int VisitsFailures { get; set; }
+
+    /// <summary>Визиты забега, которые не посчитались, не пробуются раньше этого момента.</summary>
+    public DateTimeOffset? VisitsRetryAt { get; set; }
 }
 
 /// <summary>Слой «Исследования»: у пешком и на велосипеде — своя карта тумана (PLAN.md, §3.10).</summary>

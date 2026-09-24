@@ -106,6 +106,18 @@ public sealed class CaptureProcessor(
             return 0;
         }
 
+        var decided = 0;
+        if (run.PointsPurgedAt is not null)
+        {
+            // Точки стёрты (через 14 дней): судить петлю не по чему, и любое решение всё равно было бы «старше 3 часов».
+            foreach (var claim in pending)
+            {
+                decided += await FinishAsync(claim.Id, null, CaptureStatus.Stale, "stale", cancellationToken);
+            }
+
+            return decided;
+        }
+
         var now = time.GetUtcNow();
         var chunks = await db.RunChunks.AsNoTracking()
             .Where(c => c.RunId == runId)
@@ -114,7 +126,6 @@ public sealed class CaptureProcessor(
         var runComplete = run.LastSeq is { } last && run.PrefixEndSeq >= last;
 
         // Какие заявки готовы — по тем же правилам, что видит телефон в «чего ждёт».
-        var decided = 0;
         var ready = new List<CaptureEntity>();
         var earlierWaiting = false;
         foreach (var claim in pending)
@@ -149,9 +160,10 @@ public sealed class CaptureProcessor(
             return decided;
         }
 
-        // Судья отрезков — один раз на проход, по всему непрерывному началу следа.
-        var (rules, judgement) = await judgements.JudgeAsync(run, cancellationToken);
-
+        // Судья отрезков — один раз на проход, по всему непрерывному началу следа. Судится после аренды первой заявки:
+        // забег, который не судится (испорченный кусок, неизвестная версия конфига), тратит попытки своих заявок и
+        // уходит в failed, а не стоит первым в очереди навсегда.
+        (GameConfig Rules, TrackJudging.RunJudgement Judgement)? judged = null;
         foreach (var claim in ready)
         {
             var token = Guid.NewGuid();
@@ -172,7 +184,8 @@ public sealed class CaptureProcessor(
                 .Max();
             try
             {
-                decided += await DecideAsync(run, claim, rules, judgement, evidenceAt, token, cancellationToken);
+                judged ??= await judgements.JudgeAsync(run, cancellationToken);
+                decided += await DecideAsync(run, claim, judged.Value.Rules, judged.Value.Judgement, evidenceAt, token, cancellationToken);
             }
             catch (Exception e) when (IsEngineFailure(e))
             {
@@ -187,6 +200,14 @@ public sealed class CaptureProcessor(
                 {
                     await ReleaseAsync(claim.Id, token, e.Message, cancellationToken);
                 }
+            }
+            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                // Непредвиденная ошибка (испорченный кусок, сбой базы): земля не изменилась. Аренда остаётся — это пауза
+                // до повтора, и проход её заявку пропускает; после MaxAttempts аренд — too_many_attempts.
+                db.ChangeTracker.Clear();
+                logger.LogError(e, "Заявка {CaptureId} не обработана (попытка {Attempt}), повтор — после аренды", claim.Id, attempts);
+                await NoteErrorAsync(claim.Id, token, e.Message, cancellationToken);
             }
         }
 
@@ -461,6 +482,12 @@ public sealed class CaptureProcessor(
             ? null
             : await db.Captures.Where(c => c.Id == captureId).Select(c => c.Attempts).SingleAsync(cancellationToken);
     }
+
+    /// <summary>Запоминает ошибку заявки, не отпуская аренду: заявка вернётся в очередь, когда аренда истечёт.</summary>
+    private Task NoteErrorAsync(Guid captureId, Guid token, string error, CancellationToken cancellationToken) =>
+        db.Captures
+            .Where(c => c.Id == captureId && c.LeaseToken == token && c.Status == CaptureStatus.Pending)
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.LastError, Truncate(error)), cancellationToken);
 
     private Task ReleaseAsync(Guid captureId, Guid token, string error, CancellationToken cancellationToken) =>
         db.Captures
