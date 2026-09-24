@@ -17,33 +17,65 @@ final class FogOverlay: NSObject, MKOverlay {
 ///   там, где маска непрозрачна, дымка стирается; сглаживание при растяжении даёт мягкие края;
 /// - MapKit рисует из нескольких потоков одновременно, поэтому данные читаются из неизменяемого снимка под блокировкой.
 final class FogRenderer: MKOverlayRenderer, @unchecked Sendable {
+    /// Непрозрачность дымки по умолчанию; калибруется на телефоне в пределах 0,6–0,8 (PLAN.md, §6.4).
+    static let defaultOpacity = 0.72
+
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     private struct State: Sendable {
         var layer = FogLayer()
         var flipMask = true
+        var opacity = FogRenderer.defaultOpacity
     }
 
     /// Точек карты в тайле z14.
     private static let tileSize = 16_384.0
 
     /// Новый снимок тумана. Вызывается из главного потока, например раз в секунду во время прогулки.
-    func update(_ layer: FogLayer) {
+    /// - Parameter changed: тайлы, где туман изменился: перерисовываются только они (PLAN.md, §7.2 — «таяние» раз
+    ///   в секунду не должно перерисовывать весь город). `nil` — весь слой.
+    func update(_ layer: FogLayer, changed: Set<FogTileKey>? = nil) {
         state.withLock { $0.layer = layer }
-        setNeedsDisplay()
+        guard let changed else {
+            setNeedsDisplay()
+            return
+        }
+        for tile in changed {
+            setNeedsDisplay(
+                MKMapRect(
+                    x: Double(tile.x) * Self.tileSize, y: Double(tile.y) * Self.tileSize,
+                    width: Self.tileSize, height: Self.tileSize))
+        }
     }
 
     /// Переворот маски по вертикали — проверяем на телефоне, какой вариант правильный (PLAN.md, §7.2).
     func setFlipMask(_ flip: Bool) {
-        state.withLock { $0.flipMask = flip }
-        setNeedsDisplay()
+        let changed = state.withLock { state in
+            defer { state.flipMask = flip }
+            return state.flipMask != flip
+        }
+        if changed {
+            setNeedsDisplay()
+        }
+    }
+
+    /// Непрозрачность дымки — ползунок стенда S4. Перерисовка — только если значение изменилось: экран зовёт это
+    /// при каждом обновлении, а лишняя перерисовка всего тумана исказила бы замер кадров.
+    func setOpacity(_ opacity: Double) {
+        let changed = state.withLock { state in
+            defer { state.opacity = opacity }
+            return state.opacity != opacity
+        }
+        if changed {
+            setNeedsDisplay()
+        }
     }
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
         let snapshot = state.withLock { $0 }
         let drawRect = rect(for: mapRect)
 
-        context.setFillColor(CGColor(red: 0.90, green: 0.87, blue: 0.80, alpha: 0.72))
+        context.setFillColor(CGColor(red: 0.90, green: 0.87, blue: 0.80, alpha: snapshot.opacity))
         context.fill(drawRect)
 
         let minX = Int((mapRect.minX / Self.tileSize).rounded(.down))
