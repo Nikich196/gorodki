@@ -23,7 +23,7 @@
 | Часть | Технологии |
 |---|---|
 | iOS-приложение | Swift 6, SwiftUI, iOS 26+ (дизайн iOS 27 — Liquid Glass), MapKit, Core Location, ActivityKit |
-| Сервер | C#, ASP.NET Core 10, EF Core, PostgreSQL + PostGIS, SignalR, Hangfire |
+| Сервер | C#, ASP.NET Core 10, EF Core, PostgreSQL + PostGIS, SignalR; фоновые задачи — свой обработчик (Hangfire — решение в #54) |
 | Инфраструктура | GitHub Actions, Render, Supabase, GitHub Pages |
 
 ## Документация
