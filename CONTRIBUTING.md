@@ -13,7 +13,8 @@ gorodki/
 │  ├─ App/         код приложения
 │  ├─ Widgets/     расширение: Live Activity и виджеты
 │  └─ Packages/    GameCore — игровая логика (тесты на любой ОС), GorodkiKit — общий код iOS,
-│                  GorodkiAPI — клиент API, GorodkiSync — синхронизация, GorodkiNetwork — сеть и вход
+│                  GorodkiAPI — клиент API, GorodkiSync — синхронизация, GorodkiNetwork — сеть и вход,
+│                  GorodkiPersistence — база на телефоне (GRDB)
 ├─ backend/        сервер на C# (ASP.NET Core 10)
 │  ├─ src/         Gorodki.Api — веб-сервер, Gorodki.Domain — правила игры
 │  └─ tests/       тесты (xUnit v3)
@@ -23,7 +24,8 @@ gorodki/
 
 ## Ветки и Pull Request
 
-- В `main` напрямую не пишем: каждая правка идёт через ветку и Pull Request.
+- В `main` напрямую не пишем: каждая правка идёт через ветку и Pull Request. `main` защищена: только через PR
+  с тремя обязательными проверками — `backend`, `ios-core`, `ios-build`.
 - Ветка называется латиницей: `тип/коротко`, например `feat/health-endpoint`, `fix/loop-detector`, `docs/journal`.
 - PR сливается, когда CI зелёный. Одобрение не обязательно, но PR друга сливает Никита после комментариев Claude.
 - Один PR — одна задача. Большое лучше разбить.
@@ -52,8 +54,11 @@ docs: журнал за 23.09
 
 - Версии NuGet-пакетов — только в `backend/Directory.Packages.props`.
 - В CI любое предупреждение компилятора — ошибка. Локально — просто предупреждение.
-- Запуск: `dotnet run --project backend/src/Gorodki.Api` → http://localhost:5080/scalar.
-- Тесты: `dotnet test --solution backend/Gorodki.slnx`.
+- Команды `dotnet` — из папки `backend`: там `global.json` (версия SDK, запуск тестов через Microsoft.Testing.Platform).
+  Из корня `dotnet test --solution` падает с `MSB1001: Unknown switch`.
+- Запуск: `dotnet run --project src/Gorodki.Api` → http://localhost:5080/scalar.
+- Тесты: `dotnet test --solution Gorodki.slnx`.
+- Оформление: `dotnet format Gorodki.slnx --verify-no-changes` (CI пока не проверяет — перед PR запускаем сами).
 
 ### iOS (Swift)
 
