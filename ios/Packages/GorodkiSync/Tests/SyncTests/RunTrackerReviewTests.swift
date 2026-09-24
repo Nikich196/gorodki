@@ -184,6 +184,36 @@ struct RunTrackerReviewTests {
         #expect(await session.sensorsResumeFrom == Fixture.start - 60)  // окно — за минуту до старта
     }
 
+    @Test("Запись: поступившее, пока «Старт» пишет забег в базу, — в записи, как и в забеге (первая запись CoreMotion)")
+    func recordingKeepsInputsDuringStart() async throws {
+        let store = InMemorySyncStore()
+        let tracker = RunTracker()
+        let entered = Gate()
+        let written = Gate()
+        let starting = Task {
+            try await tracker.start(recording: true) {
+                entered.open()
+                await written.wait()  // забег ещё пишется в базу
+                return try await RunSession.start(Fixture.run(), store: store, rules: .version1)
+            }
+        }
+        await entered.wait()
+        var walk = Walk()
+        let fix = walk.fix(east: 0, north: 0)
+        // Текущий вид движения CoreMotion сообщает сразу и с давним началом — следующей записи может не быть долго.
+        tracker.send(.motion(MotionSample(timestamp: Fixture.start - 600, activity: .automotive)))
+        tracker.send(.fix(fix, receivedAt: fix.timestamp + 1))
+        written.open()
+        try await starting.value
+        try await tracker.finish(at: Fixture.start + 60)
+
+        let recording = try #require(await tracker.takeRecording())
+        #expect(recording.entries.map(\.at) == [-600, fix.timestamp + 1 - Fixture.start])
+        #expect(recording.entries.first?.input == .motion(time: -600, activity: .automotive))
+        let runId = try #require(await tracker.state.runId)
+        #expect(await store.chunks(of: runId).flatMap(\.motion).map(\.activity) == [.automotive])  // забег её получил
+    }
+
     @Test("Запись: запоздавший датчик записан после того, что пришло раньше него, — в повторе придёт в том же порядке")
     func lateSensorKeepsReceiptOrderInRecording() async throws {
         let tracker = RunTracker()

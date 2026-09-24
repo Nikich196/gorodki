@@ -1,6 +1,5 @@
 import Foundation
 import GameCore
-import Synchronization
 
 /// Что приходит в идущий забег. Всё — через одну очередь `RunTracker`, строго по порядку поступления.
 public enum TrackerInput: Sendable {
@@ -76,8 +75,10 @@ public actor RunTracker {
     private var buffering = false
     private var pending: [TrackerInput] = []
     private var sealed = 0
-    /// Идёт запись для демо-повтора — пишется прямо из `send`, в порядке поступления.
-    private nonisolated let recording = Mutex<RunRecordingBuffer?>(nil)
+    /// Идёт запись для демо-повтора. Пишется при обработке, а не в `send`: в запись попадает ровно то, что получил забег,
+    /// в том же порядке — и накопленное, пока он начинался (прежде оно терялось, а с ним первая запись CoreMotion о виде
+    /// движения, и повтор судил без неё).
+    private var recording: RunRecordingBuffer?
     private var finishedRecording: RunRecording?
     public private(set) var state = TrackerState() {
         didSet {
@@ -99,7 +100,6 @@ public actor RunTracker {
 
     /// Поступление от источника — без ожидания, в порядке вызовов.
     public nonisolated func send(_ input: TrackerInput) {
-        recording.withLock { $0 }?.append(input)
         queue.yield(.input(input))
     }
 
@@ -121,8 +121,7 @@ public actor RunTracker {
         }
         finishedRecording = nil
         if recording {
-            let buffer = RunRecordingBuffer(startedAt: Double(session.startedAtMs) / 1_000, league: session.league)
-            self.recording.withLock { $0 = buffer }
+            self.recording = RunRecordingBuffer(startedAt: Double(session.startedAtMs) / 1_000, league: session.league)
         }
         await attach(session, stats: RunStats(), sealed: 0)
         onQueued()  // забег в очереди: сервер узнает о нём раньше первой петли
@@ -210,7 +209,7 @@ public actor RunTracker {
                 state.storageFailed = true
                 return done.resume(throwing: error)
             }
-            if let buffer = recording.withLock({ $0.take() }) {
+            if let buffer = recording.take() {
                 finishedRecording = buffer.finish(at: seconds)
             }
             await ended(session)
@@ -221,6 +220,7 @@ public actor RunTracker {
     }
 
     private func process(_ input: TrackerInput, in session: RunSession) async {
+        recording?.append(input)
         var events: [RunEvent] = []
         do {
             switch input {
@@ -256,7 +256,7 @@ public actor RunTracker {
     }
 
     private func ended(_ session: RunSession) async {
-        if let buffer = recording.withLock({ $0.take() }) {  // конец по пределу длины
+        if let buffer = recording.take() {  // конец по пределу длины
             finishedRecording = buffer.finishAtLastEntry()
         }
         state.stats = await session.stats
