@@ -84,6 +84,16 @@ final class RunController {
         startLiveActivity(startedAt: startedAt)
     }
 
+    /// Приблизительная геопозиция (`StartProblem.reducedAccuracy`): попросить точную на время забега — системный запрос
+    /// с объяснением из Info.plist (`NSLocationTemporaryUsageDescriptionDictionary`, ключ `RunTracking`).
+    /// - Returns: точная геопозиция теперь есть.
+    func requestFullAccuracy() async -> Bool {
+        let manager = CLLocationManager()
+        guard manager.accuracyAuthorization != .fullAccuracy else { return true }
+        try? await manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: "RunTracking")
+        return manager.accuracyAuthorization == .fullAccuracy
+    }
+
     /// «Финиш». Точки, пришедшие раньше, войдут в забег.
     /// - Throws: ошибку записи в очередь — забег продолжается, «Финиш» можно повторить.
     func finish() async throws {
