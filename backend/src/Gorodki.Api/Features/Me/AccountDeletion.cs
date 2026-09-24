@@ -87,6 +87,14 @@ public sealed class AccountDeletion(
         }
 
         await db.Parcels.Where(p => p.OwnerId == userId).ExecuteDeleteAsync(cancellationToken);
+        // Номер игрока хранится и в чужих участках — в списке снявших уровень за окно (ParcelState.LossAttackers) и в его
+        // копиях в журнале захватов: закон 99-З требует стереть и его.
+        await db.Database.ExecuteSqlAsync(
+            $"UPDATE app.parcels SET loss_attackers = array_remove(loss_attackers, {userId}) WHERE {userId} = ANY(loss_attackers)",
+            cancellationToken);
+        await db.Database.ExecuteSqlAsync(
+            $"UPDATE app.capture_journal_pieces SET loss_attackers = array_remove(loss_attackers, {userId}) WHERE {userId} = ANY(loss_attackers)",
+            cancellationToken);
         foreach (var tile in tiles)
         {
             await db.Database.ExecuteSqlAsync(

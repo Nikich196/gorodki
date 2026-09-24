@@ -91,6 +91,34 @@ public sealed class TokenServiceTests
         Assert.Equal(family, firstEntity.FamilyId);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Signing_key_is_read_as_base64_or_base64url(bool urlSafe, bool withoutPadding)
+    {
+        var raw = Enumerable.Range(0, 32).Select(i => (byte)(i * 8 + 3)).ToArray(); // есть и «+», и «/» в Base64
+        var text = Convert.ToBase64String(raw);
+        if (urlSafe)
+        {
+            text = text.Replace('+', '-').Replace('/', '_');
+        }
+
+        if (withoutPadding)
+        {
+            text = text.TrimEnd('=');
+        }
+
+        Assert.Equal(raw, new AuthOptions { SigningKey = text }.SigningKeyBytes());
+    }
+
+    [Fact]
+    public void Garbage_signing_key_gives_a_clear_error()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => new AuthOptions { SigningKey = "это не ключ!" }.SigningKeyBytes());
+        Assert.Contains("Auth:SigningKey", exception.Message);
+    }
+
     [Fact]
     public void Short_signing_key_is_refused()
     {

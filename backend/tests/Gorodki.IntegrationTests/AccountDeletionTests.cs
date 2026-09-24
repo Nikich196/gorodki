@@ -63,6 +63,13 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         // Через 25 минут Борис отнимает у Анны половину квадрата (его захват ещё скрыт), и аккаунт стирается.
         api.Time.Advance(TimeSpan.FromMinutes(25));
         await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
+        // Анна успела снять уровень у земли Бориса: её номер — в списке атакующих его участка и в журнале.
+        await using (var db = database.CreateContext())
+        {
+            await db.Database.ExecuteSqlAsync($"UPDATE app.parcels SET loss_attackers = ARRAY[{annaId}] WHERE owner_id = {borisId}", Cancel);
+            await db.Database.ExecuteSqlAsync($"UPDATE app.capture_journal_pieces SET loss_attackers = ARRAY[{annaId}] WHERE owner_id = {borisId}", Cancel);
+        }
+
         var versionBefore = await TileVersionAsync(tile);
         Assert.True(await DeleteRequestedAsync(api) >= 1);
 
@@ -94,29 +101,34 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    /// <summary>Все столбцы-идентификаторы схемы <c>app</c>, где встречается этот номер, — «таблица.столбец».</summary>
+    /// <summary>
+    /// Все столбцы-идентификаторы схемы <c>app</c> — и одиночные (<c>uuid</c>), и списки (<c>uuid[]</c>), — где встречается
+    /// этот номер: «таблица.столбец».
+    /// </summary>
     private async Task<List<string>> TablesMentioningAsync(Guid id)
     {
         await using var db = database.CreateContext();
         var connection = db.Database.GetDbConnection();
         await connection.OpenAsync(Cancel);
-        var columns = new List<(string Table, string Column)>();
+        var columns = new List<(string Table, string Column, bool IsList)>();
         await using (var list = connection.CreateCommand())
         {
-            list.CommandText = "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'app' AND data_type = 'uuid'";
+            list.CommandText = "SELECT table_name, column_name, udt_name FROM information_schema.columns WHERE table_schema = 'app' AND udt_name IN ('uuid', '_uuid')";
             await using var reader = await list.ExecuteReaderAsync(Cancel);
             while (await reader.ReadAsync(Cancel))
             {
-                columns.Add((reader.GetString(0), reader.GetString(1)));
+                columns.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2) == "_uuid"));
             }
         }
 
-        Assert.Contains(("parcels", "owner_id"), columns); // проверка действительно видит таблицы
+        Assert.Contains(("parcels", "owner_id", false), columns); // проверка действительно видит таблицы
+        Assert.Contains(("parcels", "loss_attackers", true), columns); // и списки номеров
         var found = new List<string>();
-        foreach (var (table, column) in columns.OrderBy(c => c.Table).ThenBy(c => c.Column))
+        foreach (var (table, column, isList) in columns.OrderBy(c => c.Table).ThenBy(c => c.Column))
         {
             await using var count = connection.CreateCommand();
-            count.CommandText = $"SELECT count(*) FROM app.\"{table}\" WHERE \"{column}\" = @id";
+            var condition = isList ? $"@id = ANY(\"{column}\")" : $"\"{column}\" = @id";
+            count.CommandText = $"SELECT count(*) FROM app.\"{table}\" WHERE {condition}";
             var parameter = count.CreateParameter();
             parameter.ParameterName = "id";
             parameter.Value = id;

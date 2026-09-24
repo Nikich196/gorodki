@@ -65,7 +65,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     /// </summary>
     public static string WithSearchPath(string connectionString)
     {
+        connectionString = FromUri(connectionString);
         var builder = new NpgsqlConnectionStringBuilder(connectionString);
+        if (!connectionString.Contains("GSS", StringComparison.OrdinalIgnoreCase))
+        {
+            // Supabase шифрует через SSL; попытка GSS в образе без библиотек Kerberos — лишний шаг и риск (так же в тестах).
+            builder.GssEncryptionMode = GssEncryptionMode.Disable;
+        }
+
         if (string.IsNullOrWhiteSpace(builder.SearchPath))
         {
             builder.SearchPath = $"{Schema},extensions,public";
@@ -78,6 +85,66 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         }
 
         return builder.ConnectionString;
+    }
+
+    /// <summary>
+    /// Supabase по кнопке Connect показывает строку-URI (<c>postgresql://user:pass@host:5432/db?sslmode=require</c>), а Npgsql
+    /// понимает только «ключ=значение»: без перевода сервер упал бы при старте, ещё до открытия порта.
+    /// </summary>
+    public static string FromUri(string connectionString)
+    {
+        var text = connectionString.Trim();
+        if (!text.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase)
+            && !text.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+        {
+            return connectionString;
+        }
+
+        var uri = new Uri(text);
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = uri.Host,
+            Port = uri.IsDefaultPort || uri.Port <= 0 ? 5432 : uri.Port,
+            Database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')) is { Length: > 0 } database ? database : "postgres",
+        };
+        var credentials = uri.UserInfo.Split(':', 2);
+        builder.Username = Uri.UnescapeDataString(credentials[0]);
+        if (credentials.Length == 2)
+        {
+            builder.Password = Uri.UnescapeDataString(credentials[1]);
+        }
+
+        foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = pair.Split('=', 2);
+            var key = Uri.UnescapeDataString(parts[0]);
+            var value = parts.Length == 2 ? Uri.UnescapeDataString(parts[1]) : "";
+            if (key.Equals("sslmode", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.SslMode = Enum.Parse<SslMode>(value.Replace("-", ""), ignoreCase: true);
+            }
+            else if (builder.ContainsKey(key) || IsNpgsqlKeyword(key))
+            {
+                builder[key] = value;
+            }
+
+            // Остальное (например, pgbouncer=true у пула транзакций) — не параметры Npgsql: пропускаем.
+        }
+
+        return builder.ConnectionString;
+    }
+
+    private static bool IsNpgsqlKeyword(string key)
+    {
+        try
+        {
+            _ = new NpgsqlConnectionStringBuilder { [key] = "" };
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private static void ConfigureNpgsql(NpgsqlDbContextOptionsBuilder npgsql)
