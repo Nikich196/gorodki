@@ -36,6 +36,12 @@ if (Environment.GetEnvironmentVariable("PORT") is { Length: > 0 } port)
 // Ошибки отдаём в едином формате ProblemDetails (RFC 9457).
 builder.Services.AddProblemDetails();
 
+// Ошибки клиента, которые находит сам фреймворк (тело не разбирается, нет обязательного поля), — 4xx, а не 500. В разработке
+// ASP.NET бросает их исключением (ThrowOnBadRequest), и обработчик ошибок без этого отвечал бы 500.
+builder.Services.Configure<ExceptionHandlerOptions>(options =>
+    options.StatusCodeSelector = exception =>
+        exception is BadHttpRequestException bad ? bad.StatusCode : StatusCodes.Status500InternalServerError);
+
 // Перечисления в JSON — строками (`"run"`, `"finished"`), как в GameCore; числа не принимаются.
 // Числа — только числами: иначе описание API объявляет каждое число «целым или строкой», и клиент для iOS
 // получает неудобный тип-вариант (найдено в спайке S6).
