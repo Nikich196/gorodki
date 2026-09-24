@@ -29,7 +29,7 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
         var (boris, borisId) = await api.CreatePlayerClientAsync();
-        var (vera, _) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
         var area = NewArea();
         var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
 
@@ -83,9 +83,14 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         Assert.True(await TileVersionAsync(tile) > versionBefore); // у соседей карта обновится
 
         // Захват Бориса ещё скрыт задержкой (20 минут): проекция вернула бы Вере землю Анны — но удалённый на карте
-        // не появляется.
+        // не появляется. Строки точного отката вычищены так же, как земля, и захват откатывается точно: на месте куска Анны —
+        // ничья земля, как в мире без захвата.
         var seen = await vera.GetFromJsonAsync<TerritoryResponse>($"/territory?league=run&tiles={tile.X}:{tile.Y}", Json, Cancel);
         Assert.Empty(Assert.Single(seen!.Tiles).Parcels);
+        await using var readerScope = api.Services.CreateAsyncScope();
+        var reader = readerScope.ServiceProvider.GetRequiredService<TerritoryReader>();
+        await reader.ReadAsync(Gorodki.Domain.Leagues.League.Run, [(tile, null)], new TerritoryViewer(veraId, Immediate: false), Cancel);
+        Assert.Equal((1, 0), (reader.Projections.Exact, reader.Projections.Fallback));
     }
 
     private static async Task<int> DeleteRequestedAsync(ApiFactory api)

@@ -4,6 +4,7 @@ using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
+using Gorodki.Domain.Territory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NetTopologySuite.Geometries;
@@ -346,19 +347,19 @@ public sealed class TerritoryTests(DatabaseFixture database)
     }
 
     [Fact]
-    public async Task Victims_straight_run_over_a_hidden_crack_still_shows_the_loop_line()
+    public async Task Victims_straight_run_over_a_hidden_crack_is_projected_as_the_whole_piece_with_the_visit()
     {
-        // Известный остаток BE-01 (territory-map.md), обычная игра: Анна (L2) пробежала напрямик через свой квадрат, а
-        // Борис треснул его правую часть раньше, чем её визиты засчитаны (граница публичности ещё не дошла до конца её
-        // забега). У каждого куска свой порог и своё время визита (VisitProcessor): по треснувшей части 60 м — визит, по
-        // остатку 40 м — нет. Без захвата весь квадрат получил бы визит и вырос до L3. В проекции у Веры уровня −1 и осады
-        // нет, но треснувшая часть — L3 рядом с L2 на остатке: ступенька уровня ровно по линии скрытой петли, до раскрытия.
-        // Закроет это точный откат по исходным кускам (шаг 6 BE-01) — тогда здесь будет один кусок L3: переверни проверки.
+        // Обычная игра (territory-map.md): Анна (L2) пробежала напрямик через свой квадрат, а Борис треснул его правую часть
+        // раньше, чем её визиты засчитаны (граница публичности ещё не дошла до конца её забега). У каждого куска свой порог и
+        // своё время визита (VisitProcessor): по треснувшей части 60 м — визит, по остатку 40 м — нет. Откат по граням давал
+        // Вере ступеньку уровня ровно по линии скрытой петли (L3 на треснувшей части у L2 на остатке). Точный откат
+        // возвращает строку целого квадрата с этим визитом — как без захвата: 100 м пути в квадрате, последний шаг — тот же,
+        // визит и рост до L3.
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
         var (boris, borisId) = await api.CreatePlayerClientAsync();
-        var (vera, _) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
         var area = NewArea();
         var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
         await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
@@ -384,14 +385,14 @@ public sealed class TerritoryTests(DatabaseFixture database)
         }
 
         var hidden = await TileAsync(vera, tile);
+        var (_, stats) = await ProjectedAsync(api, tile, veraId);
 
-        Assert.All(hidden.Parcels, p => Assert.Equal((annaId, (long?)null, (long?)null), (p.OwnerId, p.ShieldUntilMs, p.SiegeUntilMs)));
-        var pieces = hidden.Parcels.OrderBy(p => p.Level).ToList();
-        Assert.Equal(2, pieces.Count);
-        Assert.Equal(((short)2, beforeBoris.LastVisitAtMs), (pieces[0].Level, pieces[0].LastVisitAtMs)); // остаток, x 0…40
-        Assert.InRange(AreaOf(pieces[0].Exterior), 3_800, 4_200);
-        Assert.Equal(((short)3, visitedAt.ToUnixTimeMilliseconds() / 3_600_000 * 3_600_000), (pieces[1].Level, pieces[1].LastVisitAtMs));
-        Assert.InRange(AreaOf(pieces[1].Exterior), 5_800, 6_200); // треснувшая часть, x 40…100
+        // Один кусок — весь квадрат Анны до вершины, L3, визит (до часа), без осады; номер — как у настоящего такого куска.
+        var expected = new ParcelView(
+            0, annaId, beforeBoris.ColorIndex, 3, false, visitedAt.ToUnixTimeMilliseconds() / 3_600_000 * 3_600_000, null, null,
+            beforeBoris.Exterior, beforeBoris.Holes);
+        Assert.Equal(Content([expected with { Id = TerritoryReader.ContentId(tile, expected) }]), Content(hidden));
+        Assert.Equal((1, 0), (stats.Exact, stats.Fallback));
 
         api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
         var revealed = await TileAsync(vera, tile, known: hidden.Version);
@@ -414,7 +415,189 @@ public sealed class TerritoryTests(DatabaseFixture database)
     }
 
     /// <summary>Всё, что зритель получает о кусках тайла, — для сравнения «до поля».</summary>
-    private static string Content(TileTerritory tile) => System.Text.Json.JsonSerializer.Serialize(tile.Parcels, Json);
+    private static string Content(TileTerritory tile) => Content(tile.Parcels);
+
+    private static string Content(IReadOnlyList<ParcelView> parcels) => System.Text.Json.JsonSerializer.Serialize(parcels, Json);
+
+    /// <summary>
+    /// Тайл глазами игрока — через сервис, как <c>GET /territory</c>, — и то, как проекция откатывала скрытые от него
+    /// захваты (<paramref name="beforeParcels"/> — вызов посреди чтения, после списка скрытых захватов).
+    /// </summary>
+    private static async Task<(TileTerritory Tile, ProjectionStats Stats)> ProjectedAsync(
+        ApiFactory api, TileKey tile, Guid viewerId, Func<CancellationToken, Task>? beforeParcels = null)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        var reader = scope.ServiceProvider.GetRequiredService<TerritoryReader>();
+        reader.BeforeParcelsRead = beforeParcels;
+        var response = await reader.ReadAsync(
+            Gorodki.Domain.Leagues.League.Run, [(tile, null)], new TerritoryViewer(viewerId, Immediate: false), CancellationToken.None);
+        return (response.Tiles.Single(), reader.Projections);
+    }
+
+    /// <summary>Куски тайла в базе — как их грузит проекция.</summary>
+    private async Task<List<ProjectedParcel>> StoredAsync(TileKey tile)
+    {
+        await using var db = database.CreateContext();
+        return [.. (await db.Parcels.AsNoTracking()
+                .Where(p => p.League == Gorodki.Domain.Leagues.League.Run && p.TileX == tile.X && p.TileY == tile.Y)
+                .ToListAsync(Cancel))
+            .Select(p => new ProjectedParcel(
+                p.Id,
+                new Parcel(
+                    tile,
+                    p.Geometry,
+                    new ParcelState
+                    {
+                        OwnerId = p.OwnerId,
+                        Level = p.Level,
+                        LastVisitAt = p.LastVisitAt,
+                        LastLevelUpAt = p.LastLevelUpAt,
+                        ShieldUntil = p.ShieldUntil,
+                        SiegeUntil = p.SiegeUntil,
+                        LossWindowSince = p.LossWindowSince,
+                        LossAttackers = AttackerSet.Of(p.LossAttackers),
+                    })))];
+    }
+
+    [Fact]
+    public async Task While_hidden_a_cut_across_a_slanted_border_leaves_the_same_pieces_and_ids()
+    {
+        // Бывший остаток BE-01: петля Бориса пересекла наклонную сторону земли Анны не в узле сетки 0,1 м, snap-rounding
+        // сломал сторону в точке пересечения, и остаток куска Анны записан с изломом. Откат по граням следа собирал землю
+        // вместе с изломом — у Веры другие номера кусков и вершины там, где прошла петля. Точный откат возвращает строку
+        // Анны как она лежала: Вера до раскрытия получает тайл тем же до поля, с той же версией.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Polygon(area, (0, 0), (200, 0), (200, 70), (0, 37)))).RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var before = await TileAsync(vera, tile);
+        var annaBefore = Assert.Single(await StoredAsync(tile)).Parcel;
+
+        var claim = await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 50, 20, 100, 130));
+        Assert.Equal(1, await ProcessAsync(api, claim.RunId));
+
+        // Сценарий отличает точный откат: запасной путь (по граням) вернул бы Анне кусок с изломом, а не тот, что лежал.
+        await using (var db = database.CreateContext())
+        {
+            var journal = await CaptureJournal.LoadTileAsync(db, claim.CaptureId, tile, Cancel);
+            var fallback = ExactUndo.Restore(tile, await StoredAsync(tile), journal.Change(), new TerritoryRules(), new SliverSettings());
+            var annaFallback = Assert.Single(fallback, p => p.Parcel.State == annaBefore.State).Parcel;
+            Assert.False(annaFallback.Geometry.EqualsExact(annaBefore.Geometry));
+        }
+
+        var hidden = await TileAsync(vera, tile);
+        var (_, stats) = await ProjectedAsync(api, tile, veraId);
+
+        Assert.Equal(before.Version, hidden.Version);
+        Assert.Equal(Content(before), Content(hidden));
+        Assert.Equal((1, 0, 0), (stats.Exact, stats.Fallback, stats.EmptyTiles));
+    }
+
+    [Fact]
+    public async Task Stacked_hidden_captures_are_undone_exactly_for_each_kind_of_viewer()
+    {
+        // Борис взял часть земли Анны, через три минуты Глеб — часть остатка Анны (его вставил захват Бориса); оба захвата
+        // ещё скрыты. Вера (не захватывала) видит тайл, каким он был до обоих; Борис — каким он был сразу после его захвата:
+        // откат захвата Глеба возвращает остаток Анны с тем же номером строки, и захват Бориса откатывается по нему точно.
+        // Глебу захват Бориса точно не откатить (остатка Анны с тем номером уже нет) — запасной путь, своя земля остаётся.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (gleb, glebId) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 200))).RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var beforeAll = await TileAsync(vera, tile);
+
+        Assert.Equal(1, await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 100, 50, 150, 100))).RunId));
+        var afterBoris = await TileAsync(boris, tile);
+        api.Time.Advance(TimeSpan.FromMinutes(3));
+        Assert.Equal(1, await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, gleb, Rectangle(area, 20, 20, 100, 60))).RunId));
+
+        var (third, thirdStats) = await ProjectedAsync(api, tile, veraId);
+        var (earlier, earlierStats) = await ProjectedAsync(api, tile, borisId);
+        var (later, laterStats) = await ProjectedAsync(api, tile, glebId);
+
+        Assert.Equal(Content(beforeAll), Content(third));
+        Assert.Equal((2, 0), (thirdStats.Exact, thirdStats.Fallback));
+        Assert.Equal(Content(afterBoris), Content(earlier));
+        Assert.Equal((1, 0), (earlierStats.Exact, earlierStats.Fallback));
+        Assert.Equal((0, 1, 1), (laterStats.Exact, laterStats.Fallback, laterStats.Paths.GetValueOrDefault(UndoPath.Missing)));
+        Assert.DoesNotContain(later.Parcels, p => p.OwnerId == borisId);
+        var glebStored = (await StoredAsync(tile)).Where(p => p.Parcel.State.OwnerId == glebId).Sum(p => p.Parcel.Geometry.Area);
+        var glebSeen = later.Parcels.Where(p => p.OwnerId == glebId).Sum(p => AreaOf(p.Exterior));
+        Assert.InRange(glebSeen, glebStored - 2, glebStored + 2); // контур у зрителя — в градусах до ~1 см
+    }
+
+    [Fact]
+    public async Task Capture_committed_in_the_middle_of_a_read_is_not_seen_by_it()
+    {
+        // Всё читается одним снимком (REPEATABLE READ): версии, список скрытых захватов, куски и журнал. Захват Глеба
+        // записан после списка скрытых захватов, но до чтения кусков. Иначе его земля попала бы к Вере в куски, а в список
+        // скрытых — нет: захват был бы виден сразу, а версия тайла — не та.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (gleb, glebId) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var before = await TileAsync(vera, tile);
+        Assert.Equal(1, await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId));
+        var glebClaim = await WalkAndClaimAsync(Cancel, api, gleb, Rectangle(area, 0, 150, 100, 100));
+
+        var (seen, stats) = await ProjectedAsync(api, tile, veraId, async _ => Assert.Equal(1, await ProcessAsync(api, glebClaim.RunId)));
+
+        Assert.Equal(before.Version, seen.Version);
+        Assert.Equal(Content(before), Content(seen));
+        Assert.Equal((1, 0), (stats.Exact, stats.Fallback));
+        await using var db = database.CreateContext();
+        Assert.True(await db.Parcels.AnyAsync(p => p.OwnerId == glebId, Cancel)); // захват Глеба правда записан посреди чтения
+    }
+
+    [Fact]
+    public async Task Corrupt_exact_undo_row_falls_back_to_the_footprint_restore()
+    {
+        // Испорченная строка точного отката (ручная правка базы) не роняет карту и не опустошает тайл: откат идёт по граням
+        // следа, как до точного отката, — квадрат Анны у Веры целый.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var claim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+        await using (var db = database.CreateContext())
+        {
+            Assert.Equal(1, await db.CaptureJournalParcels
+                .Where(r => r.CaptureId == claim.CaptureId && r.Replaced)
+                .ExecuteUpdateAsync(set => set.SetProperty(r => r.Geometry, new byte[] { 0x03, 0x00, 0x05 }), Cancel));
+        }
+
+        var response = await vera.GetAsync($"/territory?league=run&tiles={tile.X}:{tile.Y}", Cancel);
+        var (seen, stats) = await ProjectedAsync(api, tile, veraId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal((0, 1, 1), (stats.Exact, stats.Fallback, stats.Paths.GetValueOrDefault(UndoPath.Exception)));
+        Assert.Contains("FormatException", stats.Describe(), StringComparison.Ordinal);
+        Assert.DoesNotContain(seen.Parcels, p => p.OwnerId == borisId);
+        Assert.InRange(seen.Parcels.Where(p => p.OwnerId == annaId).Sum(p => AreaOf(p.Exterior)), 9_500, 10_500);
+    }
 
     /// <summary>
     /// Анна — квадрат 100 × 100 м, Вера забрала его правую половину и ничью землю рядом: три куска с общими границами
@@ -433,12 +616,13 @@ public sealed class TerritoryTests(DatabaseFixture database)
     [Fact]
     public async Task Damaged_journal_of_a_hidden_capture_empties_the_tile_instead_of_breaking_the_map()
     {
-        // Запись журнала испорчена (ручная правка базы): проекция её не прочтёт. Карта не должна отвечать 500 каждому,
-        // кто смотрит эти тайлы, — тайл уходит пустым до раскрытия, как при ошибке движка.
+        // Запись журнала испорчена (ручная правка базы), а строк точного отката нет (захват записан до них): проекция её не
+        // прочтёт. Карта не должна отвечать 500 каждому, кто смотрит эти тайлы, — тайл уходит пустым до раскрытия, как при
+        // ошибке движка.
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, _) = await api.CreatePlayerClientAsync();
-        var (vera, _) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
         var area = NewArea();
         var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
         var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
@@ -448,13 +632,42 @@ public sealed class TerritoryTests(DatabaseFixture database)
             await db.CaptureJournal
                 .Where(j => j.CaptureId == claim.CaptureId)
                 .ExecuteUpdateAsync(set => set.SetProperty(j => j.Footprint, new byte[] { 0 }), Cancel);
+            await db.CaptureJournalParcels.Where(r => r.CaptureId == claim.CaptureId).ExecuteDeleteAsync(Cancel);
         }
 
         var response = await vera.GetAsync($"/territory?league=run&tiles={tile.X}:{tile.Y}", Cancel);
+        var (_, stats) = await ProjectedAsync(api, tile, veraId);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var seen = await response.Content.ReadFromJsonAsync<TerritoryResponse>(Json, Cancel);
         Assert.Empty(Assert.Single(seen!.Tiles).Parcels);
+        Assert.Equal(1, stats.EmptyTiles);
+    }
+
+    [Fact]
+    public async Task Damaged_footprint_does_not_matter_when_the_capture_is_undone_exactly()
+    {
+        // Запись «до/после» нужна только запасному пути: по строкам точного отката захват откатывается и без неё.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        var before = await TileAsync(vera, tile);
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+        await using (var db = database.CreateContext())
+        {
+            await db.CaptureJournal
+                .Where(j => j.CaptureId == claim.CaptureId)
+                .ExecuteUpdateAsync(set => set.SetProperty(j => j.Footprint, new byte[] { 0 }), Cancel);
+        }
+
+        var (seen, stats) = await ProjectedAsync(api, tile, veraId);
+
+        Assert.Equal((before.Version, 0), (seen.Version, seen.Parcels.Count));
+        Assert.Equal((1, 0, 0), (stats.Exact, stats.Fallback, stats.EmptyTiles));
     }
 
     private async Task<bool> IsUnchangedAsync(HttpClient client, TileKey tile, long known)

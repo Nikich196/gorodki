@@ -39,6 +39,22 @@ internal static class Walks
         (area.X + x, area.Y + y + 1),
     ];
 
+    /// <summary>
+    /// Многоугольник по вершинам (метры от угла места теста) — например, с наклонной стороной. Как у <see cref="Square"/>,
+    /// прогулка кончается в метре от старта — по последней стороне.
+    /// </summary>
+    public static (double X, double Y)[] Polygon((double X, double Y) area, params (double X, double Y)[] vertices)
+    {
+        var (startX, startY) = vertices[0];
+        var (lastX, lastY) = vertices[^1];
+        var length = Math.Sqrt(((lastX - startX) * (lastX - startX)) + ((lastY - startY) * (lastY - startY)));
+        return
+        [
+            .. vertices.Select(v => (area.X + v.X, area.Y + v.Y)),
+            (area.X + startX + ((lastX - startX) / length), area.Y + startY + ((lastY - startY) / length)),
+        ];
+    }
+
     /// <param name="startedAgo">Когда начат забег (по умолчанию 20 минут назад); давно — забег из офлайна, отправленный сейчас.</param>
     public static async Task<StartRunRequest> StartWalkAsync(
         CancellationToken cancel,

@@ -40,6 +40,15 @@ public sealed record TerritoryViewer(Guid? UserId, bool Immediate);
 /// </remarks>
 public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, TimeProvider time, ILogger<TerritoryReader> logger)
 {
+    /// <summary>Как проекция откатывала скрытые захваты в этом запросе (сервис живёт один запрос) — для лога и тестов.</summary>
+    public ProjectionStats Projections { get; } = new();
+
+    /// <summary>
+    /// Для тестов: вызывается в транзакции чтения после версий и списка скрытых захватов, перед чтением кусков
+    /// (проверка «захват, записанный посреди чтения, не виден»).
+    /// </summary>
+    public Func<CancellationToken, Task>? BeforeParcelsRead { get; set; }
+
     /// <summary>Задержка публичной проекции по умолчанию (<c>privacy.publicEventDelayMinutes</c> в игровом конфиге, §3.16).</summary>
     public static readonly TimeSpan PublicDelay = TimeSpan.FromMinutes(Gorodki.Domain.Config.GameConfig.Default.Privacy.PublicEventDelayMinutes);
 
@@ -94,6 +103,11 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             return new TerritoryResponse(league, [], unchanged);
         }
 
+        if (BeforeParcelsRead is { } hook)
+        {
+            await hook(cancellationToken);
+        }
+
         var parcels = await db.Parcels.AsNoTracking()
             .Where(p => p.League == league && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
             .ToListAsync(cancellationToken);
@@ -113,6 +127,12 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             .Where(u => owners.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => u.ColorIndex, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        if (!Projections.IsEmpty)
+        {
+            // Одна строка на запрос: как часто точный откат уходит в запасной путь (и почему) — иначе в проде не узнать.
+            // Без тайлов, координат и игроков: сам лог не должен выдавать, где бегали.
+            logger.LogInformation("Публичная проекция: {Projections}", Projections.Describe());
+        }
 
         var result = tiles
             .Select(t => new TileTerritory(
@@ -154,39 +174,44 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
     }
 
     /// <summary>
-    /// Тайл таким, каким его видят остальные: недавние чужие захваты откатываются в памяти — от новых к старым, только там,
-    /// где земля и сейчас такая, какой её оставил захват или какой её сделали с тех пор визиты владельцев (свои более
-    /// поздние изменения зрителя остаются).
+    /// Тайл таким, каким его видят остальные: недавние чужие захваты откатываются в памяти — от новых к старым
+    /// (<see cref="ExactUndo.Project"/>). Точно, по строкам журнала: удалённые захватом строки кусков возвращаются как
+    /// лежали — до вершины и с теми же номерами, вставленные убираются, визиты владельцев, засчитанные за это время,
+    /// переносятся на прежние куски. Если точно нельзя (вставленные куски с тех пор переписали — например, свой захват
+    /// зрителя, — строк нет, они испорчены), — запасной путь: откат по граням следа с переносом визитов, только там, где
+    /// земля и сейчас такая, какой её оставил захват (свои более поздние изменения зрителя остаются).
     /// </summary>
     /// <remarks>
-    /// Визиты забега засчитываются, когда публичен его конец, — а чужой захват той же земли, применённый в эти 20 минут, ещё
-    /// скрыт. У жертвы это обычная игра: она пробежала по своей земле, петля по её части пришла следом, и визиты ложатся на
-    /// треснувшую часть и на остаток куска; у автора — если захват применён позже конца забега (забег из офлайна), на
-    /// взятое. Такие визиты переносятся на прежнюю землю (<see cref="TerritoryMap.Restore"/> с <c>replayVisits</c>): иначе
-    /// земля «после захвата» осталась бы в проекции как есть — взятое, уровень −1 и осада видны раньше 20 минут. Шов по
-    /// линии петли при этом остаётся, если части куска получили разное время визита или остаток — никакого: откат по
-    /// граням видит только след захвата (docs/architecture/territory-map.md, остаток BE-01). Правила земли — действующего
-    /// конфига, как у визитов (<see cref="VisitProcessor"/>).
+    /// Номера строк переходят от захвата к захвату: вставленное старым захватом новый удалил, точный откат нового вернул
+    /// его с тем же номером — и старый откатывается точно. Всё читается в той же транзакции REPEATABLE READ, что версии и
+    /// список скрытых захватов: захват, записанный посреди чтения, не виден ни в кусках, ни в журнале. Правила земли —
+    /// действующего конфига, как у визитов (<see cref="VisitProcessor"/>). Что остаётся — docs/architecture/territory-map.md.
     /// </remarks>
     private async Task<List<(ParcelState State, Polygon Geometry)>> ProjectAsync(
         TileKey tile, List<ParcelEntity> stored, List<HiddenCapture> pending, TerritoryRules rules, CancellationToken cancellationToken)
     {
         try
         {
-            var map = new TerritoryMap(rules, new SliverSettings());
-            map.Load(stored.Select(CaptureProcessor.ToParcel));
+            var hidden = new List<HiddenTileChange>();
             foreach (var capture in pending.OrderByDescending(h => h.AppliedSeq))
             {
-                var changes = (await CaptureJournal.LoadAsync(db, capture.CaptureId, cancellationToken)).Where(c => c.Tile == tile).ToList();
-                map.Restore(changes, replayVisits: true);
+                hidden.Add(await CaptureJournal.LoadTileAsync(db, capture.CaptureId, tile, cancellationToken));
             }
 
-            return map.ParcelsIn(tile).Select(p => (p.State, p.Geometry)).ToList();
+            var projection = ExactUndo.Project(
+                tile,
+                [.. stored.Select(p => new ProjectedParcel(p.Id, CaptureProcessor.ToParcel(p)))],
+                hidden,
+                rules,
+                new SliverSettings());
+            Projections.Add(projection);
+            return [.. projection.Pieces.Select(p => (p.Parcel.State, p.Parcel.Geometry))];
         }
         catch (Exception e) when (e is TerritoryEngineException or TopologyException or FormatException)
         {
-            // Лучше пустой тайл на 20 минут, чем показать, где человек сейчас. FormatException — испорченная запись
-            // журнала (TWKB): без неё здесь весь запрос карты отвечал бы 500.
+            // Запасной путь не сошёлся или запись журнала для него испорчена (FormatException из TWKB). Лучше пустой тайл
+            // на 20 минут, чем показать, где человек сейчас, или ответить 500 всем, кто смотрит эти тайлы.
+            Projections.AddEmptyTile();
             logger.LogError(e, "Публичная проекция тайла {Tile} не собралась — тайл отдан пустым до раскрытия", tile);
             return [];
         }
