@@ -12,7 +12,7 @@ public static class HealthEndpoints
 {
     public static IEndpointRouteBuilder MapHealthEndpoints(this IEndpointRouteBuilder app)
     {
-        // «Жив ли процесс». Его вызывают Render и пингер, поэтому в базу он не ходит.
+        // «Жив ли процесс». Его вызывает Render (healthCheckPath), поэтому в базу он не ходит; пингер ходит в /health/ready.
         app.MapGet("/health", GetHealth)
             .WithName("getHealth")
             .AllowAnonymous()
