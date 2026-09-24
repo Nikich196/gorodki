@@ -47,6 +47,9 @@ final class RunController {
     /// Подсказка «забег мог идти», чтобы после перезапуска сразу, ещё до чтения базы, запустить геопозицию (иначе iOS
     /// может снова усыпить приложение). Решает база (`RunTracker.recover`), подсказка — только ускоряет.
     private static let hintKey = "run.maybeTracking"
+    /// Идентификатор Live Activity забега. Активностей может быть несколько (прогулка «Лаборатории» — тоже), поэтому
+    /// после перезапуска забег закрывает или подхватывает только свою, а не первую попавшуюся.
+    private static let activityKey = "run.activityID"
 
     private init() {
         tracker = RunTracker(
@@ -239,15 +242,23 @@ final class RunController {
             stopSources()
             await tracker.flush()
             UserDefaults.standard.set(false, forKey: Self.hintKey)
-            if let leftover = RunActivityController.currentActivityID {
+            if let leftover = UserDefaults.standard.string(forKey: Self.activityKey) {
                 await RunActivityController.end(id: leftover)
+                UserDefaults.standard.removeObject(forKey: Self.activityKey)
             }
             return
         }
         let since = Date(timeIntervalSince1970: await session.sensorsResumeFrom)
         try? await tracker.resume(session)
         startSources(motionSince: since)
-        activityID = RunActivityController.currentActivityID
+        if let saved = UserDefaults.standard.string(forKey: Self.activityKey),
+            RunActivityController.isRunning(id: saved)
+        {
+            activityID = saved
+        } else {
+            // Плашку закрыли система или игрок — продолженный забег показывает новую.
+            startLiveActivity(startedAt: Date(timeIntervalSince1970: Double(session.startedAtMs) / 1_000))
+        }
         UserDefaults.standard.set(true, forKey: Self.hintKey)
     }
 
@@ -297,6 +308,7 @@ final class RunController {
             Task { await RunActivityController.end(id: activityID) }
         }
         activityID = nil
+        UserDefaults.standard.removeObject(forKey: Self.activityKey)
     }
 
     // MARK: - Live Activity
@@ -305,6 +317,7 @@ final class RunController {
         guard RunActivityController.areActivitiesEnabled else { return }
         activityID = try? RunActivityController.start(
             startedAt: startedAt, state: RunActivityAttributes.ContentState(title: "Забег", detail: "Ждём GPS…"))
+        UserDefaults.standard.set(activityID, forKey: Self.activityKey)
     }
 
     /// Не чаще раза в 5 секунд: чаще система всё равно не покажет.

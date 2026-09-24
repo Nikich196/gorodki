@@ -97,6 +97,7 @@ final class WalkLab {
             Task { await RunActivityController.end(id: activityID) }
         }
         activityID = nil
+        UserDefaults.standard.removeObject(forKey: Self.activityKey)
     }
 
     /// Вызывается при запуске приложения: если прогулка шла, когда приложение закрыли, — продолжаем.
@@ -107,7 +108,10 @@ final class WalkLab {
         api = saved.api
         resumedAt = .now
         begin()
-        activityID = RunActivityController.currentActivityID
+        // Своя плашка — по сохранённому идентификатору: первая попавшаяся могла бы оказаться плашкой забега.
+        activityID = UserDefaults.standard.string(forKey: Self.activityKey).flatMap {
+            RunActivityController.isRunning(id: $0) ? $0 : nil
+        }
     }
 
     /// Сводка без координат — для снимка экрана или отправки в чат.
@@ -137,6 +141,7 @@ final class WalkLab {
     // MARK: - Обработка точек
 
     private static let activeKey = "lab.walk.active"
+    private static let activityKey = "lab.walk.activityID"
 
     private func begin() {
         judge = SegmentJudge(league: .run)
@@ -264,6 +269,7 @@ final class WalkLab {
             startedAt: .now,
             state: RunActivityAttributes.ContentState(title: "Прогулка · проверка", detail: "Ждём GPS…")
         )
+        UserDefaults.standard.set(activityID, forKey: Self.activityKey)
     }
 
     /// Не чаще раза в 5 секунд: чаще система всё равно не покажет.
