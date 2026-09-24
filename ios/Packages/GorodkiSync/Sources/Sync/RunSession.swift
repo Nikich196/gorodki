@@ -350,10 +350,12 @@ public actor RunSession {
         }
     }
 
-    /// С какого момента датчики ещё принимаются (секунды Unix): после перезапуска CoreMotion дозапрашивает историю
-    /// отсюда.
-    public var acceptsSensorsAfter: Double {
-        get async { Double(await recorder.acceptsSensorsAfterMs) / 1_000 }
+    /// С какого момента дозапрашивать датчики после перезапуска (секунды Unix): после уже отправленных, но не раньше окна
+    /// забега — интервал шагомера, начатый раньше окна, запись отбросила бы целиком.
+    public var sensorsResumeFrom: Double {
+        get async {
+            Double(max(await recorder.acceptsSensorsAfterMs + 1, await recorder.windowStartMs)) / 1_000
+        }
     }
 
     /// Сколько кусков запечатано с начала (или продолжения) забега — по нему видно, что пора звать синхронизацию.
