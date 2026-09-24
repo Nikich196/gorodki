@@ -34,12 +34,32 @@ public sealed class AuthOptions
 
     public byte[] SigningKeyBytes()
     {
-        var bytes = string.IsNullOrWhiteSpace(SigningKey) ? [] : Convert.FromBase64String(SigningKey);
+        var bytes = Decode(SigningKey.Trim());
         if (bytes.Length < 32)
         {
             throw new InvalidOperationException("Auth:SigningKey должен быть Base64-строкой не короче 32 байт.");
         }
 
         return bytes;
+    }
+
+    /// <summary>Base64 или Base64Url (без «=» в конце) — как бы ключ ни сгенерировали; не разобрать — пусто.</summary>
+    private static byte[] Decode(string key)
+    {
+        if (key.Length == 0)
+        {
+            return [];
+        }
+
+        var standard = key.Replace('-', '+').Replace('_', '/');
+        standard = standard.PadRight(standard.Length + (4 - standard.Length % 4) % 4, '=');
+        try
+        {
+            return Convert.FromBase64String(standard);
+        }
+        catch (FormatException)
+        {
+            return [];
+        }
     }
 }
