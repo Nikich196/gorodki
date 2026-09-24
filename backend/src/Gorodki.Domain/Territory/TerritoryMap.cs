@@ -38,7 +38,10 @@ public sealed record TileChange(TileKey Tile, Geometry Footprint, IReadOnlyList<
 
 /// <summary>Итог применения захвата.</summary>
 /// <param name="AreaByOutcome">Площадь, м², по видам последствий (сколько взято, треснуло, под щитом…).</param>
-/// <param name="ChangedTiles">Тайлы, которые переписаны (их версии растут, клиенты перезапрашивают).</param>
+/// <param name="ChangedTiles">
+/// Тайлы, которые переписаны (их версии растут, клиенты перезапрашивают). Тайл, где петля не поменяла ни одного состояния,
+/// сюда не входит и остаётся как был.
+/// </param>
 /// <param name="SliverArea">Площадь осколков, отданных соседям или ставших ничьими, м².</param>
 /// <param name="Changes">Что изменилось по тайлам — для журнала отката; тайлы без изменений не входят.</param>
 public sealed record CaptureResult(
@@ -54,7 +57,7 @@ public sealed record CaptureResult(
 /// <param name="RestoredArea">Возвращено прежнее состояние, м².</param>
 /// <param name="SkippedArea">Земля следа, которую после захвата уже изменили (другой захват, смена сезона…), м²: не тронута.</param>
 /// <param name="SliverArea">Площадь осколков, отданных соседям или ставших ничьими при сборке кусков, м².</param>
-/// <param name="ChangedTiles">Тайлы, которые переписаны.</param>
+/// <param name="ChangedTiles">Тайлы, которые переписаны (тайл, где откат ничего не вернул, остаётся как был).</param>
 public sealed record RestoreResult(double RestoredArea, double SkippedArea, double SliverArea, IReadOnlyList<TileKey> ChangedTiles);
 
 /// <summary>
@@ -66,7 +69,10 @@ public sealed record RestoreResult(double RestoredArea, double SkippedArea, doub
 /// <item>границы всех кусков тайла и граница петли узлуются разом;</item>
 /// <item>Polygonize собирает из них грани — разбиение без наложений по построению;</item>
 /// <item>каждая грань получает хозяина по внутренней точке, а грань внутри петли — решение <see cref="CaptureRules"/>;</item>
-/// <item>соседние грани с одинаковым состоянием сливаются, осколки поглощаются соседом.</item>
+/// <item>соседние грани с одинаковым состоянием сливаются, осколки поглощаются соседом;</item>
+/// <item>тайл, где не изменилось ни одно состояние, не переписывается вовсе; если петля прошла и по земле, которую
+/// не изменила, тайл собирается ещё раз — только по линиям журнала (<see cref="Reassembled"/>), и эту землю граница
+/// петли не режет; кусок, чьи земля и состояние не изменились, остаётся прежним до вершины (<see cref="Settled"/>).</item>
 /// </list>
 /// В базе данных тот же алгоритм выполняется под блокировками тайлов в отсортированном порядке.
 /// Откат (<see cref="Restore"/>) собирает грани так же — только состояние грани внутри следа берётся из журнала.
@@ -134,11 +140,10 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
                 continue;
             }
 
-            var (pieces, change) = CaptureTile(tile, captureInTile, context, areas, ref sliverArea);
-            rebuilt.Add((tile, pieces));
-            if (change is not null)
+            if (CaptureTile(tile, captureInTile, context, areas, ref sliverArea) is { } captured)
             {
-                changes.Add(change);
+                rebuilt.Add((tile, captured.Pieces));
+                changes.Add(captured.Change);
             }
         }
 
@@ -177,8 +182,12 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
                 continue;
             }
 
-            rebuilt.Add((change.Tile, RestoreTile(
-                change, adjust ?? (state => state), untouched ?? ((current, after) => current == after), ref restored, ref skipped, ref sliverArea)));
+            var pieces = RestoreTile(
+                change, adjust ?? (state => state), untouched ?? ((current, after) => current == after), ref restored, ref skipped, ref sliverArea);
+            if (pieces is not null)
+            {
+                rebuilt.Add((change.Tile, pieces));
+            }
         }
 
         Commit(rebuilt);
@@ -206,7 +215,8 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         public ParcelState? New { get; set; }
     }
 
-    private (List<Parcel> Pieces, TileChange? Change) CaptureTile(
+    /// <summary>Новые куски тайла и запись журнала; <c>null</c> — ни одно состояние не изменилось, тайл остаётся как был.</summary>
+    private (List<Parcel> Pieces, TileChange Change)? CaptureTile(
         TileKey tile,
         Geometry captureInTile,
         CaptureContext context,
@@ -219,6 +229,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         // 3. Судьба каждой грани — по её внутренней точке.
         var captureLocator = new IndexedPointInAreaLocator(captureInTile);
         var decidedInTile = 0.0;
+        var keptInside = false; // петля прошла по земле, которую не изменила
         foreach (var face in faces)
         {
             var (state, outcome) = captureLocator.Locate(face.Point) == Location.Interior
@@ -230,6 +241,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
             {
                 areas[outcome] = areas.GetValueOrDefault(outcome) + face.Geometry.Area;
                 decidedInTile += face.Geometry.Area;
+                keptInside |= state == face.Old;
             }
         }
 
@@ -245,11 +257,65 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         }
 
         // 4. Сливаем грани с одинаковым состоянием, убираем осколки.
-        var pieces = Assemble(tile, faces, ref sliverArea);
-        return (pieces, ChangeOf(tile, faces, pieces));
+        var tileSlivers = 0.0;
+        var pieces = Assemble(tile, faces, ref tileSlivers);
+
+        // Петля, которая ничего не поменяла (щит, новичок, лимит, опоздавшая петля), тайл не переписывает. Иначе
+        // пересборка оставила бы в кусках вершины там, где их пересекла петля (а на наклонной границе — изломы от
+        // snap-rounding): у кусков новые номера, у тайла новая версия без записи в журнале, и скрытая петля видна всем
+        // сразу (§3.16).
+        if (ChangeOf(tile, faces, pieces) is not { } change)
+        {
+            return null;
+        }
+
+        // 5. Там, где петля прошла по земле, которую не изменила, её граница не нужна: собираем тайл заново только по
+        // линиям журнала. Иначе куски, которых захват не касался, получили бы вершины в точках, где их общую границу
+        // пересекла петля (на наклонной границе — изломы до 7 см), новые номера и выдали бы скрытую петлю.
+        if (keptInside && Reassembled(tile, change) is { } reassembled)
+        {
+            pieces = reassembled;
+        }
+
+        sliverArea += tileSlivers;
+        return (pieces, change);
     }
 
-    private List<Parcel> RestoreTile(
+    /// <summary>
+    /// Куски тайла после захвата, собранные по его записи журнала, а не по границе петли: грани — от текущих границ
+    /// и линий журнала (след и земля после захвата), внутри следа — состояние после захвата, снаружи — прежнее.
+    /// <c>null</c> — сборка разошлась с первой (площадь следа или осколки): тогда остаются куски первой сборки.
+    /// </summary>
+    private List<Parcel>? Reassembled(TileKey tile, TileChange change)
+    {
+        var faces = FacesOf(tile, [change.Footprint.Boundary, .. change.After.Select(p => p.Geometry.Boundary)]);
+        var footprintLocator = new IndexedPointInAreaLocator(change.Footprint);
+        var after = Located(change.After);
+        var inside = 0.0;
+        foreach (var face in faces)
+        {
+            face.New = face.Old;
+            if (footprintLocator.Locate(face.Point) == Location.Interior)
+            {
+                face.New = StateAt(after, face.Point);
+                inside += face.Geometry.Area;
+            }
+        }
+
+        if (Math.Abs(inside - change.Footprint.Area) > SnapTolerance(change.Footprint))
+        {
+            return null;
+        }
+
+        // Осколки первая сборка уже раздала — здесь их быть не должно; иначе журнал разошёлся бы с картой.
+        var slivers = 0.0;
+        var pieces = Assemble(tile, faces, ref slivers);
+        var final = Located(pieces.Select(p => new JournalPiece(p.Geometry, p.State)).ToList());
+        return faces.All(face => StateAt(final, face.Point) == face.New) ? pieces : null;
+    }
+
+    /// <summary>Новые куски тайла; <c>null</c> — откат здесь ничего не изменил, тайл остаётся как был.</summary>
+    private List<Parcel>? RestoreTile(
         TileChange change,
         Func<ParcelState, ParcelState?> adjust,
         Func<ParcelState?, ParcelState?, bool> untouched,
@@ -314,7 +380,17 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
             }
         }
 
-        return Assemble(tile, faces, ref sliverArea);
+        // Как у захвата: откат, который ничего не вернул (всё в следе с тех пор изменилось), тайл не переузлует по
+        // границам следа — иначе на куски легли бы точки чужой скрытой петли.
+        var tileSlivers = 0.0;
+        var pieces = Assemble(tile, faces, ref tileSlivers);
+        if (Changed(faces, pieces).Count == 0)
+        {
+            return null;
+        }
+
+        sliverArea += tileSlivers;
+        return pieces;
     }
 
     /// <summary>Грани разбиения тайла текущими границами и дополнительными линиями; у каждой — текущее состояние.</summary>
@@ -361,7 +437,9 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         sliverArea += AbsorbSlivers(pieces, tile.ToPolygon());
 
         // Детерминированный порядок: одинаковая история захватов даёт одинаковую карту.
+        var current = ParcelsIn(tile);
         return pieces
+            .Select(piece => Settled(piece, current))
             .OrderBy(p => p.Geometry.EnvelopeInternal.MinX)
             .ThenBy(p => p.Geometry.EnvelopeInternal.MinY)
             .ThenBy(p => p.Geometry.Area)
@@ -370,16 +448,47 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
     }
 
     /// <summary>
-    /// Запись журнала по тайлу: грани, чьё состояние стало другим (с учётом осколков, отданных соседям), и земля до и после
-    /// на них. Считается по тем же граням, что и захват, — без второго узлования.
+    /// Собранный кусок в том виде, в каком его хранить. Кусок той же земли (то же множество точек) и того же состояния,
+    /// что уже лежит в тайле, остаётся прежним объектом — до вершины и порядка обхода: узлование добавляет вершины там,
+    /// где его границу пересекла чужая линия, и без этого кусок, который никто не менял, переписывался бы с новым
+    /// номером, а скрытая петля была бы видна по этим вершинам (PLAN.md, §3.16; то же в проекции, которая собирает тайл
+    /// откатом). Новый кусок хранится без вершин на прямых и в каноническом порядке обхода: тогда и проекция, собрав
+    /// ту же землю заново, получает его до вершины.
     /// </summary>
-    private static TileChange? ChangeOf(TileKey tile, List<Face> faces, List<Parcel> pieces)
+    private static Parcel Settled(Parcel piece, IReadOnlyList<Parcel> current)
+    {
+        var canonical = GeoOps.WithoutCollinearVertices(piece.Geometry);
+        foreach (var old in current)
+        {
+            if (old.State == piece.State
+                && old.Geometry.EnvelopeInternal.Equals(canonical.EnvelopeInternal)
+                && GeoOps.WithoutCollinearVertices(old.Geometry).EqualsExact(canonical))
+            {
+                return old;
+            }
+        }
+
+        return piece with { Geometry = canonical };
+    }
+
+    /// <summary>Грани, чьё состояние в собранных кусках стало другим (с учётом осколков, отданных соседям).</summary>
+    private static List<(Face Face, ParcelState? Final)> Changed(List<Face> faces, List<Parcel> pieces)
     {
         var final = Located(pieces.Select(p => new JournalPiece(p.Geometry, p.State)).ToList());
-        var changed = faces
+        return faces
             .Select(face => (Face: face, Final: StateAt(final, face.Point)))
             .Where(f => f.Face.Old != f.Final)
             .ToList();
+    }
+
+    /// <summary>
+    /// Запись журнала по тайлу: грани, чьё состояние стало другим (с учётом осколков, отданных соседям), и земля до и после
+    /// на них. Считается по тем же граням, что и решения захвата, — без отдельного узлования. <c>null</c> — ничего не
+    /// изменилось.
+    /// </summary>
+    private static TileChange? ChangeOf(TileKey tile, List<Face> faces, List<Parcel> pieces)
+    {
+        var changed = Changed(faces, pieces);
         if (changed.Count == 0)
         {
             return null;

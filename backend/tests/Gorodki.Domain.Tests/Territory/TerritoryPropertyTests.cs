@@ -100,6 +100,9 @@ public sealed class TerritoryPropertyTests
                 var errors = TerritoryInvariants.Check(map);
                 Assert.True(errors.Count == 0, $"{step}: {string.Join("; ", errors)}");
 
+                // I7: переписаны ровно те тайлы, где изменилось состояние земли (аудит BE-01).
+                Assert.Equal(result.Changes.Select(c => c.Tile), result.ChangedTiles);
+
                 // Каждый квадратный метр петли получил решение.
                 var decided = result.AreaByOutcome.Values.Sum();
                 Assert.True(

@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Territory;
+using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NetTopologySuite.Geometries;
 using static Gorodki.IntegrationTests.RunRequests;
@@ -155,6 +157,87 @@ public sealed class TerritoryTests(DatabaseFixture database)
         Assert.Contains(borisLand, p => p.ShieldUntilMs is not null);
         Assert.All(borisLand.Where(p => p.ShieldUntilMs is not null), p => Assert.Equal(0, p.ShieldUntilMs!.Value % 600_000));
     }
+
+    [Fact]
+    public async Task Capture_that_changes_no_land_leaves_the_map_as_it_was_for_everyone()
+    {
+        // Аудит BE-01: новичок обвёл землю Анны и Веры поперёк их границ и ничего не взял (§3.3). Раньше куски всё равно
+        // переписывались — с вершинами там, где прошла петля, — а версия тайла росла без записи в журнале: все видели
+        // перемену сразу, а не через 20 минут.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync(newcomer: true);
+        var (gleb, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await NeighboursAsync(api, anna, vera, area);
+        var before = await TileAsync(gleb, tile);
+
+        var claim = await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 25, 20, 100, 60));
+        await ProcessAsync(api, claim.RunId);
+
+        await using (var db = database.CreateContext())
+        {
+            var capture = await db.Captures.AsNoTracking().SingleAsync(c => c.Id == claim.CaptureId, Cancel);
+            Assert.Equal(CaptureStatus.Applied, capture.Status);
+            Assert.Contains("newAccountLimited", capture.AreaByOutcome!); // петля правда прошла по чужой земле
+        }
+
+        var after = await TileAsync(gleb, tile);
+        Assert.Equal(before.Version, (await ReadAsync(api, tile)).Version); // настоящая версия не выросла
+        Assert.Equal(before.Version, after.Version);
+        Assert.True(await IsUnchangedAsync(gleb, tile, before.Version));
+        Assert.Equal(Ids(before), Ids(after));
+    }
+
+    [Fact]
+    public async Task While_hidden_a_capture_leaves_no_trace_on_the_neighbours_land()
+    {
+        // Аудит BE-01: новичок обвёл землю Анны и Веры и ничью рядом — взял только ничью. Пока захват скрыт, Глеб получает
+        // тайл, откаченный по журналу. Куски Анны и Веры в нём те же до вершины и с теми же номерами: раньше на них
+        // оставались вершины ровно там, где скрытая петля пересекла их границы.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync(newcomer: true);
+        var (gleb, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await NeighboursAsync(api, anna, vera, area);
+        var before = await TileAsync(gleb, tile);
+
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 25, 20, 200, 60))).RunId);
+        var hidden = await TileAsync(gleb, tile);
+
+        Assert.True((await ReadAsync(api, tile)).Version > before.Version); // захват применён и тайл изменился
+        Assert.Equal(before.Version, hidden.Version);
+        Assert.Equal(Ids(before), Ids(hidden));
+
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var revealed = await TileAsync(gleb, tile, known: before.Version);
+
+        // После раскрытия у Анны и Веры всё те же куски, у Бориса — взятая ничья земля.
+        Assert.True(revealed.Version > before.Version);
+        Assert.Equal(Ids(before), Ids(revealed).Where(id => revealed.Parcels.Single(p => p.Id == id).OwnerId != borisId).ToList());
+        Assert.Contains(revealed.Parcels, p => p.OwnerId == borisId);
+    }
+
+    /// <summary>
+    /// Анна — квадрат 100 × 100 м, Вера забрала его правую половину и ничью землю рядом: три куска с общими границами
+    /// (у Веры два — со щитом и без). Оба захвата уже публичны.
+    /// </summary>
+    private async Task NeighboursAsync(ApiFactory api, HttpClient anna, HttpClient vera, (double X, double Y) area)
+    {
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, vera, Square(area, 50, 0, 100))).RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+    }
+
+    private static List<long> Ids(TileTerritory tile) => [.. tile.Parcels.Select(p => p.Id).Order()];
 
     private async Task<bool> IsUnchangedAsync(HttpClient client, TileKey tile, long known)
     {

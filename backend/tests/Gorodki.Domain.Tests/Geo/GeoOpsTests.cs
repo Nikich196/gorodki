@@ -79,6 +79,44 @@ public sealed class GeoOpsTests
     }
 
     [Fact]
+    public void Collinear_vertices_are_dropped_and_the_shape_is_kept()
+    {
+        // Лишние вершины на прямых: на стыке кольца (первая точка), на стороне, на наклонной стороне и в дыре. Излом
+        // (60; 0) — угол на сантиметры, но угол: он остаётся. В итоге — только углы, в каноническом порядке обхода.
+        var polygon = GeoOps.Factory.CreatePolygon(
+            GeoOps.Factory.CreateLinearRing(
+            [
+                new Coordinate(0, 50), new Coordinate(0, 0), new Coordinate(30, 0), new Coordinate(60, 0), new Coordinate(100, 0.1),
+                new Coordinate(100, 100), new Coordinate(50, 150), new Coordinate(20, 180), new Coordinate(0, 100), new Coordinate(0, 50),
+            ]),
+            [GeoOps.Factory.CreateLinearRing(
+            [
+                new Coordinate(10, 10), new Coordinate(10, 20), new Coordinate(20, 20), new Coordinate(20, 15), new Coordinate(20, 10),
+                new Coordinate(10, 10),
+            ])]);
+
+        var result = GeoOps.WithoutCollinearVertices(polygon);
+
+        Assert.True(result.IsValid);
+        Assert.True(result.EqualsTopologically(polygon));
+        Assert.Equal(7, result.Shell.NumPoints); // (0;0), (60;0), (100;0,1), (100;100), (20;180), (0;100) и замыкающая
+        Assert.Equal(5, result.Holes[0].NumPoints);
+        Assert.True(result.EqualsExact(result.Normalized()));
+    }
+
+    [Fact]
+    public void Vertices_off_the_grid_are_never_dropped()
+    {
+        // Без сетки «на прямой» точно не проверить — такую вершину не трогаем.
+        var polygon = GeoOps.Factory.CreatePolygon(
+        [
+            new Coordinate(0, 0), new Coordinate(33.333, 0), new Coordinate(100, 0), new Coordinate(100, 100), new Coordinate(0, 0),
+        ]);
+
+        Assert.Equal(5, GeoOps.WithoutCollinearVertices(polygon).Shell.NumPoints);
+    }
+
+    [Fact]
     public void Tiles_are_ordered_and_cover_the_envelope()
     {
         var envelope = new Envelope(TestGeometry.OriginX - 10, TestGeometry.OriginX + 10, TestGeometry.OriginY - 10, TestGeometry.OriginY + 10);
