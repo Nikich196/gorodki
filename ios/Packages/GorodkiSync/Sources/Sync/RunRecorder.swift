@@ -56,7 +56,8 @@ public actor RunRecorder {
     private let store: any SyncStore
     private let policy: ChunkPolicy
     private let windowStartMs: Int64
-    private let windowEndMs: Int64
+    /// Конец окна забега (мс): точки позже — не этого забега, пора завершать.
+    public let windowEndMs: Int64
     private let maxSeq: Int
 
     private var buffer: [TrackPoint] = []
@@ -77,6 +78,11 @@ public actor RunRecorder {
     /// Датчики принимаются только позже этого момента (мс).
     public private(set) var acceptsSensorsAfterMs: Int64
     private var finished = false
+    /// Конец забега начался: пока запечатывается остаток, новые точки и датчики не принимаются — иначе точка вошла бы
+    /// в `lastSeq`, но не в кусок, и у сервера навсегда не хватало бы её.
+    private var finishing = false
+    /// Сколько кусков запечатано с начала (или продолжения) записи.
+    public private(set) var sealedChunks = 0
 
     /// Записи датчиков, пришедшие не позже отметки уже запечатанного куска.
     public private(set) var lateSensorRecords = 0
@@ -155,7 +161,7 @@ public actor RunRecorder {
 
     /// Точка следа — уже пронумерованная движком трекинга (подряд с нуля); сохраняется в точности хранения сервера.
     public func record(_ point: TrackPoint, source: PointSource = []) async throws {
-        guard !finished else { throw RecorderError.alreadyFinished }
+        guard !finished, !finishing else { throw RecorderError.alreadyFinished }
         guard point.seq == nextSeq else { throw RecorderError.outOfOrder(expected: nextSeq, got: point.seq) }
         let stored = point.quantizedForStorage()
         let ms = StoragePrecision.milliseconds(stored.timestamp)
@@ -178,7 +184,10 @@ public actor RunRecorder {
         }
     }
 
-    public func record(_ sample: MotionSample) {
+    /// - Returns: запись уйдёт на сервер (судье телефона — только такие).
+    @discardableResult
+    public func record(_ sample: MotionSample) -> Bool {
+        guard !finished, !finishing else { return drop() }
         let stored = sample.quantizedForStorage()
         let ms = StoragePrecision.milliseconds(stored.timestamp)
         if ms < windowStartMs, acceptsSensorsAfterMs < windowStartMs {
@@ -186,15 +195,19 @@ public actor RunRecorder {
             if motionBeforeWindow.map({ $0.timestamp <= stored.timestamp }) ?? true {
                 motionBeforeWindow = stored
             }
-            return
+            return true
         }
         guard ms <= windowEndMs else { return drop() }
         guard ms > acceptsSensorsAfterMs else { return late() }
         guard motion.count < policy.maxSamples else { return drop() }
         motion.append(stored)
+        return true
     }
 
-    public func record(_ sample: PedometerSample) {
+    /// - Returns: запись уйдёт на сервер (судье телефона — только такие).
+    @discardableResult
+    public func record(_ sample: PedometerSample) -> Bool {
+        guard !finished, !finishing else { return drop() }
         let stored = sample.quantizedForStorage()
         let start = StoragePrecision.milliseconds(stored.start)
         let end = StoragePrecision.milliseconds(stored.end)
@@ -203,10 +216,18 @@ public actor RunRecorder {
         guard end > acceptsSensorsAfterMs else { return late() }
         guard steps.count < policy.maxSamples else { return drop() }
         steps.append(stored)
+        return true
     }
 
-    private func late() { lateSensorRecords += 1 }
-    private func drop() { droppedSensorRecords += 1 }
+    private func late() -> Bool {
+        lateSensorRecords += 1
+        return false
+    }
+
+    private func drop() -> Bool {
+        droppedSensorRecords += 1
+        return false
+    }
 
     /// Телефон уже получил все данные датчиков до этого момента (секунды Unix): CoreMotion и шагомер отдают их с задержкой.
     public func sensorsComplete(through seconds: Double) {
@@ -237,6 +258,7 @@ public actor RunRecorder {
     /// Конец забега: остаток запечатывается, забег получает время конца и номер последней точки.
     public func finish(endedAt seconds: Double) async throws {
         guard !finished else { return }
+        finishing = true  // до первого ожидания: точка, пришедшая во время записи остатка, не войдёт в `lastSeq`
         try await seal()  // сначала все куски, потом отметка конца: увидев конец, синхронизация видит и все куски
         let endedAtMs = StoragePrecision.milliseconds(seconds)
         let lastSeq = nextSeq - 1
@@ -281,6 +303,7 @@ public actor RunRecorder {
                 $0.lastPointMs = max($0.lastPointMs ?? .min, lastPointMs ?? .min)
                 $0.sealedSensorsMarkMs = max($0.sealedSensorsMarkMs ?? .min, mark)
             }
+            sealedChunks += 1
         } catch {
             buffer = taken.buffer + buffer
             sources = taken.sources + sources

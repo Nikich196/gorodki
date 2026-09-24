@@ -49,9 +49,11 @@ public struct SegmentJudge: Sendable {
         self.rules = rules ?? .default(for: league)
     }
 
+    /// Записи хранятся по времени: CoreMotion может отдать их не по порядку, а судья читает «последнюю на момент точки».
     public mutating func record(_ sample: MotionSample) {
-        motion.append(sample)
-        prune(now: sample.timestamp)
+        let index = motion.lastIndex { $0.timestamp <= sample.timestamp }.map { $0 + 1 } ?? 0
+        motion.insert(sample, at: index)
+        prune(now: motion.last?.timestamp ?? sample.timestamp)
     }
 
     public mutating func record(_ sample: PedometerSample) {

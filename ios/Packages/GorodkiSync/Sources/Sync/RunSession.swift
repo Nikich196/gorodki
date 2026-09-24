@@ -3,6 +3,14 @@ import GameCore
 
 /// Точка GPS, как её отдаёт CoreLocation, — ещё без номера.
 public struct LocationFix: Equatable, Sendable {
+    /// Точка, которую можно нумеровать: координата в диапазоне, точность известна (CoreLocation даёт −1, когда
+    /// координаты нет), время — число.
+    public var isValid: Bool {
+        coordinate.latitude.isFinite && abs(coordinate.latitude) <= 90 && coordinate.longitude.isFinite
+            && abs(coordinate.longitude) <= 180 && horizontalAccuracy.isFinite && horizontalAccuracy >= 0
+            && timestamp.isFinite
+    }
+
     public var coordinate: Coordinate
     /// Время точки, секунды Unix.
     public var timestamp: Double
@@ -170,6 +178,12 @@ public actor RunSession {
     /// - Parameter now: «сейчас» по часам телефона, секунды Unix (судья отбрасывает устаревшие точки).
     /// - Returns: что стало с точкой; петля добавляет к вердикту `.loopClaimed`.
     public func handle(_ fix: LocationFix, now: Double) async throws -> [RunEvent] {
+        try await exclusively { try await process(fix, now: now) }
+    }
+
+    /// Точки, таймер и конец забега — строго по одному: запись куска ждёт диск, и актор в это время принял бы
+    /// следующую операцию (точку с тем же номером или конец забега посреди записи точки).
+    private func exclusively<T: Sendable>(_ body: () async throws -> T) async throws -> T {
         while handling {
             await withCheckedContinuation { handlingWaiters.append($0) }
         }
@@ -180,11 +194,17 @@ public actor RunSession {
                 handlingWaiters.removeFirst().resume()
             }
         }
-        return try await process(fix, now: now)
+        return try await body()
     }
 
     private func process(_ fix: LocationFix, now: Double) async throws -> [RunEvent] {
         guard !isFinished else { return [] }
+        // Неверная точка (CoreLocation: точность −1 — координата неизвестна) не нумеруется: округление превратило бы
+        // точность −1 в 0 — «идеальную», а координата вне диапазона дала бы отказ всего куска (docs/architecture/runs.md).
+        guard fix.isValid else {
+            stats.lastIssue = .poorAccuracy
+            return [.dropped]
+        }
         // Устаревшая точка (CoreLocation часто первой отдаёт запомненную) не нумеруется и не уходит на сервер.
         if now - fix.timestamp > maxFixAgeSeconds {
             stats.lastIssue = .staleFix
@@ -206,7 +226,7 @@ public actor RunSession {
             if ms < startedAtMs {
                 return [.dropped]
             }
-            try await finish(endedAt: lastTimestamp ?? point.timestamp)
+            try await finishNow(endedAt: lastTimestamp ?? point.timestamp)
             return [.finishedAtLimit]
         }
         lastPointMs = ms
@@ -289,18 +309,21 @@ public actor RunSession {
         stats.fogAreaSquareMeters = fog.areaSquareMeters
     }
 
-    /// Вид движения от CoreMotion — судье и в очередь (сервер судит по тем же данным).
+    /// Вид движения от CoreMotion — в очередь и, если запись её приняла, судье: судья телефона должен видеть ровно то,
+    /// что увидит сервер (запоздавшую или лишнюю запись сервер не получит).
     public func record(_ sample: MotionSample) async {
         let stored = sample.quantizedForStorage()
-        judge.record(stored)
-        await recorder.record(stored)
+        if await recorder.record(stored) {
+            judge.record(stored)
+        }
     }
 
-    /// Шаги от шагомера — судье и в очередь.
+    /// Шаги от шагомера — так же: судье только принятое записью.
     public func record(_ sample: PedometerSample) async {
         let stored = sample.quantizedForStorage()
-        judge.record(stored)
-        await recorder.record(stored)
+        if await recorder.record(stored) {
+            judge.record(stored)
+        }
     }
 
     /// Телефон уже получил все данные датчиков до этого момента (секунды Unix).
@@ -308,13 +331,33 @@ public actor RunSession {
         await recorder.sensorsComplete(through: seconds)
     }
 
-    /// Раз в несколько секунд: запечатать кусок, если он «созрел» по времени.
-    public func tick(now seconds: Double) async throws {
-        try await recorder.tick(now: seconds)
+    /// Раз в несколько секунд: запечатать кусок, если он «созрел» по времени, и завершить забег по пределу длины, даже
+    /// если GPS молчит (иначе предел сработал бы только на следующей точке).
+    /// - Returns: `[.finishedAtLimit]`, если забег завершён по пределу.
+    @discardableResult
+    public func tick(now seconds: Double) async throws -> [RunEvent] {
+        try await exclusively {
+            guard !isFinished else { return [] }
+            if StoragePrecision.milliseconds(seconds) > recorder.windowEndMs {
+                try await finishNow(endedAt: lastTimestamp ?? Double(recorder.windowEndMs) / 1_000)
+                return [.finishedAtLimit]
+            }
+            try await recorder.tick(now: seconds)
+            return []
+        }
     }
 
-    /// Конец забега (игрок нажал «Стоп» или вышел предел длины).
+    /// Сколько кусков запечатано с начала (или продолжения) забега — по нему видно, что пора звать синхронизацию.
+    public var sealedChunks: Int {
+        get async { await recorder.sealedChunks }
+    }
+
+    /// Конец забега (игрок нажал «Стоп» или вышел предел длины). Ждёт точку, которая сейчас записывается.
     public func finish(endedAt seconds: Double) async throws {
+        try await exclusively { try await finishNow(endedAt: seconds) }
+    }
+
+    private func finishNow(endedAt seconds: Double) async throws {
         guard !isFinished else { return }
         try await recorder.finish(endedAt: seconds)
         settleFog(olderThan: .max)  // конец без разрыва: весь хвост засчитан
