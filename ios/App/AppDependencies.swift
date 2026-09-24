@@ -21,6 +21,8 @@ final class AppDependencies: Sendable {
     let tokens: TokenStore
     /// Клиент API: подписывает запросы и обновляет токен при 401. `nil`, пока адрес сервера не задан.
     let api: Client?
+    /// Вход и выход (`SignInService`); `nil`, пока адрес сервера не задан. Экран входа ждёт Client ID Google (#4).
+    let signIn: SignInService?
     /// Реальное время (docs/architecture/realtime.md): одно соединение на приложение — под тем, кто сейчас вошёл.
     /// `nil`, пока адрес сервера не задан.
     let realtime: RealtimeClient?
@@ -39,7 +41,9 @@ final class AppDependencies: Sendable {
         let transport = ClientFactory.urlSessionTransport()
         self.serverURL = serverURL
         self.tokens = tokens
-        self.api = serverURL.map { ClientFactory.make(serverURL: $0, tokens: tokens, transport: transport) }
+        let api = serverURL.map { ClientFactory.make(serverURL: $0, tokens: tokens, transport: transport) }
+        self.api = api
+        self.signIn = api.map { SignInService(api: $0, tokens: tokens) }
         self.realtime = serverURL.map { url in
             RealtimeClient(
                 connector: SignalRConnector(
