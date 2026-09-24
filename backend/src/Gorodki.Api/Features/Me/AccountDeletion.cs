@@ -15,7 +15,9 @@ namespace Gorodki.Api.Features.Me;
 /// <remarks>
 /// Земля удаляется под блокировками тайлов (как захват) и становится ничьей; версии тайлов растут — у соседей карта
 /// обновится. В журнале захватов других игроков (земля до/после их захватов) номер удалённого остаётся, пока журнал
-/// не сотрётся — через 7 дней, раньше срока закона; откат и публичная проекция такую землю возвращают ничьей.
+/// не сотрётся — через 7 дней, раньше срока закона; откат и публичная проекция такую землю возвращают ничьей. Строки
+/// точного отката (<c>capture_journal_parcels</c>) чистятся сразу, как земля: иначе точный откат скрытого чужого захвата
+/// не сошёлся бы с кусками.
 /// </remarks>
 public sealed class AccountDeletion(
     AppDbContext db, GameConfigStore configs, RealtimeHints hints, TimeProvider time, ILogger<AccountDeletion> logger)
@@ -96,6 +98,15 @@ public sealed class AccountDeletion(
             cancellationToken);
         await db.Database.ExecuteSqlAsync(
             $"UPDATE app.capture_journal_pieces SET loss_attackers = array_remove(loss_attackers, {userId}) WHERE {userId} = ANY(loss_attackers)",
+            cancellationToken);
+
+        // Строки точного отката (публичная проекция скрытых чужих захватов, аудит BE-01) — так же, как земля: строки его
+        // кусков прочь, его номер — из списков. Обмен строк остаётся согласованным: его кусков нет ни в parcels, ни среди
+        // удалённых захватом строк, и проекция вернёт на их месте ничью землю — как в мире без захвата. Иначе номер
+        // вставленного куска совпал бы, а состояние (список снявших) — нет, и точный откат ушёл бы в запасной путь.
+        await db.CaptureJournalParcels.Where(r => r.OwnerId == userId).ExecuteDeleteAsync(cancellationToken);
+        await db.Database.ExecuteSqlAsync(
+            $"UPDATE app.capture_journal_parcels SET loss_attackers = array_remove(loss_attackers, {userId}) WHERE {userId} = ANY(loss_attackers)",
             cancellationToken);
         foreach (var tile in tiles)
         {

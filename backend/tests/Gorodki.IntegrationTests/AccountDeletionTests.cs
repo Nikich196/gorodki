@@ -63,11 +63,15 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         // Через 25 минут Борис отнимает у Анны половину квадрата (его захват ещё скрыт), и аккаунт стирается.
         api.Time.Advance(TimeSpan.FromMinutes(25));
         await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
-        // Анна успела снять уровень у земли Бориса: её номер — в списке атакующих его участка и в журнале.
+        // Анна успела снять уровень у земли Бориса: её номер — в списке атакующих его участка и в журнале (в земле до/после
+        // и в строках точного отката).
         await using (var db = database.CreateContext())
         {
             await db.Database.ExecuteSqlAsync($"UPDATE app.parcels SET loss_attackers = ARRAY[{annaId}] WHERE owner_id = {borisId}", Cancel);
             await db.Database.ExecuteSqlAsync($"UPDATE app.capture_journal_pieces SET loss_attackers = ARRAY[{annaId}] WHERE owner_id = {borisId}", Cancel);
+            Assert.True(await db.Database.ExecuteSqlAsync(
+                $"UPDATE app.capture_journal_parcels SET loss_attackers = ARRAY[{annaId}] WHERE owner_id = {borisId}", Cancel) > 0);
+            Assert.True(await db.CaptureJournalParcels.AnyAsync(r => r.OwnerId == annaId, Cancel)); // кусок Анны, удалённый захватом
         }
 
         var versionBefore = await TileVersionAsync(tile);
@@ -81,7 +85,7 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         // Захват Бориса ещё скрыт задержкой (20 минут): проекция вернула бы Вере землю Анны — но удалённый на карте
         // не появляется.
         var seen = await vera.GetFromJsonAsync<TerritoryResponse>($"/territory?league=run&tiles={tile.X}:{tile.Y}", Json, Cancel);
-        Assert.DoesNotContain(Assert.Single(seen!.Tiles).Parcels, p => p.OwnerId == annaId);
+        Assert.Empty(Assert.Single(seen!.Tiles).Parcels);
     }
 
     private static async Task<int> DeleteRequestedAsync(ApiFactory api)
