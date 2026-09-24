@@ -278,11 +278,13 @@ public sealed class TerritoryTests(DatabaseFixture database)
     }
 
     [Fact]
-    public async Task Victims_visit_to_a_cracked_part_while_the_capture_is_hidden_does_not_reveal_it()
+    public async Task Victims_visit_with_one_time_on_both_parts_of_a_hidden_crack_does_not_reveal_it()
     {
-        // Аудит BE-01: Борис треснул правую часть квадрата Анны (L2 → L1 и осада). Забег Анны из офлайна прошёл и по
-        // треснувшей части, и по остальной земле; визиты засчитаны, пока захват скрыт. Раньше треснувшая часть с визитом
-        // оставалась в проекции как есть: отдельный кусок с уровнем −1 и осадой, шов ровно по линии петли.
+        // Аудит BE-01: Борис треснул правую часть квадрата Анны (L2 → L1 и осада). Забег Анны кончился раньше, чем
+        // применён захват, прошёл и по треснувшей части, и по остальной земле; визиты засчитаны, пока захват скрыт. Раньше
+        // треснувшая часть с визитом оставалась в проекции как есть: отдельный кусок с уровнем −1 и осадой, шов ровно по
+        // линии петли. Это случай одного времени визита у обеих частей — путь подобран так нарочно; в обычном забеге
+        // времена разные, и шов остаётся (следующий тест).
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
@@ -335,6 +337,61 @@ public sealed class TerritoryTests(DatabaseFixture database)
             (seen.OwnerId, seen.Level, seen.ShieldUntilMs, seen.SiegeUntilMs, seen.LastVisitAtMs));
         Assert.Equal(beforeBoris.Exterior, seen.Exterior);
         Assert.Empty(seen.Holes);
+
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var revealed = await TileAsync(vera, tile, known: hidden.Version);
+
+        Assert.Contains(revealed.Parcels, p => p.OwnerId == annaId && p.Level == 1 && p.SiegeUntilMs is not null);
+        Assert.Contains(revealed.Parcels, p => p.OwnerId == borisId);
+    }
+
+    [Fact]
+    public async Task Victims_straight_run_over_a_hidden_crack_still_shows_the_loop_line()
+    {
+        // Известный остаток BE-01 (territory-map.md), обычная игра: Анна (L2) пробежала напрямик через свой квадрат, а
+        // Борис треснул его правую часть раньше, чем её визиты засчитаны (граница публичности ещё не дошла до конца её
+        // забега). У каждого куска свой порог и своё время визита (VisitProcessor): по треснувшей части 60 м — визит, по
+        // остатку 40 м — нет. Без захвата весь квадрат получил бы визит и вырос до L3. В проекции у Веры уровня −1 и осады
+        // нет, но треснувшая часть — L3 рядом с L2 на остатке: ступенька уровня ровно по линии скрытой петли, до раскрытия.
+        // Закроет это точный откат по исходным кускам (шаг 6 BE-01) — тогда здесь будет один кусок L3: переверни проверки.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(21));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId); // L2
+        api.Time.Advance(TimeSpan.FromHours(23)); // визит поднял бы уровень: с повышения больше 20 ч
+        var beforeBoris = Assert.Single((await TileAsync(vera, tile)).Parcels);
+        Assert.Equal((annaId, (short)2), (beforeBoris.OwnerId, beforeBoris.Level));
+
+        var walk = await WalkAndFinishAsync(
+            Cancel, api, anna, [(area.X - 250, area.Y + 50), (area.X + 450, area.Y + 50)], startedAgo: TimeSpan.FromMinutes(90));
+        Assert.Equal(1, await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 40, -10, 100, 120))).RunId));
+        Assert.Equal(1, await VisitAsync(api, walk.Id)); // только треснувшая часть
+        DateTimeOffset visitedAt;
+        await using (var db = database.CreateContext())
+        {
+            var land = await db.Parcels.AsNoTracking().Where(p => p.OwnerId == annaId).ToListAsync(Cancel);
+            Assert.Equal(2, land.Count);
+            var cracked = Assert.Single(land, p => p.SiegeUntil is not null);
+            Assert.Equal(1, cracked.Level); // в осаде визит уровень не поднял
+            visitedAt = cracked.LastVisitAt;
+            Assert.True(Assert.Single(land, p => p.SiegeUntil is null).LastVisitAt < visitedAt); // остаток — без визита
+        }
+
+        var hidden = await TileAsync(vera, tile);
+
+        Assert.All(hidden.Parcels, p => Assert.Equal((annaId, (long?)null, (long?)null), (p.OwnerId, p.ShieldUntilMs, p.SiegeUntilMs)));
+        var pieces = hidden.Parcels.OrderBy(p => p.Level).ToList();
+        Assert.Equal(2, pieces.Count);
+        Assert.Equal(((short)2, beforeBoris.LastVisitAtMs), (pieces[0].Level, pieces[0].LastVisitAtMs)); // остаток, x 0…40
+        Assert.InRange(AreaOf(pieces[0].Exterior), 3_800, 4_200);
+        Assert.Equal(((short)3, visitedAt.ToUnixTimeMilliseconds() / 3_600_000 * 3_600_000), (pieces[1].Level, pieces[1].LastVisitAtMs));
+        Assert.InRange(AreaOf(pieces[1].Exterior), 5_800, 6_200); // треснувшая часть, x 40…100
 
         api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
         var revealed = await TileAsync(vera, tile, known: hidden.Version);
