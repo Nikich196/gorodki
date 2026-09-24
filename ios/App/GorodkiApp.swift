@@ -1,4 +1,6 @@
+import GorodkiAPI
 import Network
+import Networking
 import Realtime
 import SwiftUI
 import Synchronization
@@ -59,9 +61,11 @@ final class RealtimeRelay {
                     // После подключения — догнать пропущенное; итог заявки забирает синхронизация. Не ждать прохода:
                     // подсказки, пришедшие во время него, расписание склеит в один следующий.
                     Task { await AppDependencies.shared.syncScheduler()?.trigger(.hint) }
-                case .tilesChanged:
-                    // Карты в приложении ещё нет (этап 2): она перезапросит видимые тайлы с известными версиями.
-                    break
+                case .tilesChanged(let league, let tiles):
+                    // Пометить тайлы: карта (этап 2) перезапросит их с известными версиями, когда покажет.
+                    if league == .run {
+                        await AppDependencies.shared.territory?.markChanged(tiles)
+                    }
                 }
             }
         }
@@ -84,6 +88,8 @@ final class SessionRelay {
         Task.detached {
             for await event in dependencies.tokens.events {
                 await dependencies.realtime?.stop()
+                // Видимые версии у каждого игрока свои (скрытые чужие захваты) — кэш земли прежнего входа не годится.
+                await dependencies.territory?.reset()
                 guard case .signedIn = event else { continue }
                 if await MainActor.run(body: { UIApplication.shared.applicationState == .active }) {
                     await dependencies.realtime?.start()

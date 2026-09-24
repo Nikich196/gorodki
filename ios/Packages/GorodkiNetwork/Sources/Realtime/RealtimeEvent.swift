@@ -1,18 +1,5 @@
 import GorodkiAPI
-
-/// Лига — как в API: `run` или `bike`.
-public typealias League = Components.Schemas.League
-
-/// Тайл карты — клетка UTM 1×1 км, как в `GET /territory` (docs/architecture/territory-map.md).
-public struct TileKey: Hashable, Sendable {
-    public var x: Int
-    public var y: Int
-
-    public init(x: Int, y: Int) {
-        self.x = x
-        self.y = y
-    }
-}
+import Networking
 
 /// Подсказка реального времени (docs/architecture/realtime.md, «Контракт для приложения»). Данных в ней нет — только
 /// «что перезапросить» через REST.

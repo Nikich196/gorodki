@@ -1,5 +1,6 @@
 import Foundation
 import GorodkiAPI
+import Networking
 
 /// Реальное время в приложении (PLAN.md, D6; docs/architecture/realtime.md): одно соединение с хабом, пока приложение
 /// на переднем плане. После каждого подключения — подписка на лигу и событие `.connected` (пересинхронизироваться),
