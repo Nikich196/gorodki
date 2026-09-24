@@ -56,7 +56,8 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
             }
             catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
-                // Сюда доходят только ошибки базы (ошибка отката одного захвата считается внутри задания).
+                // Сюда доходят только ошибки базы, в том числе временный сбой при откате захвата (постоянная ошибка
+                // отката одного захвата считается внутри задания).
                 db.ChangeTracker.Clear();
                 logger.LogError(e, "Задание отката {RollbackId} не выполнено — повтор в следующем проходе", id);
             }
@@ -108,10 +109,14 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
                         break;
                 }
             }
-            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            catch (Exception e) when (!DatabaseFailures.IsTransient(e)
+                                      && (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested))
             {
-                // Любая ошибка отката захвата — его неудача в итоге задания (failed, last_error): остальные захваты
+                // Ошибка отката захвата — его неудача в итоге задания (failed, last_error): остальные захваты
                 // откатываются, задание завершается, и администратор видит, что поставить откат нужно снова.
+                // Временный сбой базы (соединение, пул, взаимоблокировка) — не неудача захвата: иначе минутный обрыв
+                // связи завершил бы задание с неоткаченными захватами. Он уходит наверх, задание остаётся ожидающим и
+                // повторяется в следующем проходе; уже откаченные захваты список второй раз не вернёт.
                 db.ChangeTracker.Clear();
                 failed++;
                 lastError = Truncate($"Захват {captureId}: {e.Message}");

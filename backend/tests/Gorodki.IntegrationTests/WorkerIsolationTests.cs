@@ -13,7 +13,7 @@ namespace Gorodki.IntegrationTests;
 
 /// <summary>
 /// Изоляция фонового обработчика на настоящей базе: забег, который не судится (испорченный кусок), стоит первым во всех
-/// очередях — и всё равно не мешает ни туману других забегов, ни откатам, а сам откладывается и не держит очередь.
+/// очередях — и всё равно не мешает ни захватам и туману других забегов, ни откатам, а сам откладывается и не держит очередь.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class WorkerIsolationTests(DatabaseFixture database)
@@ -33,8 +33,9 @@ public sealed class WorkerIsolationTests(DatabaseFixture database)
         // У Анны — завершённый забег с заявкой петли, кусок которого испорчен (ручная правка базы, смена формата).
         var poisoned = await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100));
         await FinishAsync(anna, poisoned.RunId, poisoned.EndMs, api);
-        // У Бориса — обычный завершённый забег; у Веры — задание отката (захватов у неё нет — выполнится сразу).
-        var healthy = await WalkAndFinishAsync(Cancel, api, boris, Square(NewArea(), 0, 0, 100));
+        // У Бориса — обычный завершённый забег с заявкой петли; у Веры — задание отката (захватов у неё нет — выполнится сразу).
+        var healthy = await WalkAndClaimAsync(Cancel, api, boris, Square(NewArea(), 0, 0, 100));
+        await FinishAsync(boris, healthy.RunId, healthy.EndMs, api);
         var rollback = await admin.PostAsJsonAsync($"/admin/users/{veraId}/rollback", new RollbackRequest("тест: изоляция"), Json, Cancel);
         Assert.Equal(HttpStatusCode.Accepted, rollback.StatusCode);
         var job = (await rollback.Content.ReadFromJsonAsync<RollbackResponse>(Json, Cancel))!;
@@ -47,7 +48,7 @@ public sealed class WorkerIsolationTests(DatabaseFixture database)
                 .Where(c => c.RunId == poisoned.RunId)
                 .ExecuteUpdateAsync(set => set.SetProperty(c => c.Points, new byte[] { 0xFF, 0xFF }), Cancel);
             await db.Runs.Where(r => r.Id == poisoned.RunId).ExecuteUpdateAsync(set => set.SetProperty(r => r.EndedAt, first), Cancel);
-            await db.Runs.Where(r => r.Id == healthy.Id).ExecuteUpdateAsync(set => set.SetProperty(r => r.EndedAt, first.AddSeconds(1)), Cancel);
+            await db.Runs.Where(r => r.Id == healthy.RunId).ExecuteUpdateAsync(set => set.SetProperty(r => r.EndedAt, first.AddSeconds(1)), Cancel);
             await db.Captures.Where(c => c.Id == poisoned.CaptureId).ExecuteUpdateAsync(set => set.SetProperty(c => c.ReceivedAt, first), Cancel);
             await db.CaptureRollbacks.Where(r => r.Id == job.Id).ExecuteUpdateAsync(set => set.SetProperty(r => r.RequestedAt, first), Cancel);
         }
@@ -55,11 +56,12 @@ public sealed class WorkerIsolationTests(DatabaseFixture database)
         var worker = ActivatorUtilities.CreateInstance<CaptureWorker>(api.Services);
         await worker.RunPassAsync(Cancel);
 
-        // Остальной проход прошёл: туман другого забега открыт, откат выполнен.
+        // Остальной проход прошёл: заявка другого забега применена, его туман открыт, откат выполнен.
         var now = api.Time.GetUtcNow();
         await using (var db = database.CreateContext())
         {
-            Assert.NotNull((await RunAsync(db, healthy.Id)).FogStampedAt);
+            Assert.Equal(CaptureStatus.Applied, (await ClaimAsync(db, healthy.CaptureId)).Status);
+            Assert.NotNull((await RunAsync(db, healthy.RunId)).FogStampedAt);
             Assert.Equal(CaptureRollbackStatus.Done, (await db.CaptureRollbacks.AsNoTracking().SingleAsync(r => r.Id == job.Id, Cancel)).Status);
 
             // Испорченный забег отложен: туман и визиты — на паузе, заявка — в аренде с записанной ошибкой.
