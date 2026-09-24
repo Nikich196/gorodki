@@ -92,14 +92,24 @@ struct FogTileCodecTests {
 @Suite("Туман на телефоне: тайлы с версиями")
 struct FogCacheTests {
     /// Сервер тумана без сети, как `GET /fog`: тайл → версия (открыто клеток = версия × 10). Тайла без открытых клеток
-    /// в базе нет: спрошенный с `@0` он «не изменился», без версии — не упоминается вовсе.
+    /// в базе нет: спрошенный с `@0` он «не изменился», без версии — не упоминается вовсе. Стёртый очисткой истории,
+    /// спрошенный с версией, приходит пустым с версией на 1 больше.
     actor Server: ClientTransport {
         private var versions: [FogTileRef: Int64] = [:]
+        private var cleared: Set<FogTileRef> = []
         private(set) var requests: [(tiles: [String], layer: String?, season: String?)] = []
         private var corrupt: Set<FogTileRef> = []
         private var wrongCount: Set<FogTileRef> = []
 
-        func set(_ key: FogTileRef, version: Int64) { versions[key] = version }
+        func set(_ key: FogTileRef, version: Int64) {
+            versions[key] = version
+            cleared.remove(key)
+        }
+        /// «Очистить историю исследований»: строки тайла больше нет.
+        func clear(_ key: FogTileRef) {
+            versions[key] = nil
+            cleared.insert(key)
+        }
         func corrupt(_ key: FogTileRef) { corrupt.insert(key) }
         func heal(_ key: FogTileRef) { corrupt.remove(key) }
         func lieAboutCount(_ key: FogTileRef) { wrongCount.insert(key) }
@@ -144,6 +154,10 @@ struct FogCacheTests {
                     tiles.append(
                         #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"cellCount":\#(count),"bits":"\#(bits)"}"#
                     )
+                } else if cleared.contains(key), let known, known > 0 {
+                    let bits = compressedTile(cells: 0).base64EncodedString()
+                    tiles.append(
+                        #"{"x":\#(key.x),"y":\#(key.y),"version":\#(known + 1),"cellCount":0,"bits":"\#(bits)"}"#)
                 }
             }
             if holding {
@@ -342,6 +356,26 @@ struct FogCacheTests {
         #expect(try await cache.refresh(visible: [Self.a]) == [Self.a])
         #expect(await cache.tile(Self.a)?.version == 4)
         #expect(try await cache.refresh(visible: [Self.a]).isEmpty)  // дальше — снова без запросов
+    }
+
+    @Test("История очищена — пустой тайл с версией новее заменяет стёртый; открытый заново приходит")
+    func clearedHistoryReplacesCachedTiles() async throws {
+        await seed()
+        let cache = cache()
+        try await cache.refresh(visible: Self.near)
+        await server.clear(Self.a)
+
+        await cache.invalidate()  // подсказка `FogChanged` после очистки
+        #expect(try await cache.refresh(visible: Self.near) == [Self.a])
+        let empty = try #require(await cache.tile(Self.a))
+        #expect(empty.version == 4 && empty.cellCount == 0 && FogTileCodec.cellCount(empty.words) == 0)
+        #expect(await cache.tile(Self.b)?.cellCount == 10)  // другой тайл не тронут
+        #expect(await cache.corruptedTiles == 0)
+
+        await server.set(Self.a, version: 5)  // новый забег открыл его снова — версия больше пустой
+        await cache.invalidate()
+        #expect(try await cache.refresh(visible: Self.near) == [Self.a])
+        #expect(await cache.tile(Self.a)?.cellCount == 50)
     }
 
     @Test("Ответ, начатый до смены аккаунта, выбрасывается: чужой туман в кэш не попадает")

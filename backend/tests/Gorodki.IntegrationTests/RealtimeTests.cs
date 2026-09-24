@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Territory;
@@ -120,6 +121,35 @@ public sealed class RealtimeTests(DatabaseFixture database)
         api.Time.Advance(TimeSpan.FromMinutes(30));
         var again = await WalkAndFinishAsync(Cancel, api, anna, Square(area, 0, 0, 100));
         Assert.Equal(0, await StampAsync(api, again.Id));
+        await DrainAsync(api);
+        await annaHub.BarrierAsync(api, Cancel);
+        Assert.Equal(1, annaHub.FogChanged);
+        await annaHub.DisposeAsync();
+        await veraHub.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Cleared_fog_is_hinted_to_its_owner_only_and_only_when_something_was_erased()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var walk = await WalkAndFinishAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100));
+        Assert.True(await StampAsync(api, walk.Id) > 0);
+        await DrainAsync(api); // подсказка о самом забеге — до подключения, её никто не слышит
+        var annaHub = await ListenAsync(api, anna);
+        var veraHub = await ListenAsync(api, vera);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await anna.DeleteAsync("/fog", Cancel)).StatusCode);
+        await DrainAsync(api);
+        await annaHub.BarrierAsync(api, Cancel);
+        await veraHub.BarrierAsync(api, Cancel);
+        Assert.Equal(1, annaHub.FogChanged); // телефон перезапросит тайлы и получит их пустыми
+        Assert.Equal(0, veraHub.FogChanged);
+
+        // Стирать уже нечего — и подсказки нет.
+        Assert.Equal(HttpStatusCode.NoContent, (await anna.DeleteAsync("/fog", Cancel)).StatusCode);
         await DrainAsync(api);
         await annaHub.BarrierAsync(api, Cancel);
         Assert.Equal(1, annaHub.FogChanged);

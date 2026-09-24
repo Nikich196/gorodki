@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Gorodki.Api.Features.Fog;
 
 /// <summary>Тайл тумана игрока.</summary>
+/// <param name="Version">Только растёт: у тайла, открытого заново после очистки истории, она больше прежней.</param>
+/// <param name="CellCount">Открытых клеток; 0 — тайл стёрт очисткой истории исследований.</param>
 /// <param name="Bits">Биты тайла 256×256 (8 КБ, слова little-endian: бит <c>строка × 256 + столбец</c>), сжатые Deflate, в Base64.</param>
 public sealed record FogTileView(int X, int Y, long Version, int CellCount, byte[] Bits);
 
@@ -44,8 +46,19 @@ public static class FogEndpoints
         fog.MapGet("/summary", GetSummary)
             .WithName("getFogSummary")
             .WithSummary("Сколько открыто: клетки и площадь по слоям — за всё время и за текущий сезон");
+        fog.MapDelete("", ClearFog)
+            .WithName("clearFog")
+            .WithSummary("Очистить историю исследований: весь свой туман — оба слоя, за всё время и по сезонам (необратимо)")
+            .WithDescription(
+                "Только свой туман. Забеги, которые ещё не открывали туман (в том числе идущий сейчас), его уже не откроют — "
+                + "«+N га» у них 0; следующие забеги открывают заново. Свои места в рейтинге «Кто открыл больше» стираются сразу. "
+                + "Подсказка FogChanged; тайлы, которые телефон спросит со своей версией, придут пустыми с версией новее. "
+                + "Точка «Дом» и её круг живут только на телефоне — их сервер не знает.");
         return app;
     }
+
+    /// <summary>Пустой тайл — ответ на тайл, которого больше нет (история очищена).</summary>
+    private static readonly byte[] EmptyTileBits = FogTileCodec.Compress(new FogTileBits());
 
     private static async Task<Results<Ok<FogResponse>, ProblemHttpResult>> GetFog(
         string? layer, string? tiles, int? season, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
@@ -71,7 +84,7 @@ public static class FogEndpoints
         }
         else
         {
-            // Строки спрошенных тайлов — все, без предела: ответ «не изменился» должен быть правдой о каждом тайле.
+            // Строки спрошенных тайлов — все, без предела: ответ «не изменился» и «пуст» должен быть правдой о каждом тайле.
             // Рамка вокруг далёких тайлов с пределом строк отрезала бы настоящий тайл, и телефон закэшировал бы его пустым.
             var xs = requested.Select(t => t.Tile.X).Distinct().ToList();
             var ys = requested.Select(t => t.Tile.Y).Distinct().ToList();
@@ -86,6 +99,12 @@ public static class FogEndpoints
                 else if (entity is not null)
                 {
                     result.Add(ToView(entity));
+                }
+                else if (known is > 0 and < long.MaxValue)
+                {
+                    // Тайл был, а теперь его нет — история очищена (FogHistory). Пустой тайл с версией новее спрошенной
+                    // телефон примет и перестанет показывать стёртое; открытый заново тайл получит версию-время, ещё новее.
+                    result.Add(new FogTileView(tile.X, tile.Y, known.Value + 1, 0, EmptyTileBits));
                 }
             }
         }
@@ -114,6 +133,18 @@ public static class FogEndpoints
                 Math.Round(g.Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY))), 1)))
             .ToList();
         return TypedResults.Ok(new FogSummaryResponse(layers));
+    }
+
+    private static async Task<Results<NoContent, UnauthorizedHttpResult>> ClearFog(
+        ClaimsPrincipal principal, FogHistory history, CancellationToken cancellationToken)
+    {
+        if (principal.UserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        await history.ClearAsync(userId, cancellationToken);
+        return TypedResults.NoContent();
     }
 
     private static FogTileView ToView(FogTileEntity tile) => new(tile.TileX, tile.TileY, tile.Version, tile.CellCount, tile.Bits);

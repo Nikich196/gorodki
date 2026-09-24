@@ -52,9 +52,7 @@ public sealed class LeaderboardSnapshots(AppDbContext db, TimeProvider time, ILo
         var rows = new List<LeaderboardSnapshotEntity>();
         foreach (var board in areas.GroupBy(a => (a.Layer, a.Season)))
         {
-            // Одинаковая площадь — одинаковое место: 1, 2, 2, 4.
-            var values = board.Select(a => Math.Round(a.Area, 1)).OrderDescending().ToList();
-            rows.AddRange(board.Select(a => new LeaderboardSnapshotEntity
+            var boardRows = board.Select(a => new LeaderboardSnapshotEntity
             {
                 Day = day,
                 Board = LeaderboardBoard.Exploration,
@@ -62,8 +60,9 @@ public sealed class LeaderboardSnapshots(AppDbContext db, TimeProvider time, ILo
                 Season = board.Key.Season,
                 UserId = a.UserId,
                 Value = Math.Round(a.Area, 1),
-                Rank = 1 + values.Count(v => v > Math.Round(a.Area, 1)),
-            }));
+            }).ToList();
+            AssignRanks(boardRows);
+            rows.AddRange(boardRows);
         }
 
         db.LeaderboardSnapshots.AddRange(rows);
@@ -72,5 +71,44 @@ public sealed class LeaderboardSnapshots(AppDbContext db, TimeProvider time, ILo
         await transaction.CommitAsync(cancellationToken);
         logger.LogInformation("Срез рейтингов за {Day}: {Rows} строк", day, rows.Count);
         return rows.Count;
+    }
+
+    /// <summary>
+    /// Убирает игрока из срезов «Исследования» — при очистке истории исследований (<see cref="Fog.FogHistory"/>): стёртое
+    /// не должно считаться до следующего среза. Места остальных в тех же срезах пересчитываются, без дыры «1, 3, 4».
+    /// Зовётся внутри транзакции вызывающего, под блокировками срезов. Возвращает число стёртых строк.
+    /// </summary>
+    public async Task<int> RemovePlayerAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var mine = db.LeaderboardSnapshots.Where(s => s.UserId == userId && s.Board == LeaderboardBoard.Exploration);
+        var boards = (await mine.Select(s => new { s.Day, s.Layer, s.Season }).ToListAsync(cancellationToken))
+            .Select(s => (s.Day, s.Layer, s.Season))
+            .ToHashSet();
+        if (boards.Count == 0)
+        {
+            return 0;
+        }
+
+        await mine.ExecuteDeleteAsync(cancellationToken);
+        var days = boards.Select(b => b.Day).Distinct().ToList();
+        var rest = await db.LeaderboardSnapshots
+            .Where(s => s.Board == LeaderboardBoard.Exploration && days.Contains(s.Day))
+            .ToListAsync(cancellationToken);
+        foreach (var board in rest.GroupBy(s => (s.Day, s.Layer, s.Season)).Where(g => boards.Contains(g.Key)))
+        {
+            AssignRanks([.. board]);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return boards.Count;
+    }
+
+    /// <summary>Места в одном срезе: одинаковое значение — одинаковое место (1, 2, 2, 4).</summary>
+    private static void AssignRanks(IReadOnlyCollection<LeaderboardSnapshotEntity> board)
+    {
+        foreach (var row in board)
+        {
+            row.Rank = 1 + board.Count(other => other.Value > row.Value);
+        }
     }
 }

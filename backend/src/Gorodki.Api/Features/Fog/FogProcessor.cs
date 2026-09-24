@@ -24,6 +24,14 @@ public sealed class FogProcessor(
     public static readonly TimeSpan ClosedRunGrace = TimeSpan.FromDays(1);
 
     /// <summary>
+    /// Следующая версия тайла: момент изменения по часам сервера (мс Unix), но не меньше прежней + 1. Версия не начинается
+    /// заново с 1, когда стёртый тайл (<see cref="FogHistory"/>) открывается снова: у телефона в кэше осталась версия
+    /// стёртого тайла, и новую, меньшую, он счёл бы старым ответом — новый туман так и не показался бы.
+    /// </summary>
+    public static long NextVersion(long? previous, DateTimeOffset now) =>
+        Math.Max((previous ?? 0) + 1, now.ToUnixTimeMilliseconds());
+
+    /// <summary>
     /// Забеги, готовые открыть туман, — сначала закончившиеся раньше. Забег, туман которого не открылся из-за ошибки,
     /// ждёт своей паузы (<see cref="PostponeAsync"/>).
     /// </summary>
@@ -113,7 +121,7 @@ public sealed class FogProcessor(
                         TileY = key.Y,
                         Bits = FogTileCodec.Compress(bits),
                         CellCount = bits.Count,
-                        Version = 1,
+                        Version = NextVersion(null, now),
                         UpdatedAt = now,
                     });
                     continue;
@@ -130,7 +138,7 @@ public sealed class FogProcessor(
                 old.UnionWith(bits);
                 entity.Bits = FogTileCodec.Compress(old);
                 entity.CellCount = old.Count;
-                entity.Version++;
+                entity.Version = NextVersion(entity.Version, now);
                 entity.UpdatedAt = now;
             }
 

@@ -241,7 +241,8 @@ public enum FogLayerKind : short
 
 /// <summary>
 /// Тайл тумана игрока (веб-меркатор, уровень 14): какие клетки G22 он открыл. Биты сжаты Deflate.
-/// Где человек ходит — личные данные: тайлы видит только он сам, и они удаляются вместе с ним.
+/// Где человек ходит — личные данные: тайлы видит только он сам, и они удаляются вместе с ним и при очистке истории
+/// исследований (<c>FogHistory</c>).
 /// </summary>
 public sealed class FogTileEntity
 {
@@ -260,7 +261,10 @@ public sealed class FogTileEntity
 
     public int CellCount { get; set; }
 
-    /// <summary>Растёт при каждом изменении: приложение перезапрашивает только новые версии.</summary>
+    /// <summary>
+    /// Растёт при каждом изменении: приложение перезапрашивает только новые версии. Это момент изменения, мс Unix
+    /// (<c>FogProcessor.NextVersion</c>), — тайл, открытый заново после очистки истории, не начинает с 1.
+    /// </summary>
     public long Version { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
