@@ -65,6 +65,10 @@ jobs:
       - name: Версия Xcode
         run: xcodebuild -version
 
+      # Первым, до долгой сборки: версии внешних пакетов в project.yml — те же, что в Package.resolved пакетов.
+      - name: Версии пакетов приложения (ios/scripts/check-spm-pins.py)
+        run: python3 -B ios/scripts/check-spm-pins.py
+
       - name: Установка XcodeGen ${{ env.XCODEGEN_VERSION }}
         run: ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$RUNNER_TEMP/xcodegen"
 
