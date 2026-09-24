@@ -17,13 +17,24 @@ final class RunLocationSource {
     var isRunning: Bool { task != nil }
 
     func start(sending tracker: RunTracker) {
+        start(tracker)
+    }
+
+    /// Только держать приложение живым в фоне — для демо-повтора: его точки идут из записи, настоящие выбрасываются.
+    /// Обновления всё равно нужно получать: в фоне приложение живёт ради них, а сессия фоновой активности лишь
+    /// разрешает их получать при разрешении «При использовании».
+    func keepAlive() {
+        start(nil)
+    }
+
+    private func start(_ tracker: RunTracker?) {
         guard task == nil else { return }
         serviceSession = CLServiceSession(authorization: .whenInUse)
         backgroundSession = CLBackgroundActivitySession()
         task = Task.detached {
             do {
                 for try await update in CLLocationUpdate.liveUpdates(.fitness) {
-                    guard let location = update.location else { continue }
+                    guard let tracker, let location = update.location else { continue }
                     tracker.send(.fix(Self.fix(location), receivedAt: Date.now.timeIntervalSince1970))
                 }
             } catch {
@@ -52,6 +63,35 @@ final class RunLocationSource {
             coordinate: Coordinate(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude),
             timestamp: location.timestamp.timeIntervalSince1970, horizontalAccuracy: location.horizontalAccuracy,
             speed: location.speed >= 0 ? location.speed : nil, source: source)
+    }
+}
+
+/// Системный запрос разрешения на геопозицию «При использовании» (`RunController.requestLocationAuthorization`).
+/// Ответ игрока приходит делегату, поэтому менеджер и делегат живут, пока запрос не закончится; делегат вызывается в
+/// потоке, где создан менеджер, — здесь главном.
+@MainActor
+final class LocationAuthorizationRequest: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var continuation: CheckedContinuation<CLAuthorizationStatus, Never>?
+
+    /// - Returns: разрешение после ответа; уже спрошенное — сразу, без запроса.
+    func run() async -> CLAuthorizationStatus {
+        guard manager.authorizationStatus == .notDetermined else { return manager.authorizationStatus }
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            manager.delegate = self
+            manager.requestWhenInUseAuthorization()
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        MainActor.assumeIsolated {
+            // Первый вызов приходит сразу после назначения делегата, ещё с «не спрошено», — ответа игрока ждём дальше.
+            guard status != .notDetermined, let continuation else { return }
+            self.continuation = nil
+            continuation.resume(returning: status)
+        }
     }
 }
 

@@ -15,11 +15,6 @@ struct GorodkiApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .task {
-                    NetworkWatcher.shared.start()
-                    RealtimeRelay.shared.start()
-                    SessionRelay.shared.start()
-                }
         }
         .onChange(of: scenePhase) { _, phase in
             let dependencies = AppDependencies.shared
@@ -32,6 +27,8 @@ struct GorodkiApp: App {
                 }
                 // Свежие правила — в фоне: «Старт» их не ждёт, берёт последнюю известную версию.
                 Task { try? await dependencies.rules.refresh() }
+                // Забег, продолженный после перезапуска в фоне, мог остаться без Live Activity: в фоне её не запустить.
+                RunController.shared.becameActive()
             case .background:
                 // В фоне подсказки некому показывать, а соединение тратит батарею: закрыть, а не ждать, пока iOS
                 // оборвёт его сама (у сервера — не больше трёх соединений на игрока).
@@ -104,7 +101,9 @@ final class SessionRelay {
                 if await MainActor.run(body: { UIApplication.shared.applicationState == .active }) {
                     await dependencies.realtime?.start()
                 }
-                await dependencies.syncScheduler()?.trigger(.signedIn)
+                // Не ждать прохода (досылка очереди может идти долго): выход, пришедший во время него, должен сразу
+                // закрыть соединение и сбросить кэши прежнего игрока.
+                Task { await dependencies.syncScheduler()?.trigger(.signedIn) }
             }
         }
     }

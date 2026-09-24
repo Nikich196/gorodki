@@ -94,7 +94,11 @@ final class WalkLab {
         UserDefaults.standard.set(false, forKey: Self.activeKey)
         save()
         if let activityID {
-            Task { await RunActivityController.end(id: activityID) }
+            // Как у забега (`RunController.ended`): забыть плашку — только когда она закрыта.
+            Task {
+                await RunActivityController.end(id: activityID)
+                Self.activitySlot.forget(activityID)
+            }
         }
         activityID = nil
     }
@@ -107,7 +111,8 @@ final class WalkLab {
         api = saved.api
         resumedAt = .now
         begin()
-        activityID = RunActivityController.currentActivityID
+        // Своя плашка — по сохранённому идентификатору: первая попавшаяся могла бы оказаться плашкой забега.
+        activityID = Self.activitySlot.adopt(running: RunActivityController.runningIDs)
     }
 
     /// Сводка без координат — для снимка экрана или отправки в чат.
@@ -137,6 +142,7 @@ final class WalkLab {
     // MARK: - Обработка точек
 
     private static let activeKey = "lab.walk.active"
+    private static let activitySlot = LiveActivitySlot(key: "lab.walk.activityID")
 
     private func begin() {
         judge = SegmentJudge(league: .run)
@@ -264,6 +270,7 @@ final class WalkLab {
             startedAt: .now,
             state: RunActivityAttributes.ContentState(title: "Прогулка · проверка", detail: "Ждём GPS…")
         )
+        Self.activitySlot.remember(activityID)
     }
 
     /// Не чаще раза в 5 секунд: чаще система всё равно не покажет.
