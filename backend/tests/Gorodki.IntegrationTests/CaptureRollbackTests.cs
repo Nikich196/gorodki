@@ -238,6 +238,41 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Summary_after_a_retry_counts_captures_rolled_back_in_every_attempt()
+    {
+        // Два захвата Бориса; обрыв связи на записи второго. Первый уже откачен и зафиксирован, повтор его не видит —
+        // итог всё равно должен назвать оба, иначе администратор решит, что откачено меньше, чем на самом деле.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var scene = await AnnaThenBorisAsync(api);
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, scene.Boris, Square(scene.Area, 300, 0, 60))).RunId);
+        var requested = await RequestAsync(scene.Admin, scene.BorisId);
+
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            var rollback = scope.ServiceProvider.GetRequiredService<CaptureRollback>();
+            var writes = 0;
+            rollback.BeforeWrite = _ => ++writes == 1
+                ? Task.CompletedTask
+                : throw new InvalidOperationException(
+                    "An exception has been raised that is likely due to a transient failure.",
+                    new NpgsqlException("Exception while reading from stream", new IOException("Connection reset by peer")));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => rollback.ProcessAsync(requested.Id, Cancel));
+        }
+
+        await ProcessAsync(api, requested.Id); // следующий проход
+
+        var done = await scene.Admin.GetFromJsonAsync<RollbackResponse>($"/admin/rollbacks/{requested.Id}", Json, Cancel);
+        Assert.Equal((CaptureRollbackStatus.Done, 2, 0), (done!.Status, done.RolledBack, done.Failed));
+        await using var db = database.CreateContext();
+        var areas = await db.Captures.Where(c => c.RollbackId == requested.Id).Select(c => c.RolledBackArea).ToListAsync(Cancel);
+        Assert.Equal(2, areas.Count);
+        Assert.Equal(areas.Sum(a => a ?? 0), done.RestoredArea, 1);
+        Assert.Equal(0, await LandAreaAsync(scene.BorisId), 1);
+    }
+
+    [Fact]
     public async Task Only_an_administrator_can_roll_back()
     {
         database.RequireDatabase();
