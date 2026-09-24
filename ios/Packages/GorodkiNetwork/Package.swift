@@ -22,9 +22,12 @@ let package = Package(
         .package(url: "https://github.com/dotnet/signalr-client-swift", from: "1.0.0"),
     ],
     targets: [
+        // Системная zlib: тайлы тумана приходят сжатыми raw DEFLATE (FogTileCodec на сервере).
+        .systemLibrary(name: "CZlib", path: "Sources/CZlib"),
         .target(
             name: "Networking",
             dependencies: [
+                "CZlib",
                 .product(name: "GorodkiAPI", package: "GorodkiAPI"),
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
                 .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
@@ -43,6 +46,7 @@ let package = Package(
             name: "NetworkingTests",
             dependencies: [
                 "Networking",
+                "CZlib",
                 .product(name: "GorodkiAPI", package: "GorodkiAPI"),
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),

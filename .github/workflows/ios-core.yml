@@ -36,12 +36,12 @@ jobs:
       - name: Офлайн-синхронизация (GorodkiSync) — запись забега и доставка по контракту
         run: swift test --package-path ios/Packages/GorodkiSync
 
-      - name: Сетевой слой (GorodkiNetwork) — токены входа и обновление при 401
-        run: swift test --package-path ios/Packages/GorodkiNetwork
+      # GRDB на Linux собирается с системной SQLite, распаковка тайлов тумана — с системной zlib: нужны заголовки.
+      - name: Заголовки SQLite (GRDB) и zlib (туман)
+        run: apt-get update -qq && apt-get install -y -qq libsqlite3-dev zlib1g-dev
 
-      # GRDB на Linux собирается с системной SQLite — нужны её заголовки.
-      - name: Заголовки SQLite для GRDB
-        run: apt-get update -qq && apt-get install -y -qq libsqlite3-dev
+      - name: Сетевой слой (GorodkiNetwork) — вход, токены, реальное время, кэш тумана
+        run: swift test --package-path ios/Packages/GorodkiNetwork
 
       - name: База приложения (GorodkiPersistence) — очередь синхронизации на GRDB
         run: swift test --package-path ios/Packages/GorodkiPersistence
