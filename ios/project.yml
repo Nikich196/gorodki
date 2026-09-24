@@ -73,6 +73,8 @@ targets:
         product: Sync
       - package: GorodkiNetwork
         product: Networking
+      - package: GorodkiNetwork
+        product: Realtime
       - package: GorodkiPersistence
         product: Persistence
     settings:

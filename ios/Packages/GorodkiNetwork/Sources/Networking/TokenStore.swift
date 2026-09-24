@@ -1,7 +1,7 @@
 import Foundation
 
-/// Что случилось со входом. Слушает один подписчик (модель входа приложения): `AsyncStream` отдаёт каждое событие
-/// только одному из слушателей.
+/// Что случилось со входом. Слушает один подписчик (в приложении — `SessionRelay`): `AsyncStream` отдаёт каждое
+/// событие только одному из слушателей.
 public enum AuthEvent: Equatable, Sendable {
     case signedIn
     case signedOut(SignOutReason)
@@ -37,6 +37,7 @@ public actor TokenStore {
     public nonisolated let events: AsyncStream<AuthEvent>
 
     private let storage: any TokenStorage
+    private let now: @Sendable () -> Date
     private let eventsContinuation: AsyncStream<AuthEvent>.Continuation
     private var cache: Cache = .unknown
     /// Копия в памяти новее хранилища (запись не удалась): запись повторяется при следующем обращении.
@@ -46,6 +47,9 @@ public actor TokenStore {
     private var superseded: [String] = []
     private var refreshing: (number: Int, task: Task<AuthTokens?, any Error>)?
     private var refreshCount = 0
+    /// Когда (по часам телефона) получен текущий access-токен — если в этом запуске. Срок токена считается от этой
+    /// минуты по его длительности: сбитые часы телефона не делают каждый новый токен «истёкшим».
+    private var received: (accessToken: String, at: Date)?
 
     private enum Cache {
         /// Хранилище ещё не прочитано или было недоступно.
@@ -53,8 +57,10 @@ public actor TokenStore {
         case loaded(AuthTokens?)
     }
 
-    public init(storage: any TokenStorage) {
+    /// - Parameter now: часы телефона — подменяются в проверках.
+    public init(storage: any TokenStorage, now: @escaping @Sendable () -> Date = { Date() }) {
         self.storage = storage
+        self.now = now
         (events, eventsContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
     }
 
@@ -119,6 +125,37 @@ public actor TokenStore {
         return try await task.value
     }
 
+    /// Access-токен, которому жить ещё не меньше `margin` секунд, — для соединения, где 401 не исправить повтором
+    /// запроса (реальное время: токен передаётся один раз при подключении). Если токен истекает раньше, он обновляется
+    /// так же, как после 401 (`renew`: одно обновление на всех). Токен без срока (`exp`) отдаётся как есть — судит
+    /// сервер.
+    /// - Returns: токен или `nil`, если входа нет (не выполнен или сервер отверг refresh-токен).
+    /// - Throws: ошибку обновления (нет сети): вход сохраняется.
+    public func validAccessToken(
+        margin: TimeInterval = 60, using refresher: any TokenRefresher
+    ) async throws -> String? {
+        // Второй круг — если, пока шло обновление, игрок вышел и вошёл заново: тогда нужен токен нового входа.
+        for _ in 0..<2 {
+            guard let tokens = current() else { return nil }
+            guard let remaining = remainingLife(of: tokens), remaining < margin else { return tokens.accessToken }
+            if let renewed = try await renew(after: tokens.accessToken, using: refresher) {
+                return renewed.accessToken
+            }
+        }
+        return nil
+    }
+
+    /// Сколько секунд ещё жить access-токену; `nil` — срок неизвестен. Для токена, полученного в этом запуске, — от минуты
+    /// получения по длительности `exp − iat`; иначе — по часам телефона.
+    private func remainingLife(of tokens: AuthTokens) -> TimeInterval? {
+        guard let expiresAt = tokens.accessExpiresAt else { return nil }
+        let now = self.now()
+        if let received, received.accessToken == tokens.accessToken, let issuedAt = tokens.accessIssuedAt {
+            return expiresAt.timeIntervalSince(issuedAt) - now.timeIntervalSince(received.at)
+        }
+        return expiresAt.timeIntervalSince(now)
+    }
+
     private func refresh(_ tokens: AuthTokens, using refresher: any TokenRefresher, number: Int) async throws
         -> AuthTokens?
     {
@@ -149,6 +186,7 @@ public actor TokenStore {
 
     private func store(_ tokens: AuthTokens) {
         cache = .loaded(tokens)
+        received = (tokens.accessToken, now())
         persist(tokens)
     }
 
@@ -164,6 +202,7 @@ public actor TokenStore {
     private func clear(_ reason: SignOutReason) {
         startSession()
         cache = .loaded(nil)
+        received = nil
         needsSave = false
         // Если стереть не удалось, после перезапуска вернётся старый вход: первый же запрос получит 401, обновление
         // будет отвергнуто, и вход сотрётся снова.
