@@ -153,6 +153,61 @@ public sealed class FogHistoryTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Places_after_the_clear_keep_ties_and_boards_without_the_player_are_untouched()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (xenia, xeniaId) = await api.CreatePlayerClientAsync();
+        var others = new List<Guid>();
+        for (var i = 0; i < 4; i++)
+        {
+            others.Add((await api.CreatePlayerClientAsync()).UserId);
+        }
+
+        var day = new DateOnly(2030, 1, 1).AddDays(Interlocked.Increment(ref _nextDay) * 10);
+        await using (var db = database.CreateContext())
+        {
+            // «Пешком»: Ксения на втором месте, за ней — двое с одинаковой площадью. «Вело» без Ксении — с дырой «1, 3»
+            // (так оставляет удалённый аккаунт): очистка её не касается.
+            var foot = new[] { (others[0], 300.0, 1), (xeniaId, 250.0, 2), (others[1], 200.0, 3), (others[2], 200.0, 3), (others[3], 100.0, 5) };
+            var bike = new[] { (others[0], 300.0, 1), (others[1], 200.0, 3) };
+            db.LeaderboardSnapshots.AddRange(foot.Select(r => Row(day, LeaderboardLayer.Foot, r)));
+            db.LeaderboardSnapshots.AddRange(bike.Select(r => Row(day, LeaderboardLayer.Bike, r)));
+            await db.SaveChangesAsync(Cancel);
+        }
+
+        Assert.Equal(HttpStatusCode.NoContent, (await xenia.DeleteAsync("/fog", Cancel)).StatusCode);
+
+        await using (var db = database.CreateContext())
+        {
+            var places = (await db.LeaderboardSnapshots
+                    .Where(s => s.Day == day)
+                    .Select(s => new { s.Layer, s.UserId, s.Rank })
+                    .ToListAsync(Cancel))
+                .Select(p => (p.Layer, p.UserId, p.Rank))
+                .OrderBy(p => p.Layer).ThenBy(p => p.Rank).ThenBy(p => others.IndexOf(p.UserId));
+            // Одинаковая площадь — одинаковое место, следующее — через одно (1, 2, 2, 4), как у среза.
+            (LeaderboardLayer, Guid, int)[] expected =
+            [
+                (LeaderboardLayer.Foot, others[0], 1), (LeaderboardLayer.Foot, others[1], 2), (LeaderboardLayer.Foot, others[2], 2),
+                (LeaderboardLayer.Foot, others[3], 4), (LeaderboardLayer.Bike, others[0], 1), (LeaderboardLayer.Bike, others[1], 3),
+            ];
+            Assert.Equal(expected, places);
+        }
+
+        static LeaderboardSnapshotEntity Row(DateOnly day, LeaderboardLayer layer, (Guid User, double Value, int Rank) row) => new()
+        {
+            Day = day,
+            Board = LeaderboardBoard.Exploration,
+            Layer = layer,
+            Season = SeasonCalendar.AllTime,
+            UserId = row.User,
+            Value = row.Value,
+            Rank = row.Rank,
+        };
+    }
+
+    [Fact]
     public async Task Clear_waits_for_the_daily_snapshot_only_when_there_is_fog_and_answers_busy_after_the_lock_timeout()
     {
         database.RequireDatabase();
