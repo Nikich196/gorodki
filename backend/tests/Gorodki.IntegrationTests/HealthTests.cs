@@ -48,5 +48,6 @@ public sealed class HealthTests(DatabaseFixture database)
         var parcels = data.GetProperty("parcels").GetInt64();
         Assert.True(parcels >= 1); // квадрат из этого теста
         Assert.True(data.GetProperty("vertices").GetInt64() >= parcels * 4);
+        Assert.True(data.GetProperty("captureJournalParcelsBytes").GetInt64() > 0); // строки точного отката (BE-01) — своя строка бюджета
     }
 }

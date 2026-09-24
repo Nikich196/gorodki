@@ -212,6 +212,54 @@ public sealed class CaptureJournalTests(DatabaseFixture database)
         }
     }
 
+    [Fact]
+    public async Task Exact_undo_rows_are_pruned_only_after_the_capture_can_no_longer_be_hidden()
+    {
+        // Строки точного отката живут недолго (CaptureProcessor.ExactUndoRetention): пока захват скрыт, они нужны проекции,
+        // потом — нет, а контуры занимают место. Захват применён под конец 5-минутного шага: скрыт он дольше всего — до
+        // задержки плюс шаг. Чистка в это время строк не трогает, и проекция всё ещё точная.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (_, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        var step = Gorodki.Api.Features.Territory.TerritoryReader.RevealStep;
+        api.Time.Advance(Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay + step); // захват Анны публичен
+        var intoStep = TimeSpan.FromTicks(api.Time.GetUtcNow().UtcTicks % step.Ticks);
+        api.Time.Advance(step - intoStep + TimeSpan.FromMinutes(4)); // захват Бориса — в конце шага
+        var claim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+
+        api.Time.Advance(Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay + TimeSpan.FromSeconds(30)); // ещё скрыт
+        await PruneAsync(api, claim.CaptureId);
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            var reader = scope.ServiceProvider.GetRequiredService<Gorodki.Api.Features.Territory.TerritoryReader>();
+            await reader.ReadAsync(
+                Gorodki.Domain.Leagues.League.Run, [(tile, null)], new Gorodki.Api.Features.Territory.TerritoryViewer(veraId, Immediate: false), Cancel);
+            Assert.Equal((1, 0), (reader.Projections.Exact, reader.Projections.Fallback));
+        }
+
+        var retention = CaptureProcessor.ExactUndoRetention(Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay);
+        api.Time.Advance(retention - Gorodki.Api.Features.Territory.TerritoryReader.PublicDelay - TimeSpan.FromMinutes(1));
+        await PruneAsync(api, claim.CaptureId);
+        await using (var db = database.CreateContext())
+        {
+            Assert.True(await db.CaptureJournalParcels.AnyAsync(r => r.CaptureId == claim.CaptureId, Cancel));
+        }
+
+        api.Time.Advance(TimeSpan.FromMinutes(2));
+        Assert.Equal(0, await PruneAsync(api, claim.CaptureId)); // журнал захвата — неделю, для отката нарушителя
+        await using (var db = database.CreateContext())
+        {
+            Assert.False(await db.CaptureJournalParcels.AnyAsync(r => r.CaptureId == claim.CaptureId, Cancel));
+            Assert.True(await db.CaptureJournal.AnyAsync(j => j.CaptureId == claim.CaptureId, Cancel));
+        }
+    }
+
     /// <summary>Чистит журнал; возвращает, сколько тайлов этого захвата было стёрто.</summary>
     private async Task<int> PruneAsync(ApiFactory api, Guid captureId)
     {

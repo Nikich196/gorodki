@@ -29,7 +29,8 @@ public sealed class StorageHealthCheck(AppDbContext db) : IHealthCheck
                 SELECT pg_database_size(current_database()),
                        (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()),
                        (SELECT count(*) FROM app.parcels),
-                       (SELECT coalesce(sum(ST_NPoints(geometry)), 0) FROM app.parcels)
+                       (SELECT coalesce(sum(ST_NPoints(geometry)), 0) FROM app.parcels),
+                       pg_total_relation_size('app.capture_journal_parcels')
                 """;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             await reader.ReadAsync(cancellationToken);
@@ -43,6 +44,9 @@ public sealed class StorageHealthCheck(AppDbContext db) : IHealthCheck
                 ["connections"] = reader.GetInt64(1),
                 ["parcels"] = reader.GetInt64(2),
                 ["vertices"] = Convert.ToInt64(reader.GetValue(3)),
+                // Строки точного отката (аудит BE-01) хранят контуры удалённых захватом кусков — по оценке 1–2 МБ за два
+                // часа хранения; если вырастет больше, видно здесь, а не при переполнении базы.
+                ["captureJournalParcelsBytes"] = reader.GetInt64(4),
             };
             return new HealthCheckResult(Evaluate(bytes), Describe(bytes), data: data);
         }

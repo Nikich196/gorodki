@@ -2,6 +2,7 @@ using System.Text.Json;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
 using Gorodki.Domain.Geo;
@@ -507,11 +508,30 @@ public sealed class CaptureProcessor(
         }
     }
 
-    /// <summary>Стирает журнал захватов старше <see cref="JournalRetention"/> (куски — каскадом). Возвращает, сколько записей стёрто.</summary>
-    public Task<int> PruneJournalAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Стирает журнал захватов старше <see cref="JournalRetention"/> (куски — каскадом) и строки точного отката старше
+    /// <see cref="ExactUndoRetention"/>. Возвращает, сколько записей журнала стёрто.
+    /// </summary>
+    public async Task<int> PruneJournalAsync(CancellationToken cancellationToken)
     {
-        var before = time.GetUtcNow() - JournalRetention;
-        return db.CaptureJournal.Where(j => j.AppliedAt < before).ExecuteDeleteAsync(cancellationToken);
+        var now = time.GetUtcNow();
+        var pruned = await db.CaptureJournal.Where(j => j.AppliedAt < now - JournalRetention).ExecuteDeleteAsync(cancellationToken);
+        var delay = TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
+        var exactBefore = now - ExactUndoRetention(delay);
+        await db.CaptureJournalParcels.Where(r => r.AppliedAt < exactBefore).ExecuteDeleteAsync(cancellationToken);
+        return pruned;
+    }
+
+    /// <summary>
+    /// Столько хранятся строки точного отката: они нужны только публичной проекции, а захват скрыт не дольше задержки плюс
+    /// шаг раскрытия (<see cref="TerritoryReader.PublicHorizon"/>). С запасом вдвое и не меньше часа — чистка идёт раз в
+    /// час, так что строки живут до двух часов. Раньше срока их стирать нельзя: проекция скрытого захвата ушла бы в
+    /// запасной путь. Дольше не нужно: строка удалённого куска — с контуром, а бесплатная база — 500 МБ.
+    /// </summary>
+    public static TimeSpan ExactUndoRetention(TimeSpan publicDelay)
+    {
+        var twice = 2 * (publicDelay + TerritoryReader.RevealStep);
+        return twice > TimeSpan.FromHours(1) ? twice : TimeSpan.FromHours(1);
     }
 
     /// <summary>Сколько захватов игрока уже применено в те же игровые сутки (по Минску).</summary>
