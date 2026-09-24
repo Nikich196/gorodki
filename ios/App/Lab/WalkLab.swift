@@ -123,11 +123,11 @@ final class WalkLab {
             "Спайк S1 · \(stats.api.title) · \(minutes) мин",
             "Точек: \(stats.fixes) (отброшено \(stats.ignored))",
             "Самый длинный разрыв: \(Int(stats.longestGapSeconds)) с · разрывов > 15 с: \(stats.gapsOver15Seconds)",
-            "Дистанция: \(String(format: "%.2f", stats.distanceMeters / 1_000)) км",
-            "Петель: \(stats.loops) (≈\(String(format: "%.2f", stats.loopAreaSquareMeters / 10_000)) га)",
-            "Туман: \(stats.fogCells) клеток (≈\(String(format: "%.2f", stats.fogAreaSquareMeters / 10_000)) га)",
+            "Дистанция: \(NumberText.kilometers(fromMeters: stats.distanceMeters, fractionDigits: 2))",
+            "Петель: \(stats.loops) (≈\(NumberText.hectares(fromSquareMeters: stats.loopAreaSquareMeters, fractionDigits: 2)))",
+            "Туман: \(CountText.fogCells(stats.fogCells)) (≈\(NumberText.hectares(fromSquareMeters: stats.fogAreaSquareMeters, fractionDigits: 2)))",
             "Точность: последняя \(stats.lastAccuracy.map { "\(Int($0)) м" } ?? "—"), лучшая \(stats.bestAccuracy.map { "\(Int($0)) м" } ?? "—")",
-            "Перезапусков: \(stats.relaunches), восстановление: \(stats.lastRecoverySeconds.map { String(format: "%.1f с", $0) } ?? "—")",
+            "Перезапусков: \(stats.relaunches), восстановление: \(stats.lastRecoverySeconds.map { NumberText.seconds($0, fractionDigits: 1) } ?? "—")",
             "Запаздывание вида движения: \(Self.lagSummary(stats.motionLags))",
             "Запаздывание шагомера: \(Self.lagSummary(stats.stepLags))",
         ]
@@ -226,7 +226,7 @@ final class WalkLab {
         if let claim = detector.add(point) {
             stats.loops += 1
             stats.loopAreaSquareMeters += claim.estimatedArea
-            lastEvent = "Петля замкнута: ≈\(Int(claim.estimatedArea)) м²"
+            lastEvent = "Петля замкнута: ≈\(NumberText.squareMeters(claim.estimatedArea))"
         }
     }
 
@@ -251,15 +251,15 @@ final class WalkLab {
     }
 
     /// «медиана 3,1 с · 99 % — 8,4 с · макс 12,0 с (n = 140)» — без выбросов не обойтись, поэтому и максимум.
-    static func lagSummary(_ lags: [Double]?) -> String {
+    nonisolated static func lagSummary(_ lags: [Double]?) -> String {
         guard let lags, !lags.isEmpty else { return "—" }
         let sorted = lags.sorted()
-        func percentile(_ p: Double) -> Double {
-            sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
+        func percentile(_ p: Double) -> String {
+            NumberText.seconds(
+                sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))], fractionDigits: 1)
         }
-        return String(
-            format: "медиана %.1f с · 99 %% — %.1f с · макс %.1f с (n = %ld)", percentile(0.5), percentile(0.99),
-            sorted.last ?? 0, sorted.count)
+        let maximum = NumberText.seconds(sorted.last ?? 0, fractionDigits: 1)
+        return "медиана \(percentile(0.5)) · 99 % — \(percentile(0.99)) · макс \(maximum) (n = \(sorted.count))"
     }
 
     // MARK: - Live Activity
@@ -277,11 +277,16 @@ final class WalkLab {
     private func updateLiveActivity(_ stats: WalkStats) {
         guard let activityID, Date.now.timeIntervalSince(lastActivityUpdate) >= 5 else { return }
         lastActivityUpdate = .now
-        let state = RunActivityAttributes.ContentState(
-            title: "Прогулка · \(String(format: "%.2f", stats.distanceMeters / 1_000)) км",
-            detail: "Петель \(stats.loops) · точек \(stats.fixes) · разрывов >15 с: \(stats.gapsOver15Seconds)"
-        )
+        let state = Self.activityContent(stats)
         Task { await RunActivityController.update(id: activityID, state: state) }
+    }
+
+    /// Текст плашки: «Прогулка · 1,23 км», «2 петли · 5 точек · разрывов >15 с: 0».
+    nonisolated static func activityContent(_ stats: WalkStats) -> RunActivityAttributes.ContentState {
+        RunActivityAttributes.ContentState(
+            title: "Прогулка · " + NumberText.kilometers(fromMeters: stats.distanceMeters, fractionDigits: 2),
+            detail: CountText.loops(stats.loops) + " · " + CountText.points(stats.fixes)
+                + " · разрывов >15 с: \(stats.gapsOver15Seconds)")
     }
 
     // MARK: - Хранение
