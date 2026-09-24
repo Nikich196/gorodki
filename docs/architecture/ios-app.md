@@ -43,6 +43,7 @@ flowchart LR
 | `installation` | `InstallationID` — `deviceId` забегов (Keychain, сервис — bundle ID + `.install`) | Работает |
 | `startRun(league:motionAuthorized:)` | Забег с правилами последней известной версии, установкой и игроком → `RunSession`, проход синхронизации | Забег копится в очереди; без входа — `nil` |
 | `syncEngine()` | `SyncEngine` вошедшего игрока (`sub` из access-токена), один на игрока | `nil` |
+| `RunController.shared` | Забег для экрана: «Старт», «Финиш», снимок, Live Activity, продолжение при запуске ([sync.md](sync.md#трекер-runtracker)) | «Старт» — `notSignedIn` |
 
 Очередь хранится в базе приложения (`GRDBSyncStore`, [sync.md](sync.md#хранилище-очереди-grdb)) и переживает выгрузку
 приложения и перезапуск телефона. Если базу не открыть, `AppDependencies.live()` берёт очередь в памяти

@@ -271,7 +271,7 @@ struct RunRecorderTests {
         #expect(try await RunRecorder.resume(runId: run.id, store: store) == nil)
     }
 
-    @Test("Новый забег закрывает прерванный: конец — последняя сохранённая точка")
+    @Test("Новый забег закрывает прерванные — и чужой: конец — последняя сохранённая точка")
     func closesInterrupted() async throws {
         let store = InMemorySyncStore()
         let old = Fixture.run(startedAt: start)
@@ -283,6 +283,9 @@ struct RunRecorderTests {
 
         let closed = try #require(await store.runs().first { $0.id == old.id })
         #expect(closed.lastSeq == 9 && closed.endedAtMs == StoragePrecision.milliseconds(start + 9))
-        #expect(try await store.runs().first { $0.id == other.id }?.isFinishedLocally == false)  // чужой не тронут
+        // Забег другого игрока (вход сменился посреди записи) продолжить нельзя: на телефоне идёт один забег, а незакрытый
+        // ждал бы датчиков вечно. Его точки не запечатаны (кусок по 10) — конец — старт, последний номер −1.
+        let closedOther = try #require(await store.runs().first { $0.id == other.id })
+        #expect(closedOther.lastSeq == -1 && closedOther.endedAtMs == StoragePrecision.milliseconds(start + 10))
     }
 }

@@ -39,6 +39,11 @@
   <true/>
   <key>NSLocationWhenInUseUsageDescription</key>
   <string>Городки записывают твой след во время забега: так засчитывается захваченная земля и открывается туман.</string>
+  <key>NSLocationTemporaryUsageDescriptionDictionary</key>
+  <dict>
+    <key>RunTracking</key>
+    <string>Земля засчитывается точно по контуру следа — для забега нужна точная геопозиция, приблизительная его не запишет.</string>
+  </dict>
   <key>NSMotionUsageDescription</key>
   <string>Датчики движения отличают бег от поездки на транспорте — так игра остаётся честной.</string>
   <key>UIBackgroundModes</key>

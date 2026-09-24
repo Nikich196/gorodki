@@ -102,7 +102,8 @@ public actor RunSession {
     private var lastPointMs: Int64?
     private var lastTimestamp: Double?
     /// Начало забега, мс: точка раньше начала больше чем на минуту — не этого забега.
-    private let startedAtMs: Int64
+    /// Начало забега, мс Unix.
+    public nonisolated let startedAtMs: Int64
     /// Точка старше этого (по часам телефона) — устаревшая: не нумеруется и не отправляется (`TrackJudging` на сервере
     /// считает «сейчас» временем самой точки, свежесть проверяет только телефон).
     private let maxFixAgeSeconds: Double
@@ -172,6 +173,8 @@ public actor RunSession {
 
     private func restore(lastPointMs: Int64?) {
         self.lastPointMs = lastPointMs
+        // Конец по пределу после продолжения — последняя записанная точка, а не время первой новой.
+        lastTimestamp = lastPointMs.map { Double($0) / 1_000 }
     }
 
     /// Новая точка GPS.
@@ -345,6 +348,12 @@ public actor RunSession {
             try await recorder.tick(now: seconds)
             return []
         }
+    }
+
+    /// С какого момента датчики ещё принимаются (секунды Unix): после перезапуска CoreMotion дозапрашивает историю
+    /// отсюда.
+    public var acceptsSensorsAfter: Double {
+        get async { Double(await recorder.acceptsSensorsAfterMs) / 1_000 }
     }
 
     /// Сколько кусков запечатано с начала (или продолжения) забега — по нему видно, что пора звать синхронизацию.
