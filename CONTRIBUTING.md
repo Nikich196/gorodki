@@ -58,7 +58,8 @@ docs: журнал за 23.09
   Из корня `dotnet test --solution` падает с `MSB1001: Unknown switch`.
 - Запуск: `dotnet run --project src/Gorodki.Api` → http://localhost:5080/scalar.
 - Тесты: `dotnet test --solution Gorodki.slnx`.
-- Оформление: `dotnet format Gorodki.slnx --verify-no-changes` (CI пока не проверяет — перед PR запускаем сами).
+- Оформление проверяет CI (`backend`, шаг «Оформление кода»: `dotnet format Gorodki.slnx --verify-no-changes`);
+  исправить у себя — `dotnet format Gorodki.slnx`.
 
 ### iOS (Swift)
 
