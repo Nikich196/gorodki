@@ -40,6 +40,12 @@ internal sealed class FakeTerritoryStore(TerritoryRules rules)
         public Dictionary<TileKey, TileChange> Changes { get; } = [];
 
         public Dictionary<TileKey, ParcelSwap?> Swaps { get; } = [];
+
+        /// <summary>
+        /// Тайлы, где удаление аккаунта стёрло все строки точного отката (все куски обмена были его): у сервера такой тайл
+        /// не отличить от захвата без строк, и проекция идёт запасным путём — с тем же итогом, возвращать там нечего.
+        /// </summary>
+        public HashSet<TileKey> EmptiedByDeletion { get; } = [];
     }
 
     public IReadOnlyList<(long Id, Parcel Parcel)> Rows => _rows;
@@ -61,6 +67,8 @@ internal sealed class FakeTerritoryStore(TerritoryRules rules)
                 clone.Changes[tile] = change;
                 clone.Swaps[tile] = entry.Swaps[tile];
             }
+
+            clone.EmptiedByDeletion.UnionWith(entry.EmptiedByDeletion);
 
             copy._journal.Add(clone);
         }
@@ -178,6 +186,10 @@ internal sealed class FakeTerritoryStore(TerritoryRules rules)
 
                     // У сервера у тайла без строк точного отката их просто нет — как у захвата, записанного до них.
                     entry.Swaps[tile] = rows.Replaced.Count + rows.Written.Count == 0 ? null : rows;
+                    if (entry.Swaps[tile] is null)
+                    {
+                        entry.EmptiedByDeletion.Add(tile);
+                    }
                 }
             }
         }
