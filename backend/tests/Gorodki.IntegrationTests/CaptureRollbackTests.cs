@@ -7,6 +7,7 @@ using Gorodki.Domain.Geo;
 using Gorodki.Domain.Territory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using static Gorodki.IntegrationTests.RunRequests;
 using static Gorodki.IntegrationTests.Walks;
 
@@ -202,6 +203,38 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
         await using var check = database.CreateContext();
         var job = await check.CaptureRollbacks.AsNoTracking().SingleAsync(r => r.Id == done.Id, Cancel);
         Assert.Contains(scene.BorisClaim.CaptureId.ToString(), job.LastError);
+    }
+
+    [Fact]
+    public async Task Transient_database_failure_leaves_the_job_pending_for_the_next_pass()
+    {
+        // Обрыв соединения — не неудача захвата: иначе задание завершилось бы с неоткаченным захватом, и откат пришлось
+        // бы ставить снова. Задание остаётся ожидающим, и следующий проход откатывает захват как обычно.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var scene = await AnnaThenBorisAsync(api);
+        var requested = await RequestAsync(scene.Admin, scene.BorisId);
+
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            var rollback = scope.ServiceProvider.GetRequiredService<CaptureRollback>();
+            // Так EF Core отдаёт обрыв соединения в запросе: InvalidOperationException вокруг временной NpgsqlException.
+            rollback.BeforeWrite = _ => throw new InvalidOperationException(
+                "An exception has been raised that is likely due to a transient failure.",
+                new NpgsqlException("Exception while reading from stream", new IOException("Connection reset by peer")));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => rollback.ProcessAsync(requested.Id, Cancel));
+        }
+
+        var pending = await scene.Admin.GetFromJsonAsync<RollbackResponse>($"/admin/rollbacks/{requested.Id}", Json, Cancel);
+        Assert.Equal((CaptureRollbackStatus.Pending, 0), (pending!.Status, pending.Failed));
+        Assert.InRange(await LandAreaAsync(scene.AnnaId), 4_700, 5_300); // земля не тронута
+
+        await ProcessAsync(api, requested.Id); // следующий проход
+
+        var done = await scene.Admin.GetFromJsonAsync<RollbackResponse>($"/admin/rollbacks/{requested.Id}", Json, Cancel);
+        Assert.Equal((CaptureRollbackStatus.Done, 1, 0), (done!.Status, done.RolledBack, done.Failed));
+        Assert.InRange(await LandAreaAsync(scene.AnnaId), 9_500, 10_500);
+        Assert.Equal(0, await LandAreaAsync(scene.BorisId), 1);
     }
 
     [Fact]
