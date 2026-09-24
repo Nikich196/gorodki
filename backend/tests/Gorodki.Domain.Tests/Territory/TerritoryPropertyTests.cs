@@ -135,7 +135,8 @@ public sealed class TerritoryPropertyTests
     /// I7: переписаны только тайлы, где изменилось состояние земли, и в каждом из них есть что записать; остальные тайлы —
     /// те же объекты кусков; кусок, чьи земля (множество точек) и состояние не изменились, — прежний объект, то есть в базе
     /// он сохраняет номер. Куски, чья граница сдвинулась на сантиметры (излом от snap-rounding у изменённой земли), здесь
-    /// не в счёт: это известный остаток (UntouchedLandTests, docs/architecture/territory-map.md).
+    /// не в счёт: это настоящая геометрия хранилища, а проекция скрытого захвата её не показывает — возвращает прежние
+    /// строки (ExactUndo; UntouchedLandTests, docs/architecture/territory-map.md).
     /// </summary>
     private static void AssertUntouchedLandKept(
         Step step, Dictionary<TileKey, IReadOnlyList<Parcel>> piecesBefore, CaptureResult result, TerritoryMap map)
