@@ -62,22 +62,20 @@ public static class FogEndpoints
 
         var seasonNumber = season ?? SeasonCalendar.AllTime;
         var query = db.FogTiles.AsNoTracking().Where(f => f.UserId == userId && f.Layer == kind && f.Season == seasonNumber);
-        if (requested is not null)
-        {
-            int minX = requested.Min(t => t.Tile.X), maxX = requested.Max(t => t.Tile.X);
-            int minY = requested.Min(t => t.Tile.Y), maxY = requested.Max(t => t.Tile.Y);
-            query = query.Where(f => f.TileX >= minX && f.TileX <= maxX && f.TileY >= minY && f.TileY <= maxY);
-        }
-
-        var stored = await query.OrderBy(f => f.TileX).ThenBy(f => f.TileY).Take(MaxTilesWithoutList).ToListAsync(cancellationToken);
         var result = new List<FogTileView>();
         var unchanged = new List<TileRef>();
         if (requested is null)
         {
-            result.AddRange(stored.Select(ToView));
+            var all = await query.OrderBy(f => f.TileX).ThenBy(f => f.TileY).Take(MaxTilesWithoutList).ToListAsync(cancellationToken);
+            result.AddRange(all.Select(ToView));
         }
         else
         {
+            // Строки спрошенных тайлов — все, без предела: ответ «не изменился» должен быть правдой о каждом тайле.
+            // Рамка вокруг далёких тайлов с пределом строк отрезала бы настоящий тайл, и телефон закэшировал бы его пустым.
+            var xs = requested.Select(t => t.Tile.X).Distinct().ToList();
+            var ys = requested.Select(t => t.Tile.Y).Distinct().ToList();
+            var stored = await query.Where(f => xs.Contains(f.TileX) && ys.Contains(f.TileY)).ToListAsync(cancellationToken);
             foreach (var (tile, known) in requested)
             {
                 var entity = stored.SingleOrDefault(f => f.TileX == tile.X && f.TileY == tile.Y);
