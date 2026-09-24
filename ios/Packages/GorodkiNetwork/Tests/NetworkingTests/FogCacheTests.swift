@@ -106,15 +106,17 @@ struct FogCacheTests {
         /// Следующий ответ — готов, но придержан до `release()`: как медленная сеть.
         private var held: CheckedContinuation<Void, Never>?
         private var holding = false
+        private var heldWaiters: [CheckedContinuation<Void, Never>] = []
         func hold() { holding = true }
         func release() {
             held?.resume()
             held = nil
         }
-        func waitUntilHeld() async throws {
-            for _ in 0..<2_500 where held == nil {
-                try await Task.sleep(for: .milliseconds(2))
-            }
+        /// Дождаться, пока ответ соберётся и будет придержан, — без сна: иначе на медленной машине проверка шла бы дальше
+        /// раньше, чем ответ собран.
+        func waitUntilHeld() async {
+            if held != nil { return }
+            await withCheckedContinuation { heldWaiters.append($0) }
         }
 
         func send(
@@ -146,7 +148,11 @@ struct FogCacheTests {
             }
             if holding {
                 holding = false
-                await withCheckedContinuation { held = $0 }
+                await withCheckedContinuation { continuation in
+                    held = continuation
+                    heldWaiters.forEach { $0.resume() }
+                    heldWaiters = []
+                }
             }
             let json =
                 #"{"layer":"foot","season":null,"tiles":[\#(tiles.joined(separator: ","))],"unchanged":[\#(unchanged.joined(separator: ","))]}"#
@@ -290,13 +296,52 @@ struct FogCacheTests {
         await server.hold()
 
         let slow = Task { try await cache.refresh(visible: [Self.a]) }  // соберёт версию 3
-        try await server.waitUntilHeld()
+        await server.waitUntilHeld()
         await server.set(Self.a, version: 4)
         #expect(try await cache.refresh(visible: [Self.a]) == [Self.a])  // тайла ещё нет — второй запрос
         await server.release()
 
         #expect(try await slow.value.isEmpty)
         #expect(await cache.tile(Self.a)?.version == 4)
+    }
+
+    @Test("Туман изменился, пока тайл запрашивался впервые, — после ответа тайл перезапрашивается с версией")
+    func invalidateDuringFirstRequestIsKept() async throws {
+        await seed()
+        let cache = cache()
+        await server.hold()
+
+        let loading = Task { try await cache.refresh(visible: [Self.a]) }
+        await server.waitUntilHeld()  // ответ с версией 3 уже собран
+        await server.set(Self.a, version: 4)  // сервер открыл туман по доставленному забегу
+        await cache.invalidate()  // подсказка `FogChanged` пришла раньше ответа
+        await server.release()
+        #expect(try await loading.value == [Self.a])
+        #expect(await cache.tile(Self.a)?.version == 3)
+
+        #expect(try await cache.refresh(visible: [Self.a]) == [Self.a])
+        #expect(await server.requests.last?.tiles == ["9270:5404@3"])
+        #expect(await cache.tile(Self.a)?.version == 4)
+    }
+
+    @Test("Туман изменился, пока устаревший тайл перезапрашивался, — ответ «без изменений» пометку не снимает")
+    func invalidateDuringRefetchIsKept() async throws {
+        await seed()
+        let cache = cache()
+        try await cache.refresh(visible: [Self.a])
+        await cache.invalidate()
+        await server.hold()
+
+        let loading = Task { try await cache.refresh(visible: [Self.a]) }
+        await server.waitUntilHeld()  // «без изменений» уже собрано
+        await server.set(Self.a, version: 4)
+        await cache.invalidate()
+        await server.release()
+        #expect(try await loading.value.isEmpty)
+
+        #expect(try await cache.refresh(visible: [Self.a]) == [Self.a])
+        #expect(await cache.tile(Self.a)?.version == 4)
+        #expect(try await cache.refresh(visible: [Self.a]).isEmpty)  // дальше — снова без запросов
     }
 
     @Test("Ответ, начатый до смены аккаунта, выбрасывается: чужой туман в кэш не попадает")
@@ -306,7 +351,7 @@ struct FogCacheTests {
         await server.hold()
 
         let loading = Task { try await cache.refresh(visible: Self.near) }
-        try await server.waitUntilHeld()
+        await server.waitUntilHeld()
         await cache.reset()
         await server.release()
 
