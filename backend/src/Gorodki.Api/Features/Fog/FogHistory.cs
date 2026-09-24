@@ -37,21 +37,32 @@ public sealed class FogHistory(
         // успевает раньше — и его клетки стираются здесь, — либо после очистки находит свою отметку ниже и откатывается.
         var userKey = userId.ToString();
         await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(2, hashtext({userKey}))", cancellationToken);
-        // И блокировки среза рейтингов (LeaderboardSnapshots) за вчера, сегодня и завтра по Минску: срез, который как раз
-        // читает туман (в том числе на границе суток), либо заканчивается раньше — и строки игрока стираются ниже, — либо
-        // читает туман уже без стёртого.
-        for (var day = today.AddDays(-1); day <= today.AddDays(1); day = day.AddDays(1))
+
+        // Ни тумана, ни мест в рейтинге (история уже чиста) — общие блокировки срезов не нужны: новый туман игрока, пока
+        // держим его блокировку, не появится, а без тумана срез его не посчитает. Иначе повторные очистки одного игрока
+        // выстраивали бы в очередь чужие очистки и ежедневный срез.
+        var tiles = 0;
+        var rankings = 0;
+        if (await db.FogTiles.AnyAsync(f => f.UserId == userId, cancellationToken)
+            || await db.LeaderboardSnapshots.AnyAsync(s => s.UserId == userId && s.Board == LeaderboardBoard.Exploration, cancellationToken))
         {
-            await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(4, {day.DayNumber})", cancellationToken);
+            // Блокировки среза рейтингов (LeaderboardSnapshots) за вчера, сегодня и завтра по Минску: срез, который как
+            // раз читает туман (в том числе на границе суток), либо заканчивается раньше — и строки игрока стираются ниже, —
+            // либо читает туман уже без стёртого.
+            for (var day = today.AddDays(-1); day <= today.AddDays(1); day = day.AddDays(1))
+            {
+                await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(4, {day.DayNumber})", cancellationToken);
+            }
+
+            tiles = await db.FogTiles.Where(f => f.UserId == userId).ExecuteDeleteAsync(cancellationToken);
+            rankings = await leaderboards.RemovePlayerAsync(userId, cancellationToken);
         }
 
-        var tiles = await db.FogTiles.Where(f => f.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         // Забеги, которые туман ещё не открывали (идёт, ждёт последних кусков или суток после конца), помечаются открывшими
         // ничего: иначе путь до очистки вернул бы стёртое. «+N га» у них — ноль.
         var runs = await db.Runs
             .Where(r => r.UserId == userId && r.FogStampedAt == null)
             .ExecuteUpdateAsync(set => set.SetProperty(r => r.FogStampedAt, now).SetProperty(r => r.FogNewCells, 0), cancellationToken);
-        var rankings = await leaderboards.RemovePlayerAsync(userId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         if (tiles > 0)

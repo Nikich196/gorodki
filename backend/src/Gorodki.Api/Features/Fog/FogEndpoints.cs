@@ -53,7 +53,9 @@ public static class FogEndpoints
                 "Только свой туман. Забеги, которые ещё не открывали туман (в том числе идущий сейчас), его уже не откроют — "
                 + "«+N га» у них 0; следующие забеги открывают заново. Свои места в рейтинге «Кто открыл больше» стираются сразу. "
                 + "Подсказка FogChanged; тайлы, которые телефон спросит со своей версией, придут пустыми с версией новее. "
-                + "Точка «Дом» и её круг живут только на телефоне — их сервер не знает.");
+                + "Точка «Дом» и её круг живут только на телефоне — их сервер не знает. "
+                + "503 fog_clear_busy — туман занят (открывается или идёт ежедневный срез рейтингов), ничего не стёрто: повторить позже.")
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         return app;
     }
 
@@ -135,7 +137,7 @@ public static class FogEndpoints
         return TypedResults.Ok(new FogSummaryResponse(layers));
     }
 
-    private static async Task<Results<NoContent, UnauthorizedHttpResult>> ClearFog(
+    private static async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> ClearFog(
         ClaimsPrincipal principal, FogHistory history, CancellationToken cancellationToken)
     {
         if (principal.UserId() is not { } userId)
@@ -143,7 +145,20 @@ public static class FogEndpoints
             return TypedResults.Unauthorized();
         }
 
-        await history.ClearAsync(userId, cancellationToken);
+        try
+        {
+            await history.ClearAsync(userId, cancellationToken);
+        }
+        catch (Exception e) when (DatabaseFailures.IsLockTimeout(e))
+        {
+            // Туман игрока или срез рейтингов занят дольше lock_timeout (открытие тумана, ежедневный срез): ничего не
+            // стёрто — транзакция откатилась. Отдельный код, чтобы приложение отличило «повторите» от ошибки сервера.
+            return TypedResults.Problem(
+                title: "Туман сейчас пересчитывается — повторите очистку позже.",
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                extensions: new Dictionary<string, object?> { ["code"] = "fog_clear_busy" });
+        }
+
         return TypedResults.NoContent();
     }
 

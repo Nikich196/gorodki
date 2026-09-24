@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
@@ -149,6 +150,38 @@ public sealed class FogHistoryTests(DatabaseFixture database)
         Assert.True(await SnapshotAsync(api) > 0);
         Assert.Null(await RankAsync(day.AddDays(1), annaId));
         Assert.NotNull(await RankAsync(day.AddDays(1), borisId));
+    }
+
+    [Fact]
+    public async Task Clear_waits_for_the_daily_snapshot_only_when_there_is_fog_and_answers_busy_after_the_lock_timeout()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        api.Time.SetUtcNow(SeasonCalendar.MinskMidnight(new DateOnly(2030, 1, 1).AddDays(Interlocked.Increment(ref _nextDay) * 10)).AddHours(12));
+        await WalkAndStampAsync(api, anna, Square(NewArea(), 0, 0, 100));
+        var day = GameClock.GameDayOf(api.Time.GetUtcNow());
+
+        await using (var snapshot = database.CreateContext())
+        {
+            // Долгий срез рейтингов за сегодня держит свою блокировку, как LeaderboardSnapshots.TakeIfDueAsync.
+            await using var transaction = await snapshot.Database.BeginTransactionAsync(Cancel);
+            await snapshot.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(4, {day.DayNumber})", Cancel);
+
+            // У Бориса тумана нет — его очистка срез не ждёт: повторные очистки не встают в общую очередь.
+            Assert.Equal(HttpStatusCode.NoContent, (await boris.DeleteAsync("/fog", Cancel)).StatusCode);
+
+            // Анне есть что стирать: очистка ждёт срез не дольше lock_timeout и отвечает «занято», ничего не стерев.
+            var busy = await anna.DeleteAsync("/fog", Cancel);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, busy.StatusCode);
+            Assert.Equal("fog_clear_busy", (await busy.Content.ReadFromJsonAsync<JsonElement>(Cancel)).GetProperty("code").GetString());
+            Assert.NotEmpty((await FogAsync(anna, "layer=foot")).Tiles);
+        }
+
+        // Срез закончился — повтор проходит.
+        Assert.Equal(HttpStatusCode.NoContent, (await anna.DeleteAsync("/fog", Cancel)).StatusCode);
+        Assert.Empty((await FogAsync(anna, "layer=foot")).Tiles);
     }
 
     // MARK: — вспомогательное

@@ -55,5 +55,15 @@ public sealed class DatabaseFailuresTests
         Assert.False(DatabaseFailures.IsTransient(new InvalidOperationException("Sequence contains no elements")));
     }
 
+    [Fact]
+    public void Lock_timeout_is_recognised_at_any_depth_and_statement_timeout_is_not()
+    {
+        Assert.True(DatabaseFailures.IsLockTimeout(Postgres(PostgresErrorCodes.LockNotAvailable)));
+        Assert.True(DatabaseFailures.IsLockTimeout(new DbUpdateException("save", Postgres(PostgresErrorCodes.LockNotAvailable))));
+        Assert.False(DatabaseFailures.IsLockTimeout(Postgres(PostgresErrorCodes.QueryCanceled))); // statement_timeout
+        Assert.False(DatabaseFailures.IsLockTimeout(Postgres(PostgresErrorCodes.DeadlockDetected)));
+        Assert.False(DatabaseFailures.IsLockTimeout(new InvalidOperationException("Sequence contains no elements")));
+    }
+
     private static PostgresException Postgres(string sqlState) => new("сбой", "ERROR", "ERROR", sqlState);
 }
