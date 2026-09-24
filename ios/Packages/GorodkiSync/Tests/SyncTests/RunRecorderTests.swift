@@ -23,6 +23,29 @@ struct RunRecorderTests {
         #expect(stored.serverState == .unknown)
     }
 
+    @Test("Точка, пришедшая, пока «Финиш» записывает остаток, не принимается: номер последней точки — из кусков")
+    func pointDuringFinishIsRejected() async throws {
+        let slow = GatedStore()
+        let run = Fixture.run()
+        let recorder = try await RunRecorder.begin(run, store: slow, policy: Fixture.policy(maxPoints: 120))
+        for seq in 0...2 {
+            try await recorder.record(Fixture.point(seq))
+        }
+        await slow.holdChunkSaves()
+
+        let finishing = Task { try await recorder.finish(endedAt: start + 3) }
+        try await slow.waitUntilSaving()
+        await #expect(throws: RecorderError.alreadyFinished) {
+            try await recorder.record(Fixture.point(3))
+        }
+        await slow.release()
+        try await finishing.value
+
+        let stored = try #require(await slow.runs().first)
+        #expect(await slow.inner.chunks(of: run.id).flatMap(\.points).map(\.seq) == [0, 1, 2])
+        #expect(stored.lastSeq == 2)
+    }
+
     @Test("Кусок запечатывается по возрасту: при очередной точке и по таймеру")
     func sealsByAge() async throws {
         let store = InMemorySyncStore()

@@ -169,6 +169,81 @@ struct RunSessionTests {
         #expect(await session.isFinished)
     }
 
+    @Test(
+        "Неверная точка (точность −1, координата вне диапазона) не нумеруется: иначе «идеальная» точка или отказ куска",
+        arguments: [(-1.0, 52.1), (5, 95), (5, .nan), (.infinity, 52.1)])
+    func invalidFixIsNotNumbered(accuracy: Double, latitude: Double) async throws {
+        let session = try await start()
+        var walk = Walk()
+        let bad = LocationFix(
+            coordinate: Coordinate(latitude: latitude, longitude: 23.7), timestamp: walk.time,
+            horizontalAccuracy: accuracy)
+        walk.time += 1
+        let good = walk.fix(east: 0, north: 0)
+
+        #expect(try await session.handle(bad, now: bad.timestamp) == [.dropped])
+        #expect(try await session.handle(good, now: good.timestamp) == [.accepted])
+        try await session.finish(endedAt: good.timestamp)
+
+        #expect(await store.chunks(of: session.runId).flatMap(\.points).map(\.timestamp) == [good.timestamp])
+    }
+
+    @Test("«Финиш», пока точка записывается, — ждёт её: точка в куске, номер последней точки сходится с кусками")
+    func finishWaitsForPointBeingRecorded() async throws {
+        let slow = GatedStore()
+        let session = try await RunSession.start(
+            Fixture.run(), store: slow, rules: .version1, policy: Fixture.policy(maxPoints: 1, maxAgeSeconds: 3_600))
+        var walk = Walk()
+        let a = walk.fix(east: 0, north: 0)
+        await slow.holdChunkSaves()
+
+        let point = Task { try await session.handle(a, now: a.timestamp) }
+        try await slow.waitUntilSaving()
+        let finishing = Task { try await session.finish(endedAt: a.timestamp + 1) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await !session.isFinished)  // «Финиш» ждёт, пока точка запишется
+        await slow.release()
+
+        #expect(try await point.value == [.accepted])
+        try await finishing.value
+        let run = try #require(await slow.runs().first)
+        let seqs = await slow.inner.chunks(of: session.runId).flatMap(\.points).map(\.seq)
+        #expect(seqs == [0] && run.lastSeq == 0)
+        #expect(await session.sealedChunks == 1)
+    }
+
+    @Test("Запоздавшая запись датчика (раньше уже отправленной отметки) не уходит на сервер — и судье телефона тоже")
+    func lateSensorIsNotJudged() async throws {
+        let session = try await start(policy: Fixture.policy(maxPoints: 5, maxAgeSeconds: 3_600))
+        var walk = Walk()
+        let first = walk.straight(seconds: 5)
+        _ = try await feed(session, Array(first.prefix(3)))
+        await session.sensorsComplete(through: first[2].timestamp)
+        _ = try await feed(session, Array(first.suffix(2)))  // пятая точка запечатала кусок с отметкой
+
+        // «Транспорт» задним числом — сервер его не получит (кусок с отметкой уже ушёл), значит и судье нельзя.
+        await session.record(MotionSample(timestamp: first[1].timestamp, activity: .automotive))
+        let events = try await feed(session, walk.straight(seconds: 40, from: 7))
+
+        #expect(!events.contains(.broken(.vehicle)))
+        #expect(await store.chunks(of: session.runId).flatMap(\.motion).isEmpty)
+    }
+
+    @Test("Предел длины при молчащем GPS: таймер завершает забег, конец — последняя точка")
+    func tickFinishesAtLimitWithoutPoints() async throws {
+        let session = try await start()
+        var walk = Walk()
+        let fixes = walk.straight(seconds: 3)
+        _ = try await feed(session, fixes)
+        let limit = Fixture.start + PhoneRules.version1.maxRunHours * 3_600
+
+        #expect(try await session.tick(now: limit + 60).isEmpty)  // в пределах запаса окна
+        #expect(try await session.tick(now: limit + 11 * 60) == [.finishedAtLimit])
+        #expect(await session.isFinished)
+        let run = try #require(await store.runs().first)
+        #expect(run.endedAtMs == StoragePrecision.milliseconds(fixes[2].timestamp) && run.lastSeq == 2)
+    }
+
     @Test("Точка раньше начала забега больше чем на минуту — не этого забега: отброшена, забег продолжается")
     func pointBeforeStartIsDropped() async throws {
         let session = try await start()
@@ -205,7 +280,7 @@ struct RunSessionTests {
         #expect(await slow.inner.chunks(of: session.runId).flatMap(\.points).map(\.seq) == [0, 1])
     }
 
-    @Test("Точка пришла, пока кусок записывался, — попадает в следующий кусок, не теряется")
+    @Test("Точка и датчик во время записи куска не теряются: точка ждёт записи, датчик — в следующий кусок")
     func pointDuringSealIsKept() async throws {
         let slow = GatedStore()
         let session = try await RunSession.start(
@@ -217,13 +292,16 @@ struct RunSessionTests {
         let sealing = Task { try await session.tick(now: Fixture.start + 7_200) }  // кусок «созрел»
         try await slow.waitUntilSaving()
         let during = walk.fix(east: 10, north: 0)
-        #expect(try await session.handle(during, now: during.timestamp) == [.accepted])
+        let point = Task { try await session.handle(during, now: during.timestamp) }
+        await session.record(MotionSample(timestamp: during.timestamp, activity: .walking))  // датчики очереди не ждут
         await slow.release()
         try await sealing.value
+        #expect(try await point.value == [.accepted])
         try await session.finish(endedAt: walk.time)
 
-        let seqs = await slow.inner.chunks(of: session.runId).flatMap(\.points).map(\.seq)
-        #expect(seqs == Array(0..<6))
+        let chunks = await slow.inner.chunks(of: session.runId)
+        #expect(chunks.flatMap(\.points).map(\.seq) == Array(0..<6))
+        #expect(chunks.flatMap(\.motion).map(\.activity) == [.walking])
     }
 
     @Test("Точка с тем же временем (повтор GPS) отброшена, номер не израсходован")

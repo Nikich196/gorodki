@@ -71,6 +71,18 @@ struct SegmentJudgeTests {
         #expect(issue.index >= 30)
     }
 
+    @Test("Записи датчиков не по порядку: судья читает их по времени — как сервер (он их сортирует)")
+    func motionOutOfOrder() throws {
+        var sim = TrackSimulator()
+        var judge = SegmentJudge(league: .run)
+        let points = sim.straight(from: (0, 0), speed: 2, seconds: 60)
+        // «Транспорт» с 10-й секунды пришёл раньше, чем более ранняя «ходьба» с 5-й.
+        judge.record(MotionSample(timestamp: points[10].timestamp, activity: .automotive))
+        judge.record(MotionSample(timestamp: points[5].timestamp, activity: .walking))
+        let issue = try #require(firstIssue(points, judge: &judge))
+        #expect(issue.verdict == .segmentBroken(.vehicle))
+    }
+
     @Test("Велосипед в лиге «Бег»: разрыв с причиной «велосипед» (предложить лигу «Вело»)")
     func cyclingInRunLeague() throws {
         var sim = TrackSimulator()
