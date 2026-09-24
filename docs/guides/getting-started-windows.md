@@ -28,22 +28,28 @@ cd gorodki
 ## 3. Запустить тесты и сервер
 
 ```powershell
-dotnet test --solution backend/Gorodki.slnx
-dotnet run --project backend/src/Gorodki.Api
+cd backend
+dotnet test --solution Gorodki.slnx
+dotnet run --project src/Gorodki.Api
 ```
+
+Команды `dotnet` — всегда из папки `backend`: там лежит `global.json` с версией SDK и запуском тестов через
+Microsoft.Testing.Platform. Из корня репозитория `dotnet test` его не видит и падает с `MSB1001: Unknown switch --solution`.
 
 Открой http://localhost:5080/scalar — интерактивное описание API. Попробуй `GET /health`:
 сервер ответит версией и текущим игровым днём по Минску.
+
+CI гоняет тесты на Linux, на Windows сервер ещё не проверялся. Если тест упал у тебя, а в CI он зелёный, — это наша ошибка:
+пришли вывод целиком.
 
 ### База данных (по желанию)
 
 Большинство тестов базы не требуют. Интеграционные тесты (`tests/Gorodki.IntegrationTests`) запускают PostgreSQL + PostGIS
 в Docker — если Docker Desktop не установлен, они просто пропускаются (в CI выполняются всегда).
 
-Миграции:
+Миграции — из той же папки `backend`:
 
 ```powershell
-cd backend
 dotnet tool restore                                   # ставит dotnet-ef нужной версии (из dotnet-tools.json)
 dotnet ef migrations add ИмяМиграции --project src/Gorodki.Api --output-dir Infrastructure/Persistence/Migrations
 dotnet ef migrations script --project src/Gorodki.Api # посмотреть SQL
@@ -60,7 +66,7 @@ dotnet ef migrations script --project src/Gorodki.Api # посмотреть SQL
   каждая возможность лежит в своей папке `Features/<Название>/` (вертикальные срезы).
 - `backend/tests/*` — тесты. `Gorodki.Api.Tests` запускает весь сервер в памяти через `WebApplicationFactory`.
 
-С чего начать чтение: `Program.cs` → `Features/Health/HealthEndpoints.cs` → `Domain/Time/GameClock.cs`
+С чего начать чтение: `Program.cs` → `Features/Health/HealthEndpoints.cs` → `Gorodki.Domain/Time/GameClock.cs`
 и тесты к ним.
 
 ## 5. Как сдавать работу
