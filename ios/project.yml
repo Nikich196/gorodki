@@ -130,6 +130,20 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Widgets/GorodkiWidgets.entitlements
         SKIP_INSTALL: YES
 
+  # Тесты склейки приложения с iOS (RunController, AppDependencies, Info.plist). Идут внутри запущенного приложения
+  # на симуляторе (`xcodebuild test`, ios.yml): TEST_HOST и BUNDLE_LOADER XcodeGen ставит сам по зависимости от
+  # приложения. Логика без iOS — в пакетах, её тесты идут на Linux (ios-core).
+  GorodkiTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: AppTests
+    dependencies:
+      - target: Gorodki
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Gorodki Free:
     build:
@@ -139,6 +153,8 @@ schemes:
       config: Debug-Free
     test:
       config: Debug-Free
+      targets:
+        - GorodkiTests
     profile:
       config: Release-Free
     analyze:
@@ -154,6 +170,8 @@ schemes:
       config: Debug-Paid
     test:
       config: Debug-Paid
+      targets:
+        - GorodkiTests
     profile:
       config: Release-Paid
     analyze:

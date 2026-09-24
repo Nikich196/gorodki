@@ -1,5 +1,6 @@
 # Сборка iOS-приложения на Mac в GitHub Actions (своего Mac пока нет).
-#  ios-build        — Xcode 27 (раннер xcode-27, public preview): Debug для симулятора и Release для iPhone;
+#  ios-build        — Xcode 27 (раннер xcode-27, public preview): Debug для симулятора и Release для iPhone,
+#                      затем дымовой запуск и тесты приложения на симуляторе;
 #  ios-build-xcode26 — раз в неделю резервная сборка на Xcode 26 (раннер macos-26),
 #                      чтобы не зависеть только от preview-раннера.
 # -skipPackagePluginValidation: клиент API (пакет GorodkiAPI) генерируется плагином при сборке, а xcodebuild
@@ -87,6 +88,72 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/dd" \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet
+
+      # Имена симуляторов меняются от Xcode к Xcode, поэтому не зашиты: iPhone новейшей из установленных iOS.
+      - name: Симулятор iPhone
+        id: simulator
+        timeout-minutes: 10
+        run: |
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          ios = [key for key, devices in runtimes.items() if ".SimRuntime.iOS-" in key and any(d["name"].startswith("iPhone") for d in devices)]
+          if not ios: sys.exit("На раннере нет симулятора iPhone. Среды: " + ", ".join(runtimes))
+          newest = max(ios, key=lambda key: [int(part) for part in key.rsplit("iOS-", 1)[1].split("-")])
+          print(next(d["udid"] for d in runtimes[newest] if d["name"].startswith("iPhone")))
+          ')
+          xcrun simctl list devices | grep "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      # Дымовой запуск. Код приложения ещё ни разу не исполнялся (Mac нет, S2 впереди): ошибки запуска — Info.plist,
+      # регистрация фоновых задач, ловушки изоляции Swift 6 — иначе впервые проявились бы на iPhone. Приложение —
+      # из шага «Debug-Free для симулятора», без подписи, как все сборки здесь: без entitlements (App Group, Keychain)
+      # оно тоже обязано запускаться. Шагомер и Live Activity симулятор не проверит — это S1/S2 на телефоне.
+      - name: Дымовой запуск на симуляторе
+        timeout-minutes: 5
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          app="$RUNNER_TEMP/dd/Build/Products/Debug-Free-iphonesimulator/Gorodki.app"
+          bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Info.plist")
+          reports="$HOME/Library/Logs/DiagnosticReports"
+          mkdir -p "$reports"
+          touch "$RUNNER_TEMP/launch-mark"
+          xcrun simctl install "$UDID" "$app"
+          launched=$(xcrun simctl launch --stdout="$RUNNER_TEMP/app-stdout.log" --stderr="$RUNNER_TEMP/app-stderr.log" \
+            "$UDID" "$bundle_id")
+          pid=${launched##* }
+          echo "Запущено: $launched"
+          sleep 20
+          crashes=$(find "$reports" -name "Gorodki*" -newer "$RUNNER_TEMP/launch-mark")
+          if kill -0 "$pid" 2>/dev/null && [ -z "$crashes" ]; then
+            echo "Через 20 секунд приложение живо, отчётов о падении нет."
+            xcrun simctl terminate "$UDID" "$bundle_id"
+            xcrun simctl uninstall "$UDID" "$bundle_id"
+            exit 0
+          fi
+          echo "::error::Приложение упало или закрылось в первые 20 секунд после запуска (pid $pid)"
+          cat "$RUNNER_TEMP/app-stdout.log" "$RUNNER_TEMP/app-stderr.log" || true
+          for report in $crashes; do
+            echo "── $report"
+            head -n 120 "$report"
+          done
+          exit 1
+
+      # Тесты склейки приложения с iOS (цель GorodkiTests, ios/AppTests) — внутри приложения на том же симуляторе.
+      # Без -quiet: в журнале видно, какие тесты прошли.
+      - name: Тесты приложения на симуляторе
+        timeout-minutes: 20
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          xcodebuild test \
+            -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Debug-Free \
+            -destination "id=$UDID" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
 
   ios-build-xcode26:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
