@@ -203,12 +203,21 @@ public static class ExactUndo
     }
 
     /// <summary>
-    /// Вставленный кусок лежит над удалённым: внутренняя точка одного — внутри другого. Не по рамкам: у соседних кусков
-    /// рамки пересекаются. И не по площади пересечения: излом snap-rounding на общей наклонной границе даёт соседям
-    /// ненулевую площадь (до 0,07 м × длину границы).
+    /// Вставленный кусок лежит над удалённым: внутренняя точка одного — внутри другого, а если нет — их пересечение где-то
+    /// шире 20 см. Не по рамкам: у соседних кусков рамки пересекаются. И не по площади пересечения: излом snap-rounding на
+    /// общей наклонной границе даёт соседям ненулевую площадь (до 0,07 м × длину границы), но полоской не шире 7 см.
+    /// Внутренних точек мало, когда вставленный кусок слил остатки двух удалённых кусков одного владельца с одним
+    /// состоянием: его точка — в одном из них, а визит на нём ложится на оба (найдено оракулом I8).
     /// </summary>
     private static bool Overlaps(Polygon written, Polygon replaced) =>
-        Contains(replaced, GeoOps.InteriorPoint(written)) || Contains(written, GeoOps.InteriorPoint(replaced));
+        Contains(replaced, GeoOps.InteriorPoint(written))
+        || Contains(written, GeoOps.InteriorPoint(replaced))
+        || (written.EnvelopeInternal.Intersects(replaced.EnvelopeInternal)
+            && GeoOps.Intersection(written, replaced) is { IsEmpty: false } common
+            && !GeoOps.IsNarrowerThan(common, KinkWidth));
+
+    /// <summary>Половина ширины, м, уже которой пересечение — излом snap-rounding (до 0,0707 м), а не общая земля.</summary>
+    private const double KinkWidth = 0.1;
 
     private static bool Contains(Polygon area, Coordinate point) =>
         area.EnvelopeInternal.Contains(point) && new IndexedPointInAreaLocator(area).Locate(point) == Location.Interior;

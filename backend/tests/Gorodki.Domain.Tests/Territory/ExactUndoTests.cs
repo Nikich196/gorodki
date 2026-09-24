@@ -196,6 +196,37 @@ public sealed class ExactUndoTests
     }
 
     [Fact]
+    public void Visit_to_a_piece_that_merged_two_replaced_pieces_is_replayed_on_both()
+    {
+        // У Анны два соседних куска разного состояния (разное время визита). Её скрытая петля освежила часть обоих — и
+        // освежённые части получили одно состояние: один вставленный кусок поверх двух удалённых. Его внутренняя точка
+        // лежит на их общей границе, а внутренние точки удалённых — на его границе: по точкам он не лежит ни над одним. Визит
+        // Анны на нём ложится на оба (какой из них она пробежала, по строкам не узнать — остаток в territory-map.md).
+        var left = new ParcelState { OwnerId = Anna, Level = 1, LastVisitAt = T0, LastLevelUpAt = T0 };
+        var right = left with { LastVisitAt = T0.AddHours(1) };
+        var store = new FakeTerritoryStore();
+        var leftId = store.Seed(new Parcel(Tile, RectanglePolygon(100, 100, 100, 100), left));
+        var rightId = store.Seed(new Parcel(Tile, RectanglePolygon(200, 100, 100, 100), right));
+        var before = store.RowsIn(Tile);
+        var refreshedAt = T0.AddHours(10);
+        var hidden = Capture(store, Anna, refreshedAt, RectanglePolygon(150, 150, 100, 100));
+        var merged = IdOf(store, s => s.LastVisitAt == refreshedAt && s.LastLevelUpAt == T0);
+        Assert.Equal(5_000, store.Rows.Single(r => r.Id == merged).Parcel.Geometry.Area, 1); // одна освежённая часть на оба
+        var at = refreshedAt.AddMinutes(5);
+        Assert.Equal([merged], store.Visit([merged], at));
+
+        var projection = store.Project(Tile, [hidden]);
+
+        Assert.Equal([UndoPath.Exact], projection.Paths);
+        AssertSameRows(
+            [
+                (leftId, before[0].Parcel with { State = CaptureRules.Visit(left, at, store.Rules)! }),
+                (rightId, before[1].Parcel with { State = CaptureRules.Visit(right, at, store.Rules)! }),
+            ],
+            projection.Pieces);
+    }
+
+    [Fact]
     public void Neighbours_visit_to_his_rewritten_piece_is_replayed_on_the_original()
     {
         // Новичок взял ничью землю за наклонным краем куска Анны, её землю не тронул, но переписал её кусок с изломом
