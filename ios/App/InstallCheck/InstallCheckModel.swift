@@ -28,6 +28,8 @@ final class InstallCheckModel {
     /// Идентификатор запущенной Live Activity. Сам объект `Activity` храним не здесь — см. `RunActivityController`.
     private(set) var activityID: String?
     private(set) var activityError: String?
+    /// Своя проверочная плашка: «Закончить» не должно закрыть плашку идущего забега или прогулки.
+    private static let activitySlot = LiveActivitySlot(key: "installCheck.activityID")
 
     func refresh(now: Date = .now) {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -40,8 +42,8 @@ final class InstallCheckModel {
             appGroupItem(profile: profile, now: now),
             liveActivitiesItem(),
         ]
-        // Если Live Activity уже запущена (например, приложение перезапускали), подхватываем её.
-        activityID = RunActivityController.currentActivityID
+        // Если своя Live Activity уже запущена (например, приложение перезапускали), подхватываем её.
+        activityID = Self.activitySlot.adopt(running: RunActivityController.runningIDs)
     }
 
     // MARK: - Live Activity
@@ -54,6 +56,7 @@ final class InstallCheckModel {
         )
         do {
             activityID = try RunActivityController.start(startedAt: .now, state: state)
+            Self.activitySlot.remember(activityID)
         } catch {
             activityError = error.localizedDescription
         }
@@ -73,6 +76,7 @@ final class InstallCheckModel {
         guard let activityID else { return }
         await RunActivityController.end(id: activityID)
         self.activityID = nil
+        Self.activitySlot.forget()
     }
 
     // MARK: - Строки проверки

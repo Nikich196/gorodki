@@ -11,15 +11,13 @@ public enum RunActivityController {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
-    /// Идентификатор уже запущенной активности — например, если приложение перезапускали. Активностей может быть
-    /// несколько (забег и прогулка «Лаборатории»): свою ищите по сохранённому идентификатору (`isRunning(id:)`).
-    public static var currentActivityID: String? {
-        Activity<RunActivityAttributes>.activities.first?.id
-    }
-
-    /// Жива ли активность с этим идентификатором (её могли закрыть система или игрок).
-    public static func isRunning(id: String) -> Bool {
-        Activity<RunActivityAttributes>.activities.contains { $0.id == id }
+    /// Идентификаторы идущих активностей — например, после перезапуска приложения. Их может быть несколько (забег,
+    /// прогулка «Лаборатории», проверка установки), а тип атрибутов у всех один, поэтому «первой попавшейся» нет:
+    /// свою узнают по идентификатору, сохранённому при запуске. Закрытые системой или игроком сюда не входят.
+    public static var runningIDs: [String] {
+        Activity<RunActivityAttributes>.activities
+            .filter { $0.activityState == .active || $0.activityState == .stale }
+            .map { $0.id }
     }
 
     /// Запускает Live Activity и возвращает её идентификатор.

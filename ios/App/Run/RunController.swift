@@ -18,8 +18,11 @@ final class RunController {
     enum StartProblem: Error, Equatable {
         /// Сервер не задан или никто не вошёл.
         case notSignedIn
-        /// Нет разрешения на геопозицию «При использовании».
-        case locationNotAllowed
+        /// Разрешение на геопозицию ещё не спрашивали: экран показывает системный запрос
+        /// (`requestLocationAuthorization()`) и повторяет «Старт».
+        case locationNotDetermined
+        /// Геопозиция запрещена или ограничена: включить её можно только в Настройках — туда экран и ведёт.
+        case locationDenied
         /// Включена приблизительная геопозиция: точки не пройдут судью, и забег сожжёт лимит забегов впустую.
         case reducedAccuracy
     }
@@ -38,6 +41,8 @@ final class RunController {
     @ObservationIgnored private let motion = RunMotionSource()
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var activityID: String?
+    /// Начало идущего забега (не повтора) — для Live Activity, если её придётся запускать позже.
+    @ObservationIgnored private var runStartedAt: Date?
     @ObservationIgnored private var lastActivityUpdate = Date.distantPast
     @ObservationIgnored private var replay: Task<Void, Never>?
     /// Идёт «Старт», повтор или продолжение после перезапуска: второй «Старт» до этого не запускает источники — иначе
@@ -47,9 +52,8 @@ final class RunController {
     /// Подсказка «забег мог идти», чтобы после перезапуска сразу, ещё до чтения базы, запустить геопозицию (иначе iOS
     /// может снова усыпить приложение). Решает база (`RunTracker.recover`), подсказка — только ускоряет.
     private static let hintKey = "run.maybeTracking"
-    /// Идентификатор Live Activity забега. Активностей может быть несколько (прогулка «Лаборатории» — тоже), поэтому
-    /// после перезапуска забег закрывает или подхватывает только свою, а не первую попавшуюся.
-    private static let activityKey = "run.activityID"
+    /// Live Activity забега: после перезапуска забег закрывает или подхватывает только свою (`LiveActivitySlot`).
+    private static let activitySlot = LiveActivitySlot(key: "run.activityID")
 
     private init() {
         tracker = RunTracker(
@@ -72,8 +76,13 @@ final class RunController {
         defer { busy = false }
         guard await !tracker.state.isRunning else { throw TrackerError.alreadyRunning }
         let manager = CLLocationManager()
-        guard [.authorizedWhenInUse, .authorizedAlways].contains(manager.authorizationStatus) else {
-            throw StartProblem.locationNotAllowed
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            break
+        case .notDetermined:
+            throw StartProblem.locationNotDetermined
+        default:
+            throw StartProblem.locationDenied
         }
         guard manager.accuracyAuthorization == .fullAccuracy else { throw StartProblem.reducedAccuracy }
         // До записи забега: `motionAuthorized` в забеге не меняется, а без него сервер отклоняет каждую заявку.
@@ -97,7 +106,16 @@ final class RunController {
             throw error
         }
         UserDefaults.standard.set(true, forKey: Self.hintKey)
+        runStartedAt = startedAt
         startLiveActivity(startedAt: startedAt)
+    }
+
+    /// Разрешение ещё не спрашивали (`StartProblem.locationNotDetermined`): системный запрос «При использовании».
+    /// - Returns: разрешение есть — «Старт» можно повторить.
+    func requestLocationAuthorization() async -> Bool {
+        let request = LocationAuthorizationRequest()  // жив, пока игрок не ответил: ответ приходит его делегату
+        let status = await request.run()
+        return status == .authorizedWhenInUse || status == .authorizedAlways
     }
 
     /// Приблизительная геопозиция (`StartProblem.reducedAccuracy`): попросить точную на время забега — системный запрос
@@ -156,7 +174,9 @@ final class RunController {
 
     /// Демо-повтор сохранённой записи (PLAN.md §7.2): ×`speed`, время сдвинуто в прошлое, `source = replay`. Сервер
     /// разрешает его только ролям `demo` и `admin` (403 `replay_forbidden` — забег отвергнут, очередь не ломается).
-    /// Геопозиция и датчики не запускаются: всё идёт из записи, таймер — по её времени.
+    /// Точки, датчики и таймер идут из записи. Настоящая геопозиция работает параллельно, но её точки выбрасываются:
+    /// без неё iOS усыпит приложение на заблокированном экране, и повтор встанет (§7.2 «параллельно настоящая фоновая
+    /// сессия»).
     func startReplay(speed: Double = 20) async throws {
         guard !busy else { throw TrackerError.alreadyRunning }
         busy = true
@@ -172,6 +192,9 @@ final class RunController {
             else { throw StartProblem.notSignedIn }
             return session
         }
+        // Сейчас, пока приложение на переднем плане: фоновую сессию геопозиции из фона не начать. Остановит её конец
+        // повтора (`ended` → `stopSources`).
+        location.keepAlive()
         replaySpeed = replay.speed
         let tracker = self.tracker
         self.replay = Task {
@@ -242,24 +265,31 @@ final class RunController {
             stopSources()
             await tracker.flush()
             UserDefaults.standard.set(false, forKey: Self.hintKey)
-            if let leftover = UserDefaults.standard.string(forKey: Self.activityKey) {
+            if let leftover = Self.activitySlot.saved {
                 await RunActivityController.end(id: leftover)
-                UserDefaults.standard.removeObject(forKey: Self.activityKey)
+                Self.activitySlot.forget()
             }
             return
         }
         let since = Date(timeIntervalSince1970: await session.sensorsResumeFrom)
         try? await tracker.resume(session)
         startSources(motionSince: since)
-        if let saved = UserDefaults.standard.string(forKey: Self.activityKey),
-            RunActivityController.isRunning(id: saved)
-        {
-            activityID = saved
-        } else {
-            // Плашку закрыли система или игрок — продолженный забег показывает новую.
-            startLiveActivity(startedAt: Date(timeIntervalSince1970: Double(session.startedAtMs) / 1_000))
+        let startedAt = Date(timeIntervalSince1970: Double(session.startedAtMs) / 1_000)
+        runStartedAt = startedAt
+        activityID = Self.activitySlot.adopt(running: RunActivityController.runningIDs)
+        if activityID == nil {
+            // Плашку закрыли система или игрок — продолженный забег показывает новую. В фоне iOS её не запустит:
+            // тогда — когда приложение откроют (`becameActive`).
+            startLiveActivity(startedAt: startedAt)
         }
         UserDefaults.standard.set(true, forKey: Self.hintKey)
+    }
+
+    /// Приложение на переднем плане: забег, продолженный после перезапуска в фоне, мог остаться без Live Activity —
+    /// показать её сейчас.
+    func becameActive() {
+        guard activityID == nil, let runStartedAt else { return }
+        startLiveActivity(startedAt: runStartedAt)
     }
 
     // MARK: - Источники
@@ -308,7 +338,8 @@ final class RunController {
             Task { await RunActivityController.end(id: activityID) }
         }
         activityID = nil
-        UserDefaults.standard.removeObject(forKey: Self.activityKey)
+        runStartedAt = nil
+        Self.activitySlot.forget()
     }
 
     // MARK: - Live Activity
@@ -317,7 +348,7 @@ final class RunController {
         guard RunActivityController.areActivitiesEnabled else { return }
         activityID = try? RunActivityController.start(
             startedAt: startedAt, state: RunActivityAttributes.ContentState(title: "Забег", detail: "Ждём GPS…"))
-        UserDefaults.standard.set(activityID, forKey: Self.activityKey)
+        Self.activitySlot.remember(activityID)
     }
 
     /// Не чаще раза в 5 секунд: чаще система всё равно не покажет.
