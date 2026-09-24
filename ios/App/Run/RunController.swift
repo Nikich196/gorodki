@@ -115,7 +115,12 @@ final class RunController {
     func requestLocationAuthorization() async -> Bool {
         let request = LocationAuthorizationRequest()  // жив, пока игрок не ответил: ответ приходит его делегату
         let status = await request.run()
-        return status == .authorizedWhenInUse || status == .authorizedAlways
+        return Self.locationAllowed(status)
+    }
+
+    /// Геопозиция разрешена — «При использовании» или «Всегда».
+    private static func locationAllowed(_ status: CLAuthorizationStatus) -> Bool {
+        status == .authorizedWhenInUse || status == .authorizedAlways
     }
 
     /// Приблизительная геопозиция (`StartProblem.reducedAccuracy`): попросить точную на время забега — системный запрос
@@ -174,9 +179,9 @@ final class RunController {
 
     /// Демо-повтор сохранённой записи (PLAN.md §7.2): ×`speed`, время сдвинуто в прошлое, `source = replay`. Сервер
     /// разрешает его только ролям `demo` и `admin` (403 `replay_forbidden` — забег отвергнут, очередь не ломается).
-    /// Точки, датчики и таймер идут из записи. Настоящая геопозиция работает параллельно, но её точки выбрасываются:
-    /// без неё iOS усыпит приложение на заблокированном экране, и повтор встанет (§7.2 «параллельно настоящая фоновая
-    /// сессия»).
+    /// Точки, датчики и таймер идут из записи. Настоящая геопозиция (если разрешена) работает параллельно, но её точки
+    /// выбрасываются: без неё iOS усыпит приложение на заблокированном экране, и повтор встанет (§7.2 «параллельно
+    /// настоящая фоновая сессия»).
     func startReplay(speed: Double = 20) async throws {
         guard !busy else { throw TrackerError.alreadyRunning }
         busy = true
@@ -193,8 +198,12 @@ final class RunController {
             return session
         }
         // Сейчас, пока приложение на переднем плане: фоновую сессию геопозиции из фона не начать. Остановит её конец
-        // повтора (`ended` → `stopSources`).
-        location.keepAlive()
+        // повтора (`ended` → `stopSources`). Без разрешения на геопозицию — без сессии: не спрошенное разрешение она
+        // запросила бы системным окном посреди повтора, а при запрещённом приложение в фоне всё равно не удержит. Тогда
+        // повтор на заблокированном экране встанет — это только демо (роли `demo` и `admin`).
+        if Self.locationAllowed(CLLocationManager().authorizationStatus) {
+            location.keepAlive()
+        }
         replaySpeed = replay.speed
         let tracker = self.tracker
         self.replay = Task {
@@ -335,11 +344,17 @@ final class RunController {
         stopSources()
         UserDefaults.standard.set(false, forKey: Self.hintKey)
         if let activityID {
-            Task { await RunActivityController.end(id: activityID) }
+            // Забыть плашку — только когда она закрыта. Забег, закончившийся по пределу длины в фоне, уже снял фоновую
+            // сессию, и iOS может усыпить или выгрузить приложение раньше, чем плашка закроется. Тогда её закроет
+            // `recover` при следующем запуске — по слоту; забытая висела бы на экране блокировки, пока её не снимет
+            // система (до 8 часов).
+            Task {
+                await RunActivityController.end(id: activityID)
+                Self.activitySlot.forget(activityID)
+            }
         }
         activityID = nil
         runStartedAt = nil
-        Self.activitySlot.forget()
     }
 
     // MARK: - Live Activity

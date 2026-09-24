@@ -27,4 +27,11 @@ struct LiveActivitySlot {
     func forget() {
         defaults.removeObject(forKey: key)
     }
+
+    /// Забыть закрытую — если в слоте всё ещё она. Забывают после закрытия, а пока плашка закрывалась, владелец мог
+    /// запустить и запомнить новую: её идентификатор стирать нельзя.
+    func forget(_ id: String) {
+        guard saved == id else { return }
+        forget()
+    }
 }

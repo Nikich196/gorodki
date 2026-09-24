@@ -15,7 +15,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         RunController.shared.resumeAtLaunch()
         WalkLab.shared.resumeIfNeeded()
         BackgroundSync.register()
-        // Слушатели сами ничего не открывают: соединение реального времени — только на переднем плане (`GorodkiApp`).
+        // При запуске слушатели соединение реального времени не открывают: оно открывается только на переднем плане —
+        // при переходе в `.active` (`GorodkiApp`) или при входе в открытом приложении (`SessionRelay`).
         NetworkWatcher.shared.start()
         SessionRelay.shared.start()
         RealtimeRelay.shared.start()

@@ -28,7 +28,7 @@ enum BackgroundSync {
     struct Status: Equatable, Sendable {
         /// Идентификаторы, которые iOS не дала зарегистрировать.
         var rejected: [String] = []
-        /// Ошибка последней заявки по идентификатору; принятая заявка ошибку своего идентификатора стирает.
+        /// Ошибка последней заявки по идентификатору; принятая или снятая заявка ошибку своего идентификатора стирает.
         var submitErrors: [String: String] = [:]
     }
 
@@ -101,6 +101,9 @@ enum BackgroundSync {
         for (kind, identifier) in kinds {
             guard let request = requests.first(where: { $0.kind == kind }) else {
                 scheduler.cancel(taskRequestWithIdentifier: identifier)
+                // Заявки больше нет — нет и её ошибки: иначе «Проверка установки» предупреждала бы о ней, пока тот же
+                // идентификатор не заявят снова, а с пустой очередью или без входа его не заявляют.
+                statusStore.value.withLock { $0.submitErrors[identifier] = nil }
                 continue
             }
             submit(request, as: identifier)

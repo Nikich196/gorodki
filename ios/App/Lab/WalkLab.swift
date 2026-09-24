@@ -94,10 +94,13 @@ final class WalkLab {
         UserDefaults.standard.set(false, forKey: Self.activeKey)
         save()
         if let activityID {
-            Task { await RunActivityController.end(id: activityID) }
+            // Как у забега (`RunController.ended`): забыть плашку — только когда она закрыта.
+            Task {
+                await RunActivityController.end(id: activityID)
+                Self.activitySlot.forget(activityID)
+            }
         }
         activityID = nil
-        Self.activitySlot.forget()
     }
 
     /// Вызывается при запуске приложения: если прогулка шла, когда приложение закрыли, — продолжаем.
