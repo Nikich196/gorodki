@@ -26,14 +26,24 @@ final class MotionFeed {
             let start = Date()
             // Шагомер отдаёт накопленное число шагов с начала; превращаем его в интервалы «шагов за отрезок времени».
             let counter = StepCounter(start: start.timeIntervalSince1970)
-            pedometer.startUpdates(from: start) { data, _ in
-                guard let data else { return }
-                let steps = data.numberOfSteps.intValue
-                let end = data.endDate.timeIntervalSince1970
-                Task { @MainActor in
-                    if let sample = counter.interval(totalSteps: steps, at: end) {
-                        onSteps(sample)
-                    }
+            Self.startSteps(pedometer, from: start, counter: counter, onSteps: onSteps)
+        }
+    }
+
+    /// Шагомер вызывает обработчик на своей очереди, не на главной. Замыкание, созданное в коде главного актора, в Swift 6
+    /// проверяет при вызове, что оно на главной очереди, и обрывает приложение (SE-0423), — поэтому подписка
+    /// в `nonisolated`, а в главный поток запись попадает через `Task`.
+    private nonisolated static func startSteps(
+        _ pedometer: CMPedometer, from start: Date, counter: StepCounter,
+        onSteps: @escaping @MainActor @Sendable (PedometerSample) -> Void
+    ) {
+        pedometer.startUpdates(from: start) { data, _ in
+            guard let data else { return }
+            let steps = data.numberOfSteps.intValue
+            let end = data.endDate.timeIntervalSince1970
+            Task { @MainActor in
+                if let sample = counter.interval(totalSteps: steps, at: end) {
+                    onSteps(sample)
                 }
             }
         }
