@@ -11,8 +11,12 @@ namespace Gorodki.Api.Features.Me;
 public sealed record MeResponse(Guid Id, string DisplayName, short ColorIndex, string Role, bool PublicProfile);
 
 /// <summary>Согласие на показ профиля: ник, цвет и земля по нику в рейтингах и на карте; без него — «Игрок #1234».</summary>
-/// <param name="Enabled">Показывать ли ник.</param>
-public sealed record PublicProfileRequest([property: JsonRequired] bool Enabled);
+public sealed record PublicProfileRequest
+{
+    /// <summary>Показывать ли ник. Обязательно: пустой запрос не должен молча выключать согласие.</summary>
+    [JsonRequired]
+    public required bool Enabled { get; init; }
+}
 
 /// <summary>Запрос на удаление аккаунта принят.</summary>
 /// <param name="RequestedAtMs">Когда запрошено (мс Unix); повторный запрос возвращает то же время.</param>

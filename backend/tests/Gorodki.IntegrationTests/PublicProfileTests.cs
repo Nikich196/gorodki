@@ -74,7 +74,7 @@ public sealed class PublicProfileTests(DatabaseFixture database)
     }
 
     private Task<HttpResponseMessage> SetAsync(HttpClient client, bool enabled) =>
-        client.PutAsJsonAsync("/me/public-profile", new PublicProfileRequest(enabled), Json, Cancel);
+        client.PutAsJsonAsync("/me/public-profile", new PublicProfileRequest { Enabled = enabled }, Json, Cancel);
 
     private async Task<MeResponse> MeAsync(HttpClient client) =>
         (await client.GetFromJsonAsync<MeResponse>("/me", Json, Cancel))!;
