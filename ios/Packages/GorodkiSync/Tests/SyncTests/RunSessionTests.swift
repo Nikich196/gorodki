@@ -97,6 +97,60 @@ struct RunSessionTests {
         #expect(await session.stats.loops == 1)
     }
 
+    /// Когда повторяется заявка петли, не записанная с первого раза.
+    enum ClaimRetry: String, CaseIterable, Sendable, CustomTestStringConvertible {
+        case point = "следующая точка"
+        case tick = "тик"
+        case finish = "«Финиш»"
+
+        var testDescription: String { rawValue }
+    }
+
+    @Test(
+        "Заявка петли не записалась (нет места) — ошибка не глотается, петля заявляется снова: точка, тик, «Финиш»",
+        arguments: ClaimRetry.allCases)
+    func unsavedClaimIsRetried(retry: ClaimRetry) async throws {
+        let store = FailingOnceStore()
+        let session = try await RunSession.start(Fixture.run(), store: store, rules: .version1)
+        var walk = Walk()
+        let square = walk.square(side: 80)
+        await store.failNextClaimSave()
+
+        var failedAt: Int?
+        for (index, fix) in square.enumerated() {
+            do {
+                _ = try await session.handle(fix, now: fix.timestamp + 1)
+            } catch {
+                #expect(error is FailingOnceStore.DiskFull)
+                failedAt = index
+                break
+            }
+        }
+        // Детектор эту петлю больше не найдёт: проглоченная ошибка потеряла бы захват молча.
+        let index = try #require(failedAt, "ошибка записи заявки проглочена")
+        #expect(await session.stats.loops == 0)
+        #expect(await store.claims(of: session.runId).isEmpty)
+
+        var events: [RunEvent] = []
+        switch retry {
+        case .point:
+            let next = square.indices.contains(index + 1) ? square[index + 1] : walk.fix(east: 1.4, north: 0)
+            events = try await session.handle(next, now: next.timestamp + 1)
+        case .tick:
+            events = try await session.tick(now: square[index].timestamp + 5)
+        case .finish:
+            try await session.finish(endedAt: square[index].timestamp + 5)
+        }
+
+        let claims = await store.claims(of: session.runId)
+        #expect(claims.map(\.claimNo) == [0])
+        #expect(await session.stats.loops == 1)
+        let claim = try #require(claims.first)
+        if retry != .finish {
+            #expect(events.contains(.loopClaimed(claimNo: 0, claim.loop)))
+        }
+    }
+
     @Test("Судья и детектор — из правил версии конфига, а не из чисел сборки")
     func rulesComeFromConfigVersion() async throws {
         var strict = PhoneRules.version1

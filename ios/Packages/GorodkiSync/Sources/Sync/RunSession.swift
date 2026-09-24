@@ -109,6 +109,9 @@ public actor RunSession {
     private let maxFixAgeSeconds: Double
     /// После разрыва следа следующая точка начинает новую полосу тумана.
     private var fogNextStartsSegment = false
+    /// Петли, заявку которых не удалось записать (ошибка диска). Детектор их уже не найдёт, а сервер петли сам не ищет —
+    /// заявка повторяется на следующей точке, тике и перед концом забега.
+    private var unsavedLoops: [LoopClaim] = []
     /// Точки обрабатываются по одной: номер берётся до записи, и две точки не должны получить один номер.
     private var handling = false
     private var handlingWaiters: [CheckedContinuation<Void, Never>] = []
@@ -253,12 +256,26 @@ public actor RunSession {
             events = [.broken(issue)]  // с этой точки начинается новый отрезок
         }
         if let loop = accept(point, breaksSegment: breaksSegment) {
-            // Петлю, которую очередь не примет (слишком короткая, уже заявлена), не заявляем: сервер её тоже не принял бы.
-            if let claimNo = try? await recorder.claim(loop) {
+            unsavedLoops.append(loop)
+        }
+        events += try await claimUnsaved()
+        return events
+    }
+
+    /// Заявить петли, ждущие записи, по порядку. Ошибка хранилища — петля остаётся ждать, а ошибка уходит трекеру
+    /// (`storageFailed`): проглоченная, она потеряла бы захват молча.
+    private func claimUnsaved() async throws -> [RunEvent] {
+        var events: [RunEvent] = []
+        while let loop = unsavedLoops.first {
+            do {
+                let claimNo = try await recorder.claim(loop)
                 stats.loops += 1
                 stats.loopAreaSquareMeters += loop.estimatedArea
                 events.append(.loopClaimed(claimNo: claimNo, loop))
+            } catch is RecorderError {
+                // Петлю, которую очередь не примет (слишком короткая, уже заявлена), не заявляем: сервер её тоже не принял бы.
             }
+            unsavedLoops.removeFirst()
         }
         return events
     }
@@ -335,8 +352,9 @@ public actor RunSession {
     }
 
     /// Раз в несколько секунд: запечатать кусок, если он «созрел» по времени, и завершить забег по пределу длины, даже
-    /// если GPS молчит (иначе предел сработал бы только на следующей точке).
-    /// - Returns: `[.finishedAtLimit]`, если забег завершён по пределу.
+    /// если GPS молчит (иначе предел сработал бы только на следующей точке). Заявки петель, не записанные раньше, —
+    /// ещё раз.
+    /// - Returns: `[.finishedAtLimit]`, если забег завершён по пределу; `.loopClaimed` — заявка записана со второй попытки.
     @discardableResult
     public func tick(now seconds: Double) async throws -> [RunEvent] {
         try await exclusively {
@@ -346,7 +364,7 @@ public actor RunSession {
                 return [.finishedAtLimit]
             }
             try await recorder.tick(now: seconds)
-            return []
+            return try await claimUnsaved()
         }
     }
 
@@ -370,6 +388,7 @@ public actor RunSession {
 
     private func finishNow(endedAt seconds: Double) async throws {
         guard !isFinished else { return }
+        _ = try await claimUnsaved()  // петля, замкнутая в забеге, заявляется до его конца — или «Финиш» не удаётся
         try await recorder.finish(endedAt: seconds)
         settleFog(olderThan: .max)  // конец без разрыва: весь хвост засчитан
         isFinished = true

@@ -4,18 +4,20 @@ import Testing
 
 @testable import Sync
 
-/// Хранилище, которое по команде один раз не записывает кусок или забег — как кончившееся место на диске. Запечатывание
-/// (`seal`) — одна транзакция, как в GRDB: не записался кусок или забег — не записано ничего.
+/// Хранилище, которое по команде один раз не записывает кусок, забег или заявку — как кончившееся место на диске.
+/// Запечатывание (`seal`) — одна транзакция, как в GRDB: не записался кусок или забег — не записано ничего.
 actor FailingOnceStore: SyncStore {
     struct DiskFull: Error {}
 
     let inner = InMemorySyncStore()
     private var failNextChunk = false
     private var failNextRun = false
+    private var failNextClaim = false
 
     func failNextChunkSave() { failNextChunk = true }
     /// Следующая запись забега (прогресс вместе с куском или конец забега) не пройдёт.
     func failNextRunWrite() { failNextRun = true }
+    func failNextClaimSave() { failNextClaim = true }
 
     func runs() async -> [LocalRun] { await inner.runs() }
     func insert(_ run: LocalRun) async { await inner.insert(run) }
@@ -44,7 +46,10 @@ actor FailingOnceStore: SyncStore {
     }
     func deleteChunk(of runId: UUID, firstSeq: Int) async { await inner.deleteChunk(of: runId, firstSeq: firstSeq) }
     func claims(of runId: UUID) async -> [PendingClaim] { await inner.claims(of: runId) }
-    func save(_ claim: PendingClaim) async { await inner.save(claim) }
+    func save(_ claim: PendingClaim) async throws {
+        try fail(&failNextClaim)
+        await inner.save(claim)
+    }
 }
 
 @Suite("Идущий забег: исправления по ревью")
