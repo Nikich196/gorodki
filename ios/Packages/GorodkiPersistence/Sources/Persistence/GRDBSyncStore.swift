@@ -2,6 +2,10 @@ import Foundation
 import GRDB
 import Sync
 
+#if canImport(os)
+    import os
+#endif
+
 /// Очередь синхронизации в базе приложения (`SyncStore` на GRDB): забеги, куски и заявки переживают выгрузку
 /// приложения и перезапуск телефона — неотправленный забег уйдёт, когда появится сеть.
 ///
@@ -18,7 +22,7 @@ public struct GRDBSyncStore: SyncStore {
 
     public func runs() async throws -> [LocalRun] {
         try await writer.read { db in
-            try RunRow.order(Column("startedAtMs"), Column("id")).fetchAll(db).map { try $0.decoded() }
+            Self.readable(try RunRow.order(Column("startedAtMs"), Column("id")).fetchAll(db))
         }
     }
 
@@ -42,8 +46,8 @@ public struct GRDBSyncStore: SyncStore {
 
     public func chunks(of runId: UUID) async throws -> [SealedChunk] {
         try await writer.read { db in
-            try ChunkRow.filter(Column("runId") == runId.uuidString).order(Column("firstSeq")).fetchAll(db)
-                .map { try $0.decoded() }
+            Self.readable(
+                try ChunkRow.filter(Column("runId") == runId.uuidString).order(Column("firstSeq")).fetchAll(db))
         }
     }
 
@@ -82,8 +86,8 @@ public struct GRDBSyncStore: SyncStore {
 
     public func claims(of runId: UUID) async throws -> [PendingClaim] {
         try await writer.read { db in
-            try ClaimRow.filter(Column("runId") == runId.uuidString).order(Column("claimNo")).fetchAll(db)
-                .map { try $0.decoded() }
+            Self.readable(
+                try ClaimRow.filter(Column("runId") == runId.uuidString).order(Column("claimNo")).fetchAll(db))
         }
     }
 
@@ -91,9 +95,37 @@ public struct GRDBSyncStore: SyncStore {
         let row = try ClaimRow(claim)
         try await writer.write { db in try row.upsert(db) }
     }
+
+    /// Записи, которые читаются. Нечитаемая (файл повреждён или модель изменилась несовместимо) пропускается и остаётся
+    /// в таблице: иначе одна строка роняла бы всю очередь — «Старт» (новичок ли игрок), продолжение забега и каждый проход
+    /// синхронизации, навсегда. Версия приложения, которая её прочитает, ещё сможет её доставить.
+    private static func readable<Row: QueueRow>(_ rows: [Row]) -> [Row.Value] {
+        rows.compactMap { row in
+            do {
+                return try row.decoded()
+            } catch {
+                #if canImport(os)
+                    let table = Row.databaseTableName
+                    let key = row.logKey
+                    let reason = String(describing: error)
+                    Logger(subsystem: Bundle.main.bundleIdentifier ?? "Gorodki", category: "SyncStore").error(
+                        "Пропущена нечитаемая запись: \(table, privacy: .public) \(key, privacy: .public), \(reason, privacy: .private)"
+                    )
+                #endif
+                return nil
+            }
+        }
+    }
 }
 
 // MARK: - Строки таблиц
+
+/// Строка очереди: запись модели и ключ — для журнала.
+private protocol QueueRow: TableRecord {
+    associatedtype Value
+    var logKey: String { get }
+    func decoded() throws -> Value
+}
 
 /// Запись очереди — JSON модели из GorodkiSync. Новое поле модели должно читаться из старого JSON (необязательное или
 /// с миграцией, дописывающей значение): иначе очередь, записанная прошлой версией приложения, не прочитается.
@@ -106,7 +138,7 @@ private enum Payload {
     }
 }
 
-private struct RunRow: Codable, FetchableRecord, PersistableRecord {
+private struct RunRow: Codable, FetchableRecord, PersistableRecord, QueueRow {
     static let databaseTableName = "syncRun"
 
     var id: String
@@ -119,10 +151,12 @@ private struct RunRow: Codable, FetchableRecord, PersistableRecord {
         payload = try Payload.encode(run)
     }
 
+    var logKey: String { id }
+
     func decoded() throws -> LocalRun { try Payload.decode(LocalRun.self, from: payload) }
 }
 
-private struct ChunkRow: Codable, FetchableRecord, PersistableRecord {
+private struct ChunkRow: Codable, FetchableRecord, PersistableRecord, QueueRow {
     static let databaseTableName = "syncChunk"
 
     var runId: String
@@ -139,10 +173,12 @@ private struct ChunkRow: Codable, FetchableRecord, PersistableRecord {
         ["runId": runId.uuidString, "firstSeq": firstSeq]
     }
 
+    var logKey: String { "\(runId)/\(firstSeq)" }
+
     func decoded() throws -> SealedChunk { try Payload.decode(SealedChunk.self, from: payload) }
 }
 
-private struct ClaimRow: Codable, FetchableRecord, PersistableRecord {
+private struct ClaimRow: Codable, FetchableRecord, PersistableRecord, QueueRow {
     static let databaseTableName = "syncClaim"
 
     var runId: String
@@ -154,6 +190,8 @@ private struct ClaimRow: Codable, FetchableRecord, PersistableRecord {
         claimNo = claim.claimNo
         payload = try Payload.encode(claim)
     }
+
+    var logKey: String { "\(runId)/\(claimNo)" }
 
     func decoded() throws -> PendingClaim { try Payload.decode(PendingClaim.self, from: payload) }
 }

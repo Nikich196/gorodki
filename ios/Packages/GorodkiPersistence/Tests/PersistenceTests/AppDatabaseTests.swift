@@ -48,6 +48,38 @@ struct AppDatabaseTests {
         #expect(try await store.runs().first?.recordedThroughSeq == -1)
     }
 
+    @Test("Нечитаемая запись очереди пропускается и остаётся в базе — остальная очередь читается, «Старт» не падает")
+    func unreadableRowsAreSkipped() async throws {
+        let database = try AppDatabase.inMemory()
+        let store = GRDBSyncStore(database)
+        let run = Sample.run()
+        try await store.insert(run)
+        try await store.save(Sample.chunk(run.id, firstSeq: 3))
+        try await store.save(Sample.claim(run.id, 1))
+        // Повреждённый файл или несовместимая правка модели: строки есть, но не читаются.
+        let broken = Data("не JSON".utf8)
+        try await database.writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO syncRun (id, startedAtMs, payload) VALUES (?, 1, ?)",
+                arguments: [UUID().uuidString, broken])
+            try db.execute(
+                sql: "INSERT INTO syncChunk (runId, firstSeq, payload) VALUES (?, 0, ?)",
+                arguments: [run.id.uuidString, broken])
+            try db.execute(
+                sql: "INSERT INTO syncClaim (runId, claimNo, payload) VALUES (?, 0, ?)",
+                arguments: [run.id.uuidString, broken])
+        }
+
+        #expect(try await store.runs() == [run])
+        #expect(try await store.chunks(of: run.id) == [Sample.chunk(run.id, firstSeq: 3)])
+        #expect(try await store.claims(of: run.id) == [Sample.claim(run.id, 1)])
+        #expect(try await RunSession.isNewcomer(ownerId: run.ownerId, store: store))
+        let rows = try await database.writer.read { db in
+            try ["syncRun", "syncChunk", "syncClaim"].map { try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") }
+        }
+        #expect(rows == [2, 2, 2])  // не стёрты: версия, которая их прочтёт, ещё доставит
+    }
+
     @Test("Схема доведена до последней миграции; повторное открытие ничего не ломает")
     func migrationsAreApplied() async throws {
         let queue = try DatabaseQueue()
