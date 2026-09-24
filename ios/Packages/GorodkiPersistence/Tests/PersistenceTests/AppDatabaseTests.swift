@@ -28,6 +28,26 @@ struct AppDatabaseTests {
         #expect(try await reopened.claims(of: run.id).count == 1)
     }
 
+    @Test("Кусок и прогресс забега — одной транзакцией: не записался забег — не записан и кусок")
+    func sealIsOneTransaction() async throws {
+        let database = try AppDatabase.inMemory()
+        let store = GRDBSyncStore(database)
+        let run = Sample.run()
+        try await store.insert(run)
+        // Запись забега падает, как на кончившемся месте: кусок в той же транзакции должен откатиться.
+        try await database.writer.write { db in
+            try db.execute(
+                sql: "CREATE TRIGGER diskFull BEFORE UPDATE ON syncRun BEGIN SELECT RAISE(ABORT, 'нет места'); END")
+        }
+
+        await #expect(throws: (any Error).self) {
+            try await store.seal(Sample.chunk(run.id, firstSeq: 0)) { $0.recordedThroughSeq = 2 }
+        }
+
+        #expect(try await store.chunks(of: run.id).isEmpty)
+        #expect(try await store.runs().first?.recordedThroughSeq == -1)
+    }
+
     @Test("Схема доведена до последней миграции; повторное открытие ничего не ломает")
     func migrationsAreApplied() async throws {
         let queue = try DatabaseQueue()

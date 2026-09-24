@@ -544,12 +544,19 @@ actor GatedStore: SyncStore {
     }
     func chunks(of runId: UUID) async -> [SealedChunk] { await inner.chunks(of: runId) }
     func save(_ chunk: SealedChunk) async {
+        await holdIfAsked()
+        await inner.save(chunk)
+    }
+    func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) async {
+        await holdIfAsked()
+        await inner.seal(chunk, progress: progress)
+    }
+    private func holdIfAsked() async {
         saveAttempts += 1
         if holding {
             saving = true
             await withCheckedContinuation { gate.append($0) }
         }
-        await inner.save(chunk)
     }
     func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) async {
         await inner.replaceChunk(of: runId, firstSeq: firstSeq, with: pieces)

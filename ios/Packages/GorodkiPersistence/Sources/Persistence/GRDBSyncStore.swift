@@ -8,6 +8,7 @@ import Sync
 /// Каждая операция — одна транзакция. `updateRun` читает, меняет и записывает забег внутри одной записи в базу, поэтому
 /// запись забега (`RunRecorder`) и синхронизация (`SyncEngine`), меняющие разные поля одновременно, не затирают друг друга.
 /// Разрезание куска после 409 (`replaceChunk`) тоже атомарно: точки не теряются, даже если приложение выгрузят посередине.
+/// Запечатанный кусок пишется вместе с прогрессом забега (`seal`): куска без прогресса в базе не бывает.
 public struct GRDBSyncStore: SyncStore {
     private let writer: any DatabaseWriter
 
@@ -49,6 +50,20 @@ public struct GRDBSyncStore: SyncStore {
     public func save(_ chunk: SealedChunk) async throws {
         let row = try ChunkRow(chunk)
         try await writer.write { db in try row.upsert(db) }
+    }
+
+    public func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) async throws {
+        let row = try ChunkRow(chunk)
+        let runKey = chunk.runId.uuidString
+        try await withoutActuallyEscaping(progress) { progress in
+            try await writer.write { db in
+                try row.upsert(db)
+                guard let runRow = try RunRow.fetchOne(db, key: runKey) else { return }
+                var run = try runRow.decoded()
+                progress(&run)
+                try RunRow(run).update(db)
+            }
+        }
     }
 
     public func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) async throws {

@@ -17,6 +17,10 @@ public protocol SyncStore: Sendable {
     func chunks(of runId: UUID) async throws -> [SealedChunk]
     /// Сохраняет кусок (ключ — забег и номер первой точки).
     func save(_ chunk: SealedChunk) async throws
+    /// Запечатанный кусок и прогресс записи его забега (`RunRecorder`) — одной операцией, в GRDB — одной транзакцией.
+    /// Выгрузка приложения между двумя записями оставила бы кусок без прогресса: прерванный забег закрылся бы с последним
+    /// номером меньше, чем в куске, и сервер отказал бы в завершении (`last_seq_too_small`).
+    func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) async throws
     /// Заменяет кусок другими одной транзакцией (разрезание после 409): точки не теряются, если приложение выгрузят.
     func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) async throws
     func deleteChunk(of runId: UUID, firstSeq: Int) async throws
@@ -52,6 +56,11 @@ public actor InMemorySyncStore: SyncStore {
     }
 
     public func save(_ chunk: SealedChunk) { storedChunks[chunk.runId, default: [:]][chunk.firstSeq] = chunk }
+
+    public func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) {
+        save(chunk)
+        updateRun(chunk.runId, progress)
+    }
 
     public func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) {
         storedChunks[runId]?[firstSeq] = nil

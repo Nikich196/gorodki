@@ -4,27 +4,40 @@ import Testing
 
 @testable import Sync
 
-/// Хранилище, которое по команде один раз не записывает кусок — как кончившееся место на диске.
+/// Хранилище, которое по команде один раз не записывает кусок или забег — как кончившееся место на диске. Запечатывание
+/// (`seal`) — одна транзакция, как в GRDB: не записался кусок или забег — не записано ничего.
 actor FailingOnceStore: SyncStore {
     struct DiskFull: Error {}
 
     let inner = InMemorySyncStore()
-    private var failNext = false
+    private var failNextChunk = false
+    private var failNextRun = false
 
-    func failNextChunkSave() { failNext = true }
+    func failNextChunkSave() { failNextChunk = true }
+    /// Следующая запись забега (прогресс вместе с куском или конец забега) не пройдёт.
+    func failNextRunWrite() { failNextRun = true }
 
     func runs() async -> [LocalRun] { await inner.runs() }
     func insert(_ run: LocalRun) async { await inner.insert(run) }
-    func updateRun(_ id: UUID, _ change: @Sendable (inout LocalRun) -> Void) async -> LocalRun? {
-        await inner.updateRun(id, change)
+    func updateRun(_ id: UUID, _ change: @Sendable (inout LocalRun) -> Void) async throws -> LocalRun? {
+        try fail(&failNextRun)
+        return await inner.updateRun(id, change)
     }
     func chunks(of runId: UUID) async -> [SealedChunk] { await inner.chunks(of: runId) }
     func save(_ chunk: SealedChunk) async throws {
-        if failNext {
-            failNext = false
+        try fail(&failNextChunk)
+        await inner.save(chunk)
+    }
+    func seal(_ chunk: SealedChunk, progress: @Sendable (inout LocalRun) -> Void) async throws {
+        try fail(&failNextChunk)
+        try fail(&failNextRun)
+        await inner.seal(chunk, progress: progress)
+    }
+    private func fail(_ armed: inout Bool) throws {
+        if armed {
+            armed = false
             throw DiskFull()
         }
-        await inner.save(chunk)
     }
     func replaceChunk(of runId: UUID, firstSeq: Int, with pieces: [SealedChunk]) async {
         await inner.replaceChunk(of: runId, firstSeq: firstSeq, with: pieces)
@@ -87,6 +100,35 @@ struct RunTrackerReviewTests {
         tracker.send(.fix(more, receivedAt: more.timestamp + 1))
         await tracker.flush()
         #expect(await !tracker.state.storageFailed)
+        try await tracker.finish(at: walk.time)
+
+        let run = try #require(await store.runs().first)
+        #expect(run.lastSeq == 3)
+        #expect(await store.chunks(of: run.id).flatMap(\.points).map(\.seq) == [0, 1, 2, 3])
+    }
+
+    @Test("Остаток записан, а сам конец забега — нет (нет места): забег продолжается, точки снова принимаются")
+    func failedEndRecordKeepsTheRunOpen() async throws {
+        let store = FailingOnceStore()
+        let tracker = RunTracker()
+        try await tracker.start {
+            // Кусок на каждую точку: к «Финишу» остатка нет, и не записывается именно конец забега.
+            try await RunSession.start(
+                Fixture.run(), store: store, rules: .version1, policy: Fixture.policy(maxPoints: 1))
+        }
+        var walk = Walk()
+        for fix in walk.straight(seconds: 3) { tracker.send(.fix(fix, receivedAt: fix.timestamp + 1)) }
+        await tracker.flush()
+
+        await store.failNextRunWrite()
+        await #expect(throws: FailingOnceStore.DiskFull.self) { try await tracker.finish(at: walk.time) }
+        #expect(await tracker.state.isRunning)
+        #expect(try #require(await store.runs().first).isFinishedLocally == false)
+
+        let more = walk.fix(east: 10, north: 0)
+        tracker.send(.fix(more, receivedAt: more.timestamp + 1))
+        await tracker.flush()
+        #expect(await !tracker.state.storageFailed)  // точка записана — запись не «застряла» в конце
         try await tracker.finish(at: walk.time)
 
         let run = try #require(await store.runs().first)

@@ -153,6 +153,23 @@ struct SyncStoreContractTests {
         #expect(try await store.chunks(of: run).map(\.firstSeq) == [0, 6])
     }
 
+    @Test(
+        "Запечатывание: кусок сохранён, прогресс забега изменён; без забега кусок всё равно сохранён",
+        arguments: StoreKind.allCases)
+    func sealSavesChunkAndProgress(kind: StoreKind) async throws {
+        let store = try kind.make()
+        let run = Sample.run()
+        try await store.insert(run)
+
+        let orphan = UUID()
+        try await store.seal(Sample.chunk(run.id, firstSeq: 0)) { $0.recordedThroughSeq = 2 }
+        try await store.seal(Sample.chunk(orphan, firstSeq: 0)) { $0.recordedThroughSeq = 99 }
+
+        #expect(try await store.chunks(of: run.id) == [Sample.chunk(run.id, firstSeq: 0)])
+        #expect(try await store.chunks(of: orphan).count == 1)
+        #expect(try await store.runs().map(\.recordedThroughSeq) == [2])
+    }
+
     @Test("Заявки — по номеру; тот же номер заменяет", arguments: StoreKind.allCases)
     func claimsAreOrderedAndKeyed(kind: StoreKind) async throws {
         let store = try kind.make()

@@ -124,13 +124,9 @@ public actor RunRecorder {
         let chunks = try await store.chunks(of: runId)
         let claims = try await store.claims(of: runId)
         let recorder = RunRecorder(run: run, store: store, policy: policy)
-        // Прогресс записан в забеге при каждом запечатывании: куски могли уже уйти и стереться (или быть отвергнуты).
+        let last = lastRecorded(run, chunks)
         await recorder.restore(
-            recordedThroughSeq: max(run.recordedThroughSeq, chunks.last?.lastSeq ?? -1),
-            lastPointMs: [
-                run.lastPointMs, chunks.last?.points.last.map { StoragePrecision.milliseconds($0.timestamp) },
-            ]
-            .compactMap { $0 }.max(),
+            recordedThroughSeq: last.seq, lastPointMs: last.pointMs,
             sealedMarkMs: ([run.sealedSensorsMarkMs] + chunks.map(\.sensorsCompleteThroughMs)).compactMap { $0 }.max(),
             claims: claims)
         return recorder
@@ -141,11 +137,24 @@ public actor RunRecorder {
     public static func closeInterrupted(except kept: UUID?, store: any SyncStore) async throws {
         for run in try await store.runs()
         where run.id != kept && !run.isFinishedLocally && run.serverState != .rejected {
+            let last = lastRecorded(run, try await store.chunks(of: run.id))
             try await store.updateRun(run.id) {
-                $0.endedAtMs = $0.lastPointMs ?? $0.startedAtMs
-                $0.lastSeq = $0.recordedThroughSeq
+                $0.recordedThroughSeq = last.seq
+                $0.lastPointMs = last.pointMs
+                $0.endedAtMs = last.pointMs ?? $0.startedAtMs
+                $0.lastSeq = last.seq
             }
         }
+    }
+
+    /// Номер и время последней запечатанной точки — по прогрессу в забеге и по последнему куску. Прогресс нужен: куски
+    /// могли уже уйти и стереться (или быть отвергнуты). Кусок тоже: версии до `SyncStore.seal` писали кусок и прогресс
+    /// двумя записями, и выгрузка между ними оставляла кусок без прогресса — по одному прогрессу последний номер вышел бы
+    /// меньше, чем в куске, и сервер отказал бы в завершении.
+    private static func lastRecorded(_ run: LocalRun, _ chunks: [SealedChunk]) -> (seq: Int, pointMs: Int64?) {
+        let last = chunks.last
+        let pointMs = [run.lastPointMs, last?.points.last.map { StoragePrecision.milliseconds($0.timestamp) }]
+        return (max(run.recordedThroughSeq, last?.lastSeq ?? -1), pointMs.compactMap { $0 }.max())
     }
 
     private func restore(recordedThroughSeq: Int, lastPointMs: Int64?, sealedMarkMs: Int64?, claims: [PendingClaim]) {
@@ -261,17 +270,18 @@ public actor RunRecorder {
     public func finish(endedAt seconds: Double) async throws {
         guard !finished else { return }
         finishing = true  // до первого ожидания: точка, пришедшая во время записи остатка, не войдёт в `lastSeq`
+        let endedAtMs = StoragePrecision.milliseconds(seconds)
         do {
             try await seal()  // сначала все куски, потом отметка конца: увидев конец, синхронизация видит и все куски
+            let lastSeq = nextSeq - 1
+            try await store.updateRun(runId) {
+                $0.endedAtMs = endedAtMs
+                $0.lastSeq = lastSeq
+            }
         } catch {
-            finishing = false  // «Финиш» не удался — забег продолжается, точки снова принимаются
+            // «Финиш» не удался (не записан остаток или сам конец) — забег продолжается, точки снова принимаются.
+            finishing = false
             throw error
-        }
-        let endedAtMs = StoragePrecision.milliseconds(seconds)
-        let lastSeq = nextSeq - 1
-        try await store.updateRun(runId) {
-            $0.endedAtMs = endedAtMs
-            $0.lastSeq = lastSeq
         }
         finished = true
     }
@@ -304,8 +314,7 @@ public actor RunRecorder {
         let lastSeq = chunk.lastSeq
         let lastPointMs = taken.buffer.last.map { StoragePrecision.milliseconds($0.timestamp) }
         do {
-            try await store.save(chunk)
-            try await store.updateRun(runId) {
+            try await store.seal(chunk) {
                 $0.recordedThroughSeq = max($0.recordedThroughSeq, lastSeq)
                 $0.lastPointMs = max($0.lastPointMs ?? .min, lastPointMs ?? .min)
                 $0.sealedSensorsMarkMs = max($0.sealedSensorsMarkMs ?? .min, mark)
