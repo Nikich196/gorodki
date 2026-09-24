@@ -13,12 +13,20 @@ public enum ClientFactory {
     public static func make(
         serverURL: URL, tokens: TokenStore, transport: any ClientTransport = urlSessionTransport()
     ) -> Client {
-        // Обновление идёт отдельным клиентом на том же транспорте, но без AuthMiddleware.
-        let refresher = APITokenRefresher(
-            api: Client(serverURL: serverURL, configuration: GorodkiAPI.configuration, transport: transport))
-        return Client(
+        Client(
             serverURL: serverURL, configuration: GorodkiAPI.configuration, transport: transport,
-            middlewares: [AuthMiddleware(tokens: tokens, refresher: refresher)])
+            middlewares: [
+                AuthMiddleware(tokens: tokens, refresher: refresher(serverURL: serverURL, transport: transport))
+            ])
+    }
+
+    /// Обновление токенов (`POST /auth/refresh`) — отдельным клиентом на том же транспорте, но без AuthMiddleware.
+    /// Нужно и клиенту API, и соединению реального времени.
+    public static func refresher(
+        serverURL: URL, transport: any ClientTransport = urlSessionTransport()
+    ) -> APITokenRefresher {
+        APITokenRefresher(
+            api: Client(serverURL: serverURL, configuration: GorodkiAPI.configuration, transport: transport))
     }
 
     /// Транспорт на своей сессии URLSession:

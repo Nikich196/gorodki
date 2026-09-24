@@ -2,12 +2,13 @@ import Foundation
 import GorodkiAPI
 import Networking
 import Persistence
+import Realtime
 import Sync
 import Synchronization
 import UIKit
 
-/// Зависимости приложения (PLAN.md, §7.2 «Паттерны»): адрес сервера, клиент API, токены входа и очередь
-/// синхронизации. Создаются один раз при запуске (`shared`), экраны получают их параметром.
+/// Зависимости приложения (PLAN.md, §7.2 «Паттерны»): адрес сервера, клиент API, токены входа, очередь
+/// синхронизации и реальное время. Создаются один раз при запуске (`shared`), экраны получают их параметром.
 /// Как это собрано — docs/architecture/ios-app.md.
 ///
 /// Сервер ещё не развёрнут, поэтому «адрес не задан» — обычное состояние, а не ошибка: клиента нет, синхронизация
@@ -20,6 +21,9 @@ final class AppDependencies: Sendable {
     let tokens: TokenStore
     /// Клиент API: подписывает запросы и обновляет токен при 401. `nil`, пока адрес сервера не задан.
     let api: Client?
+    /// Реальное время (docs/architecture/realtime.md): одно соединение на приложение — под тем, кто сейчас вошёл.
+    /// `nil`, пока адрес сервера не задан.
+    let realtime: RealtimeClient?
     /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). В приложении — в базе
     /// GRDB (`GRDBSyncStore`): неотправленные забеги переживают выгрузку приложения и перезапуск телефона.
     let syncStore: any SyncStore
@@ -32,9 +36,16 @@ final class AppDependencies: Sendable {
         now: @escaping @Sendable () -> Double = { Date.now.timeIntervalSince1970 }
     ) {
         let tokens = TokenStore(storage: tokenStorage)
+        let transport = ClientFactory.urlSessionTransport()
         self.serverURL = serverURL
         self.tokens = tokens
-        self.api = serverURL.map { ClientFactory.make(serverURL: $0, tokens: tokens) }
+        self.api = serverURL.map { ClientFactory.make(serverURL: $0, tokens: tokens, transport: transport) }
+        self.realtime = serverURL.map { url in
+            RealtimeClient(
+                connector: SignalRConnector(
+                    serverURL: url, tokens: tokens,
+                    refresher: ClientFactory.refresher(serverURL: url, transport: transport)))
+        }
         self.syncStore = syncStore
         self.now = now
     }
