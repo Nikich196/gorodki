@@ -2,8 +2,8 @@ import XCTest
 
 /// Снимки экранов, которые открываются без сервера (PLAN.md, §8 и §13: «снимки и UI-тесты — информационно»):
 /// стартовый экран с «Проверкой установки» и «Лаборатория» — прогулка (S1), стенд карты (S4), сервер (S7), пробный
-/// забег. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest, workflow выгружает их из пакета
-/// результатов в PNG (артефакт запуска): так приложение можно посмотреть без Mac.
+/// забег, дизайн в обеих темах. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest, workflow
+/// выгружает их из пакета результатов в PNG (артефакт запуска): так приложение можно посмотреть без Mac.
 ///
 /// Каждый тест запускает приложение заново — сорвавшийся переход не утянет за собой остальные снимки. Снимок делается
 /// до проверки: и неудачный переход виден на картинке. Кнопки ищутся по части надписи («Карта:», «Сервер:»): хвост
@@ -67,6 +67,38 @@ final class ScreenSnapshotTests: XCTestCase {
     @MainActor
     func test06ProbeRun() {
         openLabScreen(link: "Пробный забег", title: "Пробный забег", snapshot: "07-lab-probe-run")
+    }
+
+    /// «Лаборатория → Дизайн» (design/APPROVALS.md): вся страница днём — по снимку на экран прокрутки. Церемония
+    /// захвата играет сама, когда появляется, поэтому перед снимком — пауза дольше церемонии (1,9 с).
+    @MainActor
+    func test07DesignLabDay() {
+        let app = openLabScreen(link: "Дизайн:", title: "Дизайн", snapshot: nil, settle: 3)
+        snapshotDesignLab(in: app, prefix: "08-design-day")
+    }
+
+    /// То же ночью: переключатель темы — только в «Лаборатории», у игры своего нет.
+    @MainActor
+    func test08DesignLabNight() {
+        let app = openLabScreen(link: "Дизайн:", title: "Дизайн", snapshot: nil, settle: 1)
+        let night = app.buttons["Ночь"].firstMatch
+        let switched = night.waitForExistence(timeout: Self.screenTimeout)
+        if switched {
+            night.tap()
+        }
+        pause(3)
+        snapshotDesignLab(in: app, prefix: "09-design-night")
+        XCTAssertTrue(switched, "На экране «Дизайн» нет переключателя «Ночь»")
+    }
+
+    @MainActor
+    private func snapshotDesignLab(in app: XCUIApplication, prefix: String) {
+        snapshot("\(prefix)-1")
+        for page in 2...7 {
+            app.swipeUp()
+            pause(2.5)
+            snapshot("\(prefix)-\(page)")
+        }
     }
 
     // MARK: - Переходы

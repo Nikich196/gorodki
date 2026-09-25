@@ -10,6 +10,7 @@ using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
+using Gorodki.Api.Features.Players;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
@@ -251,6 +252,7 @@ if (withDatabase)
     app.MapTerritoryEndpoints();
     app.MapFogEndpoints();
     app.MapLeaderboardEndpoints();
+    app.MapPlayerEndpoints();
 }
 
 await app.RunAsync();

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Runs;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -28,7 +29,10 @@ public sealed record TileRef(int X, int Y);
 /// <c>previous_claim</c> (обрабатывается предыдущая заявка), <c>queue</c> (всё есть, очередь сервера).
 /// </param>
 /// <param name="RejectCode">Для отказа — причина: стабильный код (docs/architecture/captures.md).</param>
-/// <param name="AreaByOutcome">Площадь по видам последствий, м²: <c>claimedNeutral</c>, <c>transferred</c>, <c>cracked</c>…</param>
+/// <param name="AreaByOutcome">
+/// Площадь по видам последствий, м²: <c>claimedNeutral</c>, <c>transferred</c>, <c>cracked</c>… Приходит только после границы
+/// публичности (≈20–25 минут после применения), до неё — <c>null</c>: разбивка выдала бы ещё скрытые чужие захваты.
+/// </param>
 /// <param name="ChangedTiles">Тайлы, которые изменились — их нужно перезапросить.</param>
 public sealed record CaptureResponse(
     Guid Id,
@@ -129,13 +133,14 @@ public static class CaptureEndpoints
         }
 
         var now = time.GetUtcNow();
+        var horizon = await PublicHorizonAsync(configs, now, cancellationToken);
         var id = CaptureIds.For(runId, request.EndSeq);
         var existing = await db.Captures.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
         if (existing is not null)
         {
             // Повтор той же заявки (ответ мог потеряться) — отдаём её текущее состояние.
             return IsSameClaim(existing, runId, request)
-                ? TypedResults.Ok(await DescribeAsync(db, existing, now, cancellationToken))
+                ? TypedResults.Ok(await DescribeAsync(db, existing, now, horizon, cancellationToken))
                 : Problem(StatusCodes.Status409Conflict, "claim_conflict", "Эта петля уже заявлена иначе.");
         }
 
@@ -178,16 +183,21 @@ public static class CaptureEndpoints
             db.ChangeTracker.Clear();
             var stored = await db.Captures.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
             return stored is not null && IsSameClaim(stored, runId, request)
-                ? TypedResults.Ok(await DescribeAsync(db, stored, now, cancellationToken))
+                ? TypedResults.Ok(await DescribeAsync(db, stored, now, horizon, cancellationToken))
                 : Problem(StatusCodes.Status409Conflict, "claim_conflict", "Заявка с этим номером уже есть.");
         }
 
         signal.Notify(runId);
-        return TypedResults.Accepted($"/runs/{runId}/captures", await DescribeAsync(db, capture, now, cancellationToken));
+        return TypedResults.Accepted($"/runs/{runId}/captures", await DescribeAsync(db, capture, now, horizon, cancellationToken));
     }
 
     private static async Task<Results<Ok<IReadOnlyList<CaptureResponse>>, ProblemHttpResult>> ListCaptures(
-        Guid runId, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
+        Guid runId,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        GameConfigStore configs,
+        TimeProvider time,
+        CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         var userId = principal.UserId();
@@ -200,18 +210,27 @@ public static class CaptureEndpoints
             .Where(c => c.RunId == runId)
             .OrderBy(c => c.ClaimNo)
             .ToListAsync(cancellationToken);
+        var horizon = await PublicHorizonAsync(configs, now, cancellationToken);
         var described = new List<CaptureResponse>(captures.Count);
         foreach (var capture in captures)
         {
-            described.Add(await DescribeAsync(db, capture, now, cancellationToken));
+            described.Add(await DescribeAsync(db, capture, now, horizon, cancellationToken));
         }
 
         return TypedResults.Ok<IReadOnlyList<CaptureResponse>>(described);
     }
 
+    /// <summary>Граница публичности (§3.16) — та же, что у карты: «сейчас − 20 минут» вниз до 5 минут.</summary>
+    private static async Task<DateTimeOffset> PublicHorizonAsync(GameConfigStore configs, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var delay = TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
+        return TerritoryReader.PublicHorizon(now, delay);
+    }
+
     /// <summary>Заявка для приложения; у ожидающей — чего она ждёт (те же правила, что у обработчика).</summary>
+    /// <param name="publicHorizon">Граница публичности: разбивка площади — только у захватов, применённых не позже неё.</param>
     internal static async Task<CaptureResponse> DescribeAsync(
-        AppDbContext db, CaptureEntity capture, DateTimeOffset now, CancellationToken cancellationToken)
+        AppDbContext db, CaptureEntity capture, DateTimeOffset now, DateTimeOffset publicHorizon, CancellationToken cancellationToken)
     {
         string? waitingFor = null;
         if (capture.Status == CaptureStatus.Pending)
@@ -238,6 +257,16 @@ public static class CaptureEndpoints
             waitingFor = ClaimReadiness.Code(wait);
         }
 
+        // Разбивка по видам — только когда граница публичности дошла до применения захвата (docs/architecture/run-hud.md,
+        // «Приватность итога заявки»). CaptureRules.Decide решает по настоящей земле, и до границы `transferred` вместо
+        // `claimedNeutral`, `shielded`, `superseded`… выдали бы автору ещё скрытый чужой захват. Прячем всегда, а не только
+        // когда петля задела скрытое, — иначе его выдаёт сама разница «есть / нет». Граница — момент применения, как у
+        // TerritoryReader.HiddenJournal: опоздавшую петлю применяют по сегодняшней земле. «Взятое» (AreaSquareMeters) —
+        // сразу: это ровно земля, ставшая его, а её автор и так видит на своей карте без задержки.
+        var areas = capture.AreaByOutcome is { } json && capture.AppliedAt is { } appliedAt && appliedAt <= publicHorizon
+            ? JsonSerializer.Deserialize<Dictionary<string, double>>(json)
+            : null;
+
         return new CaptureResponse(
             capture.Id,
             capture.ClaimNo,
@@ -247,7 +276,7 @@ public static class CaptureEndpoints
             waitingFor,
             capture.RejectCode,
             capture.AreaSquareMeters,
-            capture.AreaByOutcome is { } areas ? JsonSerializer.Deserialize<Dictionary<string, double>>(areas) : null,
+            areas,
             capture.ChangedTiles is { } tiles
                 ? JsonSerializer.Deserialize<int[][]>(tiles)!.Select(t => new TileRef(t[0], t[1])).ToList()
                 : null,

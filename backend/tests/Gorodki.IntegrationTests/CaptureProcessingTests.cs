@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Territory;
@@ -36,9 +37,11 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         Assert.Equal(1, decided);
         Assert.Equal(CaptureStatus.Applied, capture.Status);
         Assert.InRange(capture.AreaSquareMeters, 9_500, 10_500);
-        Assert.InRange(capture.AreaByOutcome!["claimedNeutral"], 9_500, 10_500);
+        Assert.Null(capture.AreaByOutcome); // разбивка — только после границы публичности, даже по одной ничьей земле
         Assert.InRange(await LandAreaAsync(userId), 9_500, 10_500);
         Assert.NotEmpty(capture.ChangedTiles!);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        Assert.InRange((await CaptureAsync(client, claim)).AreaByOutcome!["claimedNeutral"], 9_500, 10_500);
         await using var db = database.CreateContext();
         var tile = capture.ChangedTiles![0];
         Assert.True(await db.TileVersions.AnyAsync(t => t.TileX == tile.X && t.TileY == tile.Y && t.Version >= 1, Cancel));
@@ -58,12 +61,57 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
         var borisClaim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100));
         await ProcessAsync(api, borisClaim.RunId);
 
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep); // разбивка — после границы публичности
         var capture = await CaptureAsync(boris, borisClaim);
         Assert.Equal(CaptureStatus.Applied, capture.Status);
         Assert.InRange(capture.AreaByOutcome!["transferred"], 4_700, 5_300);
         Assert.InRange(await LandAreaAsync(annaId), 4_700, 5_300);
         Assert.InRange(await LandAreaAsync(borisId), 9_500, 10_500);
         Assert.Empty(TerritoryInvariants.Check(await MapOfAsync()));
+    }
+
+    [Fact]
+    public async Task Breakdown_by_outcome_waits_for_the_public_boundary_and_gives_away_no_hidden_capture()
+    {
+        // docs/architecture/run-hud.md, «Приватность итога заявки». Борис только что взял ничью землю: захват скрыт, у Анны
+        // на карте там ничья. Анна обегает это место. Сервер решает по настоящей земле, и разбивка («transferred» вместо
+        // «claimedNeutral») выдала бы ей скрытый захват. Поэтому до границы публичности разбивки нет — ни в списке заявок,
+        // ни в ответе на повтор заявки; «взятое» — сразу, это ровно новая земля Анны на её карте.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(5)); // петля Анны кончается позже, чем у Бориса, — иначе «superseded»
+
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 50, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+
+        var listed = await CaptureAsync(anna, claim);
+        Assert.Equal(CaptureStatus.Applied, listed.Status);
+        Assert.Null(listed.AreaByOutcome);
+        Assert.Null((await RepeatClaimAsync(anna, claim.RunId, listed)).AreaByOutcome);
+        Assert.InRange(listed.AreaSquareMeters, 9_500, 10_500);
+        Assert.True(Math.Abs(listed.AreaSquareMeters - await LandAreaAsync(annaId)) < 1, "«Взятое» — не новая земля Анны");
+
+        // Граница — момент применения захвата Анны: за миллисекунду до неё разбивки ещё нет, на ней — есть. Захват Бориса
+        // применён раньше, поэтому к этому моменту он уже публичен.
+        DateTimeOffset appliedAt;
+        await using (var db = database.CreateContext())
+        {
+            appliedAt = (await db.Captures.AsNoTracking().SingleAsync(c => c.Id == claim.CaptureId, Cancel)).AppliedAt!.Value;
+        }
+
+        var publicAt = TerritoryReader.PublicAt(appliedAt, TerritoryReader.PublicDelay);
+        api.Time.Advance(publicAt - api.Time.GetUtcNow() - TimeSpan.FromMilliseconds(1));
+        Assert.Null((await CaptureAsync(anna, claim)).AreaByOutcome);
+
+        api.Time.Advance(TimeSpan.FromMilliseconds(1));
+        var revealed = (await CaptureAsync(anna, claim)).AreaByOutcome!;
+        Assert.InRange(revealed["transferred"], 4_700, 5_300);
+        Assert.InRange(revealed["claimedNeutral"], 4_700, 5_300);
+        Assert.Equal(revealed, (await RepeatClaimAsync(anna, claim.RunId, listed)).AreaByOutcome!);
     }
 
     [Fact]
@@ -206,6 +254,18 @@ public sealed class CaptureProcessingTests(DatabaseFixture database)
     {
         var captures = await client.GetFromJsonAsync<List<CaptureResponse>>($"/runs/{claim.RunId}/captures", Json, Cancel);
         return captures!.Single(c => c.Id == claim.CaptureId);
+    }
+
+    /// <summary>Та же заявка ещё раз (ответ мог потеряться): сервер отвечает 200 с её текущим итогом.</summary>
+    private async Task<CaptureResponse> RepeatClaimAsync(HttpClient client, Guid runId, CaptureResponse capture)
+    {
+        var response = await client.PostAsJsonAsync(
+            $"/runs/{runId}/loops",
+            new LoopClaimRequest(capture.ClaimNo, capture.StartSeq, capture.EndSeq, LoopClosure.Proximity, 10_000, 0),
+            Json,
+            Cancel);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<CaptureResponse>(Json, Cancel))!;
     }
 
     private async Task<double> LandAreaAsync(Guid userId)

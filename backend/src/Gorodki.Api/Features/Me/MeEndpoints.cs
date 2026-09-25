@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +18,25 @@ public sealed record PublicProfileRequest
     [JsonRequired]
     public required bool Enabled { get; init; }
 }
+
+/// <summary>Своя статистика для профиля — только числа.</summary>
+/// <param name="Runs">Завершённые живые забеги (статус не «идёт»); повторы демо не считаются.</param>
+/// <param name="DistanceMeters">Засчитанный судьёй путь этих забегов, м, округлён до 0,1.</param>
+/// <param name="ExploredSquareMeters">Открыто тумана за всё время, м²: оба слоя вместе, как «Всего» в рейтинге; округлено до 0,1.</param>
+/// <param name="Season">Номер текущего сезона; <c>null</c> — сезона сейчас нет.</param>
+/// <param name="SeasonExploredSquareMeters">Открыто в текущем сезоне, м², округлено до 0,1; сезона нет — 0.</param>
+/// <param name="ExplorationRank">Место в «Кто открыл больше» («Всего», за всё время) по последнему срезу; <c>null</c> — в срезе нет.</param>
+/// <remarks>
+/// Площади своей земли здесь нет намеренно: посчитанная по настоящей земле, она выдала бы ещё скрытый чужой захват
+/// (граница публичности, §3.16). Её добавит Claude — через ту же проекцию, что у карты.
+/// </remarks>
+public sealed record MyStatsResponse(
+    int Runs,
+    double DistanceMeters,
+    double ExploredSquareMeters,
+    int? Season,
+    double SeasonExploredSquareMeters,
+    int? ExplorationRank);
 
 /// <summary>Запрос на удаление аккаунта принят.</summary>
 /// <param name="RequestedAtMs">Когда запрошено (мс Unix); повторный запрос возвращает то же время.</param>
@@ -35,6 +55,14 @@ public static class MeEndpoints
             .WithDescription(
                 "Отдельное согласие на показ ника, цвета и земли по нику (PLAN.md, §3.16; закон 99-З). Действует сразу: рейтинги "
                 + "читают его при каждом запросе. Ответ — профиль, как GET /me.");
+        app.MapGet("/me/stats", GetStats)
+            .WithName("getMyStats")
+            .WithTags("Профиль")
+            .WithSummary("Своя статистика: забеги, засчитанные метры, открытая площадь за всё время и сезон, место в рейтинге")
+            .WithDescription(
+                "Только числа. Забеги — завершённые живые (повторы демо не считаются), метры — засчитанные судьёй. Площадь — "
+                + "как в GET /fog/summary, оба слоя вместе. Место — в «Кто открыл больше» («Всего», за всё время) по последнему "
+                + "срезу; null — в срезе игрока нет.");
         app.MapGet("/me/export", Export)
             .WithName("exportMyData")
             .WithTags("Профиль")
@@ -64,6 +92,23 @@ public static class MeEndpoints
         // Игрока нет (аккаунт уже стёрт) — 404. Тесты — PublicProfileTests.
         _ = (request, principal, db, cancellationToken);
         throw new NotImplementedException("ЗАДАЧА #71");
+    }
+
+    /// <summary>Своя статистика для экрана профиля.</summary>
+    private static Task<Results<Ok<MyStatsResponse>, NotFound>> GetStats(
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        SeasonStore seasons,
+        TimeProvider time,
+        CancellationToken cancellationToken)
+    {
+        // ЗАДАЧА #116 (Егор): забеги игрока с Source = Live и Status != Active — их число и сумма AcceptedMeters (null — 0);
+        // площадь тумана за всё время и за текущий сезон — как FogEndpoints.GetSummary, но оба слоя вместе; место — строка
+        // игрока в последнем срезе «Исследования» (слой Total, Season = −1), как LeaderboardEndpoints.GetExploration.
+        // Метры и площади округлить до 0,1 — Math.Round(…, 1), как площади в GetSummary (тест: 3 000,44 + 1 000 → 4 000,4).
+        // Площадь своей земли не добавлять (см. MyStatsResponse). Игрока нет — 404. Тесты — StatsTests.
+        _ = (principal, db, seasons, time, cancellationToken);
+        throw new NotImplementedException("ЗАДАЧА #116");
     }
 
     private static async Task<Results<Ok<AccountExportResponse>, NotFound>> Export(

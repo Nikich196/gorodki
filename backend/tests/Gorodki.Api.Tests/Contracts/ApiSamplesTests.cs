@@ -5,7 +5,9 @@ using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Fog;
+using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
+using Gorodki.Api.Features.Players;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
@@ -117,6 +119,8 @@ public sealed class ApiSamplesTests
             SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 20))));
         yield return ("session", new SessionResponse("eyJhbGciOiJIUzI1NiJ9.e30.c2lnbmF0dXJl", "cmVmcmVzaA", 900, IsNewUser: true));
         yield return ("me", new MeResponse(Player, "Бегун-1234", 7, "player", PublicProfile: false));
+        yield return ("me-stats", new MyStatsResponse(12, 42_195.5, 1_234_567.8, 0, 321_000.4, 7));
+        yield return ("player", new PlayerResponse(Player, LeaderboardEndpoints.Pseudonym(Player), 7, IsMe: false));
         yield return ("problem-chunk-invalid", Problem(400, "chunk_invalid", "Кусок забега не прошёл проверку.", "problems",
             new[] { new ChunkProblem("points[37]", "lat_range"), new ChunkProblem("points", "seq_limit") }));
         yield return ("problem-chunk-conflict", Problem(409, "chunk_conflict", "Эти номера точек уже заняты другим куском.", "overlaps",
