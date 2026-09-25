@@ -4,6 +4,7 @@ using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Scoring;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Leagues;
@@ -24,6 +25,9 @@ public sealed class ScoringTests(DatabaseFixture database)
 {
     /// <summary>Середина Сезона 1 (30.11–13.12): 1 декабря, 12:00 по Минску.</summary>
     private static readonly DateTimeOffset InSeasonOne = new(2026, 12, 1, 9, 0, 0, TimeSpan.Zero);
+
+    /// <summary>Начало Сезона 1 — 30.11 00:00 по Минску; конец Сезона 0.</summary>
+    private static readonly DateTimeOffset SeasonOne = new(2026, 11, 29, 21, 0, 0, TimeSpan.Zero);
 
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
@@ -209,7 +213,76 @@ public sealed class ScoringTests(DatabaseFixture database)
         }
     }
 
+    [Fact]
+    public async Task Season_total_is_final_at_its_close_with_the_last_minutes_and_without_what_became_visible_later()
+    {
+        // Сезон и сутки очков — по времени петли и началу забега (§3.4), а видны они позже: захват в 23:40 последнего дня С0
+        // — с границы публичности применения, дистанция забега, кончившегося в 23:50, — после границы его конца. Смена
+        // сезона в 00:00:30 их ещё не видит; итог сезона (Зал славы E8) — на момент закрытия, 04:00, и больше не меняется.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+
+        GoTo(api, SeasonOne - TimeSpan.FromMinutes(5));
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100)); // петля ≈ в 23:40
+        await ProcessAsync(api, claim.RunId);
+        var borisRun = await WalkAndFinishAsync(Cancel, api, boris, Rectangle(NewArea(), 0, 0, 500, 100)); // 800 м — 8 очков
+        var veraRun = await WalkAndFinishAsync(Cancel, api, vera, Rectangle(NewArea(), 0, 0, 500, 100));
+
+        await using (var db = database.CreateContext())
+        {
+            await db.Seasons.Where(s => s.Number == 1).ExecuteUpdateAsync(s => s.SetProperty(x => x.ResetAt, (DateTimeOffset?)null), Cancel);
+        }
+
+        GoTo(api, SeasonOne + TimeSpan.FromSeconds(30));
+        Assert.True(await RolloverAsync(api) > 0);
+        var resetAt = api.Time.GetUtcNow();
+
+        GoTo(api, SeasonOne + TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        Assert.NotNull(await VisitAsync(api, borisRun.Id)); // визиты и дистанция Бориса — после границы конца забега
+        await using (var db = database.CreateContext())
+        {
+            var rows = await db.ScoreEvents.AsNoTracking().Where(e => e.UserId == annaId || e.UserId == borisId).ToListAsync(Cancel);
+            Assert.Equal(2, rows.Count);
+            Assert.All(rows, r => Assert.Equal((0, true), (r.Season, r.VisibleAt > resetAt))); // сезон 0, видны после смены
+        }
+
+        // На отметке смены сезона (прежняя опора Зала славы) очков последних минут ещё нет; до закрытия итога нет вовсе.
+        var atReset = await SeasonTotalsAsync(api, season: 0, at: resetAt);
+        Assert.False(atReset.ContainsKey(annaId) || atReset.ContainsKey(borisId));
+        Assert.Null(await FinalTotalsAsync(api, season: 0));
+
+        var closesAt = SeasonOne + ScoreBook.CloseGrace;
+        GoTo(api, closesAt - TimeSpan.FromMilliseconds(1));
+        Assert.Null(await FinalTotalsAsync(api, season: 0));
+        GoTo(api, closesAt);
+        var final = (await FinalTotalsAsync(api, season: 0))!;
+        Assert.True(final[annaId] > 0);
+        Assert.Equal(8, final[borisId]);
+        Assert.False(final.ContainsKey(veraId));
+
+        // Забег Веры кончился в те же минуты, а посчитан уже после закрытия (сервер спал, забег из офлайна): начисление
+        // сезона 0 остаётся в книге, но итог закрытого сезона не меняет — ни снимок, ни очки сезона на любой момент.
+        GoTo(api, closesAt + TimeSpan.FromMinutes(1));
+        Assert.NotNull(await VisitAsync(api, veraRun.Id));
+        await using (var db = database.CreateContext())
+        {
+            var late = await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.UserId == veraId, Cancel);
+            Assert.Equal((0, api.Time.GetUtcNow()), (late.Season, late.VisibleAt));
+        }
+
+        GoTo(api, closesAt + TimeSpan.FromDays(1));
+        var ours = new[] { annaId, borisId, veraId };
+        Assert.Equal(Only(final, ours), Only((await FinalTotalsAsync(api, season: 0))!, ours));
+        Assert.Equal(Only(final, ours), Only(await SeasonTotalsAsync(api, season: 0), ours));
+    }
+
     // MARK: — вспомогательное
+
+    private static Dictionary<Guid, int> Only(Dictionary<Guid, int> totals, Guid[] players) =>
+        totals.Where(t => players.Contains(t.Key)).ToDictionary(t => t.Key, t => t.Value);
 
     private static void GoTo(ApiFactory api, DateTimeOffset moment) => api.Time.Advance(moment - api.Time.GetUtcNow());
 
@@ -221,10 +294,24 @@ public sealed class ScoringTests(DatabaseFixture database)
         return (capture, await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.CaptureId == captureId, Cancel));
     }
 
-    private async Task<Dictionary<Guid, int>> SeasonTotalsAsync(ApiFactory api)
+    private async Task<Dictionary<Guid, int>> SeasonTotalsAsync(ApiFactory api, int season = 1, DateTimeOffset? at = null)
     {
         await using var db = database.CreateContext();
-        return await ScoreBook.SeasonTotalsAsync(db, League.Run, 1, api.Time.GetUtcNow(), Cancel);
+        var calendar = await new SeasonStore(db).CalendarAsync(Cancel);
+        return await ScoreBook.SeasonTotalsAsync(db, calendar, League.Run, season, at ?? api.Time.GetUtcNow(), Cancel);
+    }
+
+    private async Task<Dictionary<Guid, int>?> FinalTotalsAsync(ApiFactory api, int season)
+    {
+        await using var db = database.CreateContext();
+        var calendar = await new SeasonStore(db).CalendarAsync(Cancel);
+        return await ScoreBook.FinalTotalsAsync(db, calendar, League.Run, season, api.Time.GetUtcNow(), Cancel);
+    }
+
+    private static async Task<int> RolloverAsync(ApiFactory api)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<SeasonRollover>().RunIfDueAsync(CancellationToken.None);
     }
 
     private async Task<AccountExportResponse> ExportAsync(HttpClient client) =>

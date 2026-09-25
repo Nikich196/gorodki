@@ -51,8 +51,17 @@ public sealed record ParcelState
 /// Ничью землю она берёт, свою и соклановцев освежает, а чужую не трогает вовсе: пометка «спорная» — отдельный слой
 /// карты (<see cref="CaptureResult.Contested"/>), не состояние куска.
 /// </param>
+/// <param name="ResetSeasonStart">
+/// Начало идущего сезона, если смена на него уже прошла (<c>seasons.reset_at</c>); <c>null</c> — смена ещё впереди или сезоны
+/// не начались. Петля, замкнутая раньше, опоздала к смене: изменённые ею куски проходят мягкий сброс (<see cref="SeasonReset.Late"/>).
+/// </param>
 public sealed record CaptureContext(
-    Guid CapturerId, DateTimeOffset At, IReadOnlySet<Guid> ClanMates, bool CanRemoveLevels = true, bool BigLoop = false);
+    Guid CapturerId,
+    DateTimeOffset At,
+    IReadOnlySet<Guid> ClanMates,
+    bool CanRemoveLevels = true,
+    bool BigLoop = false,
+    DateTimeOffset? ResetSeasonStart = null);
 
 /// <summary>Числа правил земли. Хранятся в игровом конфиге.</summary>
 public sealed record TerritoryRules
@@ -138,7 +147,20 @@ public enum PieceOutcome
 /// </remarks>
 public static class CaptureRules
 {
+    /// <summary>
+    /// Судьба куска внутри петли. Петля, опоздавшая к смене сезона (<see cref="CaptureContext.ResetSeasonStart"/>), решается
+    /// так же, а изменённый ею кусок проходит мягкий сброс (<see cref="SeasonReset.Late"/>).
+    /// </summary>
     public static (ParcelState? State, PieceOutcome Outcome) Decide(
+        ParcelState? current,
+        CaptureContext context,
+        TerritoryRules rules)
+    {
+        var (state, outcome) = DecideAt(current, context, rules);
+        return (SeasonReset.Late(current, state, context.At, context.ResetSeasonStart, rules), outcome);
+    }
+
+    private static (ParcelState? State, PieceOutcome Outcome) DecideAt(
         ParcelState? current,
         CaptureContext context,
         TerritoryRules rules)

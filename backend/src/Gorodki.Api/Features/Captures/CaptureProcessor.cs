@@ -353,6 +353,18 @@ public sealed class CaptureProcessor(
             await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({lockSpace}, {tile.LockKey})", cancellationToken);
         }
 
+        // Петля раньше начала идущего сезона, а смена на него уже прошла (петля последних минут, из офлайна — до 3 ч):
+        // изменённые ею куски проходят мягкий сброс, как если бы её применили до смены (SeasonReset.Late). Смена на сезон с
+        // чистой картой (С0) стёрла землю полевых тестов — петле до неё ложиться не на что. Под блокировками тайлов: смена
+        // берёт блокировки всех тайлов с землёй, поэтому прочитанное не устареет.
+        var now = time.GetUtcNow();
+        var reset = await seasons.ResetSeasonAsync(now, cancellationToken) is { } running && effectiveAt < running.StartsAt ? running : null;
+        if (reset is { CleanStart: true })
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return await FinishAsync(claim.Id, token, CaptureStatus.Stale, "season_wipe", cancellationToken, timing: (effectiveAt, evidenceAt));
+        }
+
         int minX = tiles[0].X, maxX = tiles[^1].X, minY = tiles.Min(t => t.Y), maxY = tiles.Max(t => t.Y);
         var stored = await db.Parcels
             .Where(p => p.League == claim.League && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
@@ -362,9 +374,9 @@ public sealed class CaptureProcessor(
         var bigLoop = current.Rules.Territory.IsBigLoop(claim.League, area.Area);
         var map = new TerritoryMap(current.Rules.Territory.ToRules(), new SliverSettings());
         map.Load(stored.Select(ToParcel));
-        var result = map.Apply(area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels, bigLoop));
+        var result = map.Apply(
+            area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels, bigLoop, reset?.StartsAt));
 
-        var now = time.GetUtcNow();
         var changedTiles = new List<TileKey>();
         foreach (var tile in result.ChangedTiles)
         {

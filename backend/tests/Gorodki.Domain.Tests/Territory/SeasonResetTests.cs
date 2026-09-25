@@ -190,4 +190,163 @@ public sealed class SeasonResetTests
         Assert.Equal([at], trace);
         Assert.Equal(current, VisitReplay.Apply(written, trace!, Rules));
     }
+
+    // ── Петля или визит до полуночи, применённые после смены сезона (SeasonReset.Late): как «событие, потом сброс» ──
+
+    [Fact]
+    public void Late_visit_does_not_raise_the_level_of_reset_land()
+    {
+        // L1, взятый 30 ч назад; забег кончился в 23:50, визиты посчитаны после задачи смены сезона. Сброшенная земля — та же
+        // L1 с давним повышением: визит поднял бы её до L2 (12 дней жизни и трещина вместо перехода), а в порядке «визит,
+        // потом сброс» подъём снял бы сброс: L1, «последний визит» — полночь.
+        var before = Land(1, T.AddHours(-30));
+        var at = T.AddMinutes(-10);
+        var reset = SeasonReset.Soft(before, T, Rules);
+
+        var late = SeasonReset.Late(reset, CaptureRules.Visit(reset, at, Rules), at, T, Rules);
+
+        Assert.Equal(2, CaptureRules.Visit(reset, at, Rules)!.Level);
+        Assert.Equal(SeasonReset.Soft(CaptureRules.Visit(before, at, Rules)!, T, Rules), late);
+        Assert.Equal((1, T, at, at), (late!.Level, late.LastVisitAt, late.LastLevelUpAt, late.TouchedAt));
+    }
+
+    [Fact]
+    public void Late_visit_keeps_what_the_new_season_already_gave_the_land()
+    {
+        // После полуночи владелец поднял уровень своей петлёй; визит забега, кончившегося до полуночи, посчитан позже —
+        // он ничего не меняет, и второго сброса нет: L2 нового сезона остаётся.
+        var reset = SeasonReset.Soft(Land(1, T.AddHours(-30)), T, Rules);
+        var (levelled, outcome) = CaptureRules.Decide(reset, new CaptureContext(Owner, T.AddHours(2), new HashSet<Guid>(), ResetSeasonStart: T), Rules);
+        var at = T.AddMinutes(-10);
+
+        var late = SeasonReset.Late(levelled, CaptureRules.Visit(levelled!, at, Rules), at, T, Rules);
+
+        Assert.Equal((PieceOutcome.Refreshed, 2), (outcome, levelled!.Level));
+        Assert.Equal(levelled, late);
+    }
+
+    [Fact]
+    public void Late_loops_leave_land_as_if_they_came_before_the_change()
+    {
+        var before = Land(1, T.AddHours(-30));
+        var reset = SeasonReset.Soft(before, T, Rules);
+        var at = T.AddMinutes(-10);
+        var none = new HashSet<Guid>();
+
+        // Своя петля в 23:50 — освежение без подъёма уровня в новый сезон.
+        var (own, ownOutcome) = CaptureRules.Decide(reset, new CaptureContext(Owner, at, none, ResetSeasonStart: T), Rules);
+        var (ownIdeal, _) = CaptureRules.Decide(before, new CaptureContext(Owner, at, none), Rules);
+        Assert.Equal((PieceOutcome.Refreshed, SeasonReset.Soft(ownIdeal!, T, Rules)), (ownOutcome, own));
+        Assert.Equal(1, own!.Level);
+
+        // Чужая петля в 23:50 взяла L1 — без щита в новый сезон.
+        var (taken, takenOutcome) = CaptureRules.Decide(reset, new CaptureContext(Boris, at, none, ResetSeasonStart: T), Rules);
+        var (takenIdeal, _) = CaptureRules.Decide(before, new CaptureContext(Boris, at, none), Rules);
+        Assert.Equal((PieceOutcome.Transferred, SeasonReset.Soft(takenIdeal!, T, Rules)), (takenOutcome, taken));
+        Assert.Equal((Boris, 1, (DateTimeOffset?)null, at), (taken!.OwnerId, taken.Level, taken.ShieldUntil, taken.TouchedAt));
+        Assert.NotNull(CaptureRules.Decide(reset, new CaptureContext(Boris, at, none), Rules).State!.ShieldUntil); // без правила — щит
+
+        // Ничья земля — как обычно.
+        var (neutral, _) = CaptureRules.Decide(null, new CaptureContext(Boris, at, none, ResetSeasonStart: T), Rules);
+        Assert.Equal(CaptureRules.Decide(null, new CaptureContext(Boris, at, none), Rules).State, neutral);
+    }
+
+    [Fact]
+    public void Late_event_resets_what_it_changes_and_never_touches_what_the_new_season_gave()
+    {
+        // Любая земля до полуночи → сброс → одно событие нового сезона (или ни одного) → опоздавшее событие до полуночи:
+        // визит владельца, его петля, петля соклановца или чужая. Изменённый кусок — сброшенный (L1, без щита и осады);
+        // кусок с уровнем или щитом нового сезона опоздавшее событие не меняет вовсе; без событий нового сезона и без щита
+        // «до» — владелец и уровень те же, что в порядке «событие, потом сброс».
+        var vera = new Guid("00000000-0000-0000-0000-0000000000cc");
+        var cases =
+            from level in Gen.Int[1, 3]
+            from visitedHours in Gen.Double[-200, -0.5]
+            from levelledHours in Gen.Double[0, 60]
+            from shieldHours in Gen.Double[-12, 12]
+            from besieged in Gen.Bool
+            from newSeason in Gen.Int[0, 4]
+            from newSeasonHours in Gen.Double[0.01, 30]
+            from late in Gen.Int[0, 3]
+            from lateMinutes in Gen.Double[0.5, 180]
+            select (level, visitedHours, levelledHours, shieldHours, besieged, newSeason, newSeasonHours, late, lateMinutes);
+
+        cases.Sample(c =>
+        {
+            var before = Land(c.level, T.AddHours(c.visitedHours)) with
+            {
+                LastLevelUpAt = T.AddHours(c.visitedHours - c.levelledHours),
+                ShieldUntil = c.shieldHours > 0 ? T.AddHours(c.shieldHours) : null,
+                SiegeUntil = c.besieged ? T.AddHours(5) : null,
+            };
+            var reset = SeasonReset.Soft(before, T, Rules);
+
+            // Событие нового сезона: визит владельца, его петля, петля соклановца, чужая петля.
+            var t = T.AddHours(c.newSeasonHours);
+            var current = c.newSeason switch
+            {
+                1 => CaptureRules.Visit(reset, t, Rules) ?? reset,
+                2 => Loop(reset, Owner, t, []),
+                3 => Loop(reset, Anna, t, [Owner]),
+                4 => Loop(reset, Boris, t, []),
+                _ => reset,
+            };
+
+            // Опоздавшее событие до полуночи.
+            var at = T.AddMinutes(-c.lateMinutes);
+            var after = c.late switch
+            {
+                0 => SeasonReset.Late(current, CaptureRules.Visit(current, at, Rules), at, T, Rules),
+                1 => Loop(current, current.OwnerId, at, []),
+                2 => Loop(current, Anna == current.OwnerId ? Boris : Anna, at, [current.OwnerId]),
+                _ => Loop(current, vera, at, []),
+            };
+
+            if (after is not null && after != current)
+            {
+                Assert.Equal((1, (DateTimeOffset?)null, (DateTimeOffset?)null), (after.Level, after.ShieldUntil, after.SiegeUntil));
+            }
+
+            if (current.Level > 1 || current.ShieldUntil > T || current.SiegeUntil > T)
+            {
+                Assert.Equal(current, after);
+            }
+
+            if (c.newSeason == 0 && before.ShieldUntil is null && before.SiegeUntil is null && after is not null)
+            {
+                var ideal = c.late switch
+                {
+                    0 => CaptureRules.Visit(before, at, Rules),
+                    1 => CaptureRules.Decide(before, new CaptureContext(before.OwnerId, at, new HashSet<Guid>()), Rules).State,
+                    2 => CaptureRules.Decide(before, new CaptureContext(Anna, at, new HashSet<Guid> { before.OwnerId }), Rules).State,
+                    _ => CaptureRules.Decide(before, new CaptureContext(vera, at, new HashSet<Guid>()), Rules).State,
+                };
+                var idealReset = SeasonReset.Soft(ideal ?? before, T, Rules);
+                Assert.Equal((idealReset.OwnerId, idealReset.Level), (after.OwnerId, after.Level));
+            }
+        }, iter: 5_000);
+
+        static ParcelState Loop(ParcelState land, Guid who, DateTimeOffset at, Guid[] clanMates) =>
+            CaptureRules.Decide(land, new CaptureContext(who, at, clanMates.ToHashSet(), ResetSeasonStart: T), Rules).State!;
+    }
+
+    [Fact]
+    public void Loop_after_the_season_start_and_land_the_late_loop_does_not_change_are_not_reset_again()
+    {
+        var reset = SeasonReset.Soft(Land(1, T.AddHours(-30)), T, Rules);
+        var none = new HashSet<Guid>();
+
+        // Петля уже в новом сезоне — обычная: щит у взятой земли остаётся.
+        var after = T.AddHours(1);
+        var (taken, _) = CaptureRules.Decide(reset, new CaptureContext(Boris, after, none, ResetSeasonStart: T), Rules);
+        Assert.Equal(after + Rules.TransferShield, taken!.ShieldUntil);
+
+        // Опоздавшая петля по земле, которой уже коснулись в новом сезоне (L2 после полуночи), её не трогает: не
+        // сбрасывает второй раз ни уровень, ни щит.
+        var (levelled, _) = CaptureRules.Decide(reset, new CaptureContext(Owner, T.AddHours(2), none, ResetSeasonStart: T), Rules);
+        var at = T.AddMinutes(-10);
+        Assert.Equal((levelled, PieceOutcome.Superseded), CaptureRules.Decide(levelled, new CaptureContext(Boris, at, none, ResetSeasonStart: T), Rules));
+        Assert.Equal(levelled, CaptureRules.Decide(levelled, new CaptureContext(Owner, at, none, ResetSeasonStart: T), Rules).State);
+        Assert.Equal(taken, CaptureRules.Decide(taken, new CaptureContext(Boris, at, none, ResetSeasonStart: T), Rules).State);
+    }
 }

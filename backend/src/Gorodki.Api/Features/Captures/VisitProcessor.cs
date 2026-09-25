@@ -207,6 +207,10 @@ public sealed class VisitProcessor(
             await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({lockSpace}, {tile.LockKey})", cancellationToken);
         }
 
+        // Визит раньше начала идущего сезона, а смена на него уже прошла (забег кончился перед полуночью — визиты считаются
+        // после границы публичности): изменённый визитом кусок проходит мягкий сброс, как если бы визит засчитали до смены
+        // (SeasonReset.Late). Иначе он поднял бы уровень уже сброшенной земли. Под блокировками тайлов — смена их тоже берёт.
+        var resetSeasonStart = (await seasons.ResetSeasonAsync(now, cancellationToken))?.StartsAt;
         var ids = candidates.Select(c => c.Id).ToList();
         var fresh = await db.Parcels.Where(p => ids.Contains(p.Id) && p.OwnerId == run.UserId).ToListAsync(cancellationToken);
         var changedTiles = new HashSet<TileKey>();
@@ -215,7 +219,8 @@ public sealed class VisitProcessor(
         {
             var at = candidates.Single(c => c.Id == parcel.Id).At;
             var state = CaptureProcessor.ToParcel(parcel).State;
-            if (CaptureRules.Visit(state, at, rules) is not { } visited || visited == state)
+            if (SeasonReset.Late(state, CaptureRules.Visit(state, at, rules), at, resetSeasonStart, rules) is not { } visited
+                || visited == state)
             {
                 continue; // земля уже угасла (вернуть можно только захватом) или визит ничего не меняет
             }

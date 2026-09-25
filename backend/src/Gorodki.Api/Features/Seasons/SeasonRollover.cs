@@ -17,8 +17,13 @@ namespace Gorodki.Api.Features.Seasons;
 /// <para>
 /// <b>Мягкий сброс</b> (<see cref="SeasonReset.Soft"/>): уровни → 1, «последний визит» сдвигается, щиты, осада и окно снятия
 /// уровней снимаются. <b>Чистая карта</b> (у сезона <see cref="SeasonEntity.CleanStart"/>, это Сезон 0): вся земля, зоны
-/// «спорная» и журнал захватов стираются — земля полевых тестов преимущества не даёт. Очки → 0 делать не нужно: у новых
-/// начислений новый номер сезона (<c>ScoreBook</c>), старые остаются историей.
+/// «спорная» и журнал захватов стираются — земля полевых тестов преимущества не даёт; с ними — очки за захваты этого сезона,
+/// применённые до смены (посчитаны по земле полевых тестов). Очки → 0 делать не нужно: у новых начислений новый номер
+/// сезона (<c>ScoreBook</c>), старые остаются историей.
+/// </para>
+/// <para>
+/// Петли и визиты со временем раньше начала сезона, применённые уже после смены, проходят тот же сброс
+/// (<see cref="SeasonReset.Late"/>), а на чистую карту не ложатся вовсе (<c>season_wipe</c>).
 /// </para>
 /// <para>
 /// <b>Журнал захватов сбрасывается той же формулой</b>, что и земля (земля «до» и «после» каждого захвата за 7 дней).
@@ -80,7 +85,7 @@ public sealed class SeasonRollover(
         }
 
         var bumped = row.CleanStart
-            ? await WipeAsync(cancellationToken)
+            ? await WipeAsync(season.Number, cancellationToken)
             : await SoftResetAsync(season.StartsAt, rules.DecayInterval, cancellationToken);
         await db.Seasons
             .Where(s => s.Number == season.Number)
@@ -126,8 +131,13 @@ public sealed class SeasonRollover(
                 """),
             cancellationToken);
 
-    /// <summary>Чистая карта: земля, зоны «спорная» и журнал захватов (куски журнала — каскадом) стираются, версии растут.</summary>
-    private Task<List<(League League, TileKey Tile)>> WipeAsync(CancellationToken cancellationToken) =>
+    /// <summary>
+    /// Чистая карта: земля, зоны «спорная» и журнал захватов (куски журнала — каскадом) стираются, версии растут. Вместе с
+    /// землёй — очки за захваты этого сезона, применённые до смены (между полуночью и задачей): они посчитаны по земле
+    /// полевых тестов (бонус за взятую чужую землю), земли, за которую они даны, больше нет, а откатить такой захват уже
+    /// нельзя — журнал стёрт. Очки полевых тестов (сезон <c>null</c>) и дистанция остаются: от карты они не зависят.
+    /// </summary>
+    private Task<List<(League League, TileKey Tile)>> WipeAsync(int season, CancellationToken cancellationToken) =>
         ChangedTilesAsync(
             db.Database.SqlQuery<string>(
                 $"""
@@ -137,6 +147,8 @@ public sealed class SeasonRollover(
                     DELETE FROM app.contested_zones RETURNING 1
                 ), journal AS (
                     DELETE FROM app.capture_journal RETURNING 1
+                ), scores AS (
+                    DELETE FROM app.score_events WHERE kind = {(short)ScoreKind.Capture} AND season = {season} RETURNING 1
                 ), versions AS (
                     UPDATE app.tile_versions SET version = version + 1 RETURNING league, tile_x, tile_y
                 )

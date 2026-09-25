@@ -226,6 +226,216 @@ public sealed class SeasonRolloverTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Clean_map_also_wipes_points_of_season_zero_captures_applied_before_the_change()
+    {
+        // Сервер спал в полночь, и петля 00:25 применилась до задачи смены сезона — по земле полевых тестов, с бонусом за
+        // взятую чужую. Землю смена стёрла, откатить захват уже нельзя (журнала нет) — очки уходят вместе с землёй. Очки
+        // полевых тестов и дистанция Сезона 0 остаются: от карты они не зависят.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        await ReopenAsync(0);
+        GoTo(api, SeasonZero - TimeSpan.FromHours(1)); // полевой тест
+        var fieldTest = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        await ProcessAsync(api, fieldTest.RunId);
+
+        GoTo(api, SeasonZero + TimeSpan.FromMinutes(30));
+        var veraRun = await WalkAndFinishAsync(Cancel, api, vera, Rectangle(NewArea(), 0, 0, 500, 100));
+        GoTo(api, SeasonZero + TimeSpan.FromMinutes(40)); // петля Бориса ≈ в 00:25 — половина по земле полевого теста
+        var early = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100));
+        await ProcessAsync(api, early.RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay);
+        Assert.NotNull(await VisitAsync(api, veraRun.Id));
+        await using (var db = database.CreateContext())
+        {
+            var score = await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.CaptureId == early.CaptureId, Cancel);
+            Assert.Equal(0, score.Season);
+            Assert.InRange(score.Basis, 107, 118); // 50 соток ничьей + 50 соток чужой × 1,5 — бонус за землю полевого теста
+        }
+
+        Assert.True(await RolloverAsync(api) > 0);
+
+        await using (var db = database.CreateContext())
+        {
+            Assert.False(await db.Parcels.AnyAsync(p => p.OwnerId == borisId, Cancel));
+            Assert.False(await db.ScoreEvents.AnyAsync(e => e.UserId == borisId, Cancel));
+            Assert.Null((await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.CaptureId == fieldTest.CaptureId, Cancel)).Season);
+            var distance = await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.UserId == veraId, Cancel);
+            Assert.Equal((ScoreKind.Distance, 0), (distance.Kind, distance.Season));
+        }
+    }
+
+    [Fact]
+    public async Task Field_test_loop_applied_after_the_clean_start_does_not_land_on_the_clean_map()
+    {
+        // Петля полевого теста замкнута до полуночи старта Сезона 0, а применяется после смены: земли полевых тестов больше
+        // нет, и этой петле ложиться не на что — иначе она принесла бы землю полевого теста на чистую карту.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        GoTo(api, SeasonZero - TimeSpan.FromMinutes(5));
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100)); // петля ≈ в 23:50
+
+        await ReopenAsync(0);
+        GoTo(api, SeasonZero + TimeSpan.FromMinutes(1));
+        await RolloverAsync(api); // земли в базе может и не быть — версий не станет больше, но смена пройдёт
+        await using (var check = database.CreateContext())
+        {
+            Assert.NotNull((await check.Seasons.AsNoTracking().SingleAsync(s => s.Number == 0, Cancel)).ResetAt);
+        }
+
+        Assert.Equal(1, await ProcessAsync(api, claim.RunId));
+
+        await using var db = database.CreateContext();
+        var capture = await db.Captures.AsNoTracking().SingleAsync(c => c.Id == claim.CaptureId, Cancel);
+        Assert.Equal((CaptureStatus.Stale, "season_wipe"), (capture.Status, capture.RejectCode));
+        Assert.True(capture.EffectiveAt < SeasonZero);
+        Assert.False(await db.Parcels.AnyAsync(p => p.OwnerId == annaId, Cancel));
+        Assert.False(await db.ScoreEvents.AnyAsync(e => e.CaptureId == claim.CaptureId, Cancel));
+    }
+
+    [Fact]
+    public async Task Visit_from_before_midnight_counted_after_the_change_does_not_raise_the_level_but_keeps_new_season_levels()
+    {
+        // Визиты забега, кончившегося в 23:56, считаются после границы публичности — уже после задачи смены сезона. Кусок
+        // должен стать таким, как в порядке «визит, потом сброс»: L1 с «последним визитом» в полночь, а не L2 на 12 дней.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var annaArea = NewArea();
+        var borisArea = NewArea();
+        GoTo(api, SeasonOne - TimeSpan.FromHours(30));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(annaArea, 0, 0, 100))).RunId);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(borisArea, 0, 0, 100))).RunId);
+        var annaBefore = Assert.Single((await ParcelsAsync(annaId)).Values);
+
+        // Путь проходит 100 м по своему квадрату (после обрезки 200 м) около 23:52.
+        GoTo(api, SeasonOne - TimeSpan.FromMinutes(3));
+        var annaRun = await WalkAndFinishAsync(Cancel, api, anna, [(annaArea.X - 300, annaArea.Y + 50), (annaArea.X + 400, annaArea.Y + 50)], TimeSpan.FromMinutes(9));
+        var borisRun = await WalkAndFinishAsync(Cancel, api, boris, [(borisArea.X - 300, borisArea.Y + 50), (borisArea.X + 400, borisArea.Y + 50)], TimeSpan.FromMinutes(9));
+
+        await ReopenAsync(1);
+        GoTo(api, SeasonOne + TimeSpan.FromMinutes(1));
+        Assert.True(await RolloverAsync(api) > 0);
+
+        GoTo(api, SeasonOne + TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        Assert.Equal(1, await VisitAsync(api, annaRun.Id));
+        var annas = Assert.Single((await ParcelsAsync(annaId)).Values);
+        var at = annas.TouchedAt;
+        Assert.True(at < SeasonOne && at > SeasonOne - TimeSpan.FromMinutes(15));
+        Assert.Equal(SeasonReset.Soft(CaptureRules.Visit(annaBefore, at, Rules)!, SeasonOne, Rules), annas);
+        Assert.Equal((1, SeasonOne), (annas.Level, annas.LastVisitAt));
+
+        // Борис уже в новом сезоне поднял уровень своей петлёй; визит его забега до полуночи посчитан позже — L2 остаётся.
+        GoTo(api, SeasonOne + TimeSpan.FromHours(2));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(borisArea, 0, 0, 100))).RunId);
+        var levelled = Assert.Single((await ParcelsAsync(borisId)).Values);
+        Assert.Equal(2, levelled.Level);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep); // визиты ждут раскрытия его захвата
+        Assert.Equal(0, await VisitAsync(api, borisRun.Id)); // посчитан, но ничего не меняет — второго сброса нет
+        Assert.Equal(levelled, Assert.Single((await ParcelsAsync(borisId)).Values));
+    }
+
+    [Fact]
+    public async Task Loop_from_before_midnight_applied_after_the_change_does_not_carry_a_shield_into_the_new_season()
+    {
+        // Петля Бориса в 23:45 по L1 Анны применена после задачи смены сезона: взятая земля — как после сброса, без щита.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        GoTo(api, SeasonOne - TimeSpan.FromHours(30));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        GoTo(api, SeasonOne - TimeSpan.FromMinutes(5));
+        var late = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 0, 0, 100));
+
+        await ReopenAsync(1);
+        GoTo(api, SeasonOne + TimeSpan.FromMinutes(1));
+        Assert.True(await RolloverAsync(api) > 0);
+        Assert.Equal(1, await ProcessAsync(api, late.RunId));
+
+        await using (var db = database.CreateContext())
+        {
+            var capture = await db.Captures.AsNoTracking().SingleAsync(c => c.Id == late.CaptureId, Cancel);
+            Assert.Equal(CaptureStatus.Applied, capture.Status);
+            Assert.True(capture.EffectiveAt < SeasonOne);
+            Assert.Equal(0, (await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.CaptureId == late.CaptureId, Cancel)).Season);
+        }
+
+        var taken = (await ParcelsAsync(borisId)).Values.ToList();
+        Assert.NotEmpty(taken);
+        Assert.All(taken, p => Assert.Equal((1, (DateTimeOffset?)null), (p.Level, p.ShieldUntil)));
+    }
+
+    [Fact]
+    public async Task Rollback_racing_the_season_change_returns_the_victim_its_reset_land()
+    {
+        // Смена сезона коммитится между расчётом отката и записью: запись отвергнута (версии тайлов выросли), и повтор
+        // считает откат по сброшенному журналу — жертва получает землю такой, какой она была бы после сброса, а не L3 со щитом.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
+        var area = NewArea();
+        GoTo(api, SeasonOne - TimeSpan.FromHours(3));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        var borisClaim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100));
+        await ProcessAsync(api, borisClaim.RunId);
+
+        // Земля Анны «до» в журнале — L3 со щитом и визитом вчера.
+        await using (var db = database.CreateContext())
+        {
+            Assert.True(await db.CaptureJournalPieces.Where(p => p.CaptureId == borisClaim.CaptureId && !p.After && p.OwnerId == annaId)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(p => p.Level, (short)3)
+                        .SetProperty(p => p.LastVisitAt, SeasonOne.AddDays(-1))
+                        .SetProperty(p => p.ShieldUntil, SeasonOne.AddDays(3)),
+                    Cancel) > 0);
+        }
+
+        await ReopenAsync(1);
+        GoTo(api, SeasonOne + TimeSpan.FromMinutes(1));
+        var (job, hookCalls) = await RollBackRacingTheChangeAsync(api, admin, borisId);
+
+        Assert.Equal(2, hookCalls); // первая запись отвергнута, вторая прошла
+        Assert.Equal((1, 0, 0), (job.RolledBack, job.WithoutJournal, job.Failed));
+        var annas = (await ParcelsAsync(annaId)).Values.ToList();
+        Assert.All(annas, p => Assert.Equal((1, (DateTimeOffset?)null), (p.Level, p.ShieldUntil)));
+        Assert.Contains(annas, p => p.LastVisitAt == SeasonOne); // возвращённая половина: L3 со вчерашним визитом после сброса
+        Assert.Empty(await ParcelsAsync(borisId));
+    }
+
+    [Fact]
+    public async Task Rollback_racing_the_clean_start_finds_no_journal_and_does_not_fail()
+    {
+        // Смена на Сезон 0 стёрла журнал между расчётом отката и записью: откатывать не по чему — как у отката после смены.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
+        var area = NewArea();
+        GoTo(api, SeasonZero - TimeSpan.FromHours(3));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
+
+        await ReopenAsync(0);
+        GoTo(api, SeasonZero + TimeSpan.FromMinutes(1));
+        var (job, hookCalls) = await RollBackRacingTheChangeAsync(api, admin, borisId);
+
+        Assert.Equal(1, hookCalls);
+        Assert.Equal((0, 1, 0), (job.RolledBack, job.WithoutJournal, job.Failed));
+    }
+
+    [Fact]
     public async Task Only_land_the_owner_took_or_refreshed_this_season_counts_as_touched_and_others_see_it_from_the_boundary()
     {
         // Опора среза E7 (§3.4: «за удержание дают очки только участки, которых касались в этом сезоне»).
@@ -264,6 +474,33 @@ public sealed class SeasonRolloverTests(DatabaseFixture database)
     {
         await using var scope = api.Services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<SeasonRollover>().RunIfDueAsync(CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Откат захватов игрока, во время которого проходит смена сезона: задача смены выполняется в первом вызове
+    /// <see cref="CaptureRollback.BeforeWrite"/> — между расчётом отката и записью.
+    /// </summary>
+    private async Task<(CaptureRollbackEntity Job, int HookCalls)> RollBackRacingTheChangeAsync(ApiFactory api, HttpClient admin, Guid userId)
+    {
+        var requested = await admin.PostAsJsonAsync($"/admin/users/{userId}/rollback", new RollbackRequest("тест: смена сезона во время отката"), Json, Cancel);
+        Assert.Equal(HttpStatusCode.Accepted, requested.StatusCode);
+        var id = (await requested.Content.ReadFromJsonAsync<RollbackResponse>(Json, Cancel))!.Id;
+        var hookCalls = 0;
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            var rollback = scope.ServiceProvider.GetRequiredService<CaptureRollback>();
+            rollback.BeforeWrite = async _ =>
+            {
+                if (++hookCalls == 1)
+                {
+                    Assert.True(await RolloverAsync(api) > 0);
+                }
+            };
+            await rollback.ProcessAsync(id, CancellationToken.None);
+        }
+
+        await using var db = database.CreateContext();
+        return (await db.CaptureRollbacks.AsNoTracking().SingleAsync(r => r.Id == id, Cancel), hookCalls);
     }
 
     /// <summary>Снимает отметку смены сезона: база общая, и сезон мог уже смениться в другом тесте.</summary>
