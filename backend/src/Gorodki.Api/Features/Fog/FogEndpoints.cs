@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Gorodki.Api.Features.Fog;
 
 /// <summary>Тайл тумана игрока.</summary>
+/// <param name="Version">Только растёт: у тайла, открытого заново после очистки истории, она больше прежней.</param>
+/// <param name="CellCount">Открытых клеток; 0 — тайл стёрт очисткой истории исследований.</param>
 /// <param name="Bits">Биты тайла 256×256 (8 КБ, слова little-endian: бит <c>строка × 256 + столбец</c>), сжатые Deflate, в Base64.</param>
 public sealed record FogTileView(int X, int Y, long Version, int CellCount, byte[] Bits);
 
@@ -44,8 +46,21 @@ public static class FogEndpoints
         fog.MapGet("/summary", GetSummary)
             .WithName("getFogSummary")
             .WithSummary("Сколько открыто: клетки и площадь по слоям — за всё время и за текущий сезон");
+        fog.MapDelete("", ClearFog)
+            .WithName("clearFog")
+            .WithSummary("Очистить историю исследований: весь свой туман — оба слоя, за всё время и по сезонам (необратимо)")
+            .WithDescription(
+                "Только свой туман. Забеги, которые ещё не открывали туман (в том числе идущий сейчас), его уже не откроют — "
+                + "«+N га» у них 0; следующие забеги открывают заново. Свои места в рейтинге «Кто открыл больше» стираются сразу. "
+                + "Подсказка FogChanged; тайлы, которые телефон спросит со своей версией, придут пустыми с версией новее. "
+                + "Точка «Дом» и её круг живут только на телефоне — их сервер не знает. "
+                + "503 fog_clear_busy — туман занят (открывается или идёт ежедневный срез рейтингов), ничего не стёрто: повторить позже.")
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         return app;
     }
+
+    /// <summary>Пустой тайл — ответ на тайл, которого больше нет (история очищена).</summary>
+    private static readonly byte[] EmptyTileBits = FogTileCodec.Compress(new FogTileBits());
 
     private static async Task<Results<Ok<FogResponse>, ProblemHttpResult>> GetFog(
         string? layer, string? tiles, int? season, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
@@ -62,22 +77,20 @@ public static class FogEndpoints
 
         var seasonNumber = season ?? SeasonCalendar.AllTime;
         var query = db.FogTiles.AsNoTracking().Where(f => f.UserId == userId && f.Layer == kind && f.Season == seasonNumber);
-        if (requested is not null)
-        {
-            int minX = requested.Min(t => t.Tile.X), maxX = requested.Max(t => t.Tile.X);
-            int minY = requested.Min(t => t.Tile.Y), maxY = requested.Max(t => t.Tile.Y);
-            query = query.Where(f => f.TileX >= minX && f.TileX <= maxX && f.TileY >= minY && f.TileY <= maxY);
-        }
-
-        var stored = await query.OrderBy(f => f.TileX).ThenBy(f => f.TileY).Take(MaxTilesWithoutList).ToListAsync(cancellationToken);
         var result = new List<FogTileView>();
         var unchanged = new List<TileRef>();
         if (requested is null)
         {
-            result.AddRange(stored.Select(ToView));
+            var all = await query.OrderBy(f => f.TileX).ThenBy(f => f.TileY).Take(MaxTilesWithoutList).ToListAsync(cancellationToken);
+            result.AddRange(all.Select(ToView));
         }
         else
         {
+            // Строки спрошенных тайлов — все, без предела: ответ «не изменился» и «пуст» должен быть правдой о каждом тайле.
+            // Рамка вокруг далёких тайлов с пределом строк отрезала бы настоящий тайл, и телефон закэшировал бы его пустым.
+            var xs = requested.Select(t => t.Tile.X).Distinct().ToList();
+            var ys = requested.Select(t => t.Tile.Y).Distinct().ToList();
+            var stored = await query.Where(f => xs.Contains(f.TileX) && ys.Contains(f.TileY)).ToListAsync(cancellationToken);
             foreach (var (tile, known) in requested)
             {
                 var entity = stored.SingleOrDefault(f => f.TileX == tile.X && f.TileY == tile.Y);
@@ -88,6 +101,12 @@ public static class FogEndpoints
                 else if (entity is not null)
                 {
                     result.Add(ToView(entity));
+                }
+                else if (known is > 0 and < long.MaxValue)
+                {
+                    // Тайл был, а теперь его нет — история очищена (FogHistory). Пустой тайл с версией новее спрошенной
+                    // телефон примет, перестанет показывать стёртое и дальше спросит его с версией 0, как любой пустой.
+                    result.Add(new FogTileView(tile.X, tile.Y, known.Value + 1, 0, EmptyTileBits));
                 }
             }
         }
@@ -116,6 +135,31 @@ public static class FogEndpoints
                 Math.Round(g.Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY))), 1)))
             .ToList();
         return TypedResults.Ok(new FogSummaryResponse(layers));
+    }
+
+    private static async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> ClearFog(
+        ClaimsPrincipal principal, FogHistory history, CancellationToken cancellationToken)
+    {
+        if (principal.UserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        try
+        {
+            await history.ClearAsync(userId, cancellationToken);
+        }
+        catch (Exception e) when (DatabaseFailures.IsLockTimeout(e))
+        {
+            // Туман игрока или срез рейтингов занят дольше lock_timeout (открытие тумана, ежедневный срез): ничего не
+            // стёрто — транзакция откатилась. Отдельный код, чтобы приложение отличило «повторите» от ошибки сервера.
+            return TypedResults.Problem(
+                title: "Туман сейчас пересчитывается — повторите очистку позже.",
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                extensions: new Dictionary<string, object?> { ["code"] = "fog_clear_busy" });
+        }
+
+        return TypedResults.NoContent();
     }
 
     private static FogTileView ToView(FogTileEntity tile) => new(tile.TileX, tile.TileY, tile.Version, tile.CellCount, tile.Bits);

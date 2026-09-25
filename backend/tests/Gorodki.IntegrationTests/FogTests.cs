@@ -97,6 +97,40 @@ public sealed class FogTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Far_apart_tiles_are_answered_truthfully_however_many_lie_between()
+    {
+        // Кэш телефона спрашивает до 25 тайлов с версиями. Между двумя далёкими — больше тайлов, чем отдаётся без списка:
+        // сервер всё равно отвечает о каждом спрошенном, а не выдаёт настоящий тайл за пустой.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, userId) = await api.CreatePlayerClientAsync();
+        var bits = new FogTileBits();
+        bits.Set(0);
+        await using (var db = database.CreateContext())
+        {
+            db.FogTiles.AddRange(Enumerable.Range(0, FogEndpoints.MaxTilesWithoutList + 10).Select(i => new FogTileEntity
+            {
+                UserId = userId,
+                Layer = FogLayerKind.Foot,
+                Season = SeasonCalendar.AllTime,
+                TileX = 9_000 + i,
+                TileY = 5_400,
+                Bits = FogTileCodec.Compress(bits),
+                CellCount = 1,
+                Version = 1,
+                UpdatedAt = api.Time.GetUtcNow(),
+            }));
+            await db.SaveChangesAsync(Cancel);
+        }
+
+        var last = 9_000 + FogEndpoints.MaxTilesWithoutList + 9;
+        var fog = await client.GetFromJsonAsync<FogResponse>($"/fog?layer=foot&tiles=9000:5400@0,{last}:5400@0", Json, Cancel);
+
+        Assert.Equal([9_000, last], fog!.Tiles.Select(t => t.X).Order());
+        Assert.Empty(fog.Unchanged);
+    }
+
+    [Fact]
     public async Task Broken_query_is_refused()
     {
         database.RequireDatabase();

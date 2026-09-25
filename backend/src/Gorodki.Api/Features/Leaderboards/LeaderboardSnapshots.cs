@@ -73,4 +73,44 @@ public sealed class LeaderboardSnapshots(AppDbContext db, TimeProvider time, ILo
         logger.LogInformation("Срез рейтингов за {Day}: {Rows} строк", day, rows.Count);
         return rows.Count;
     }
+
+    /// <summary>
+    /// Убирает игрока из срезов «Исследования» — при очистке истории исследований (<see cref="Fog.FogHistory"/>): стёртое
+    /// не должно считаться до следующего среза. Места остальных в тех же срезах пересчитываются, без дыры «1, 3, 4».
+    /// Зовётся внутри транзакции вызывающего, под блокировками срезов. Возвращает число стёртых строк.
+    /// </summary>
+    /// <remarks>
+    /// Места считает сама база, одним запросом по затронутым срезам: строки всех игроков в память не читаются, а общие
+    /// блокировки срезов, которых ждут срез и чужие очистки, держатся недолго.
+    /// </remarks>
+    public async Task<int> RemovePlayerAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var mine = db.LeaderboardSnapshots.Where(s => s.UserId == userId && s.Board == LeaderboardBoard.Exploration);
+        var boards = await mine.Select(s => new { s.Day, s.Layer, s.Season }).ToListAsync(cancellationToken);
+        if (boards.Count == 0)
+        {
+            return 0;
+        }
+
+        await mine.ExecuteDeleteAsync(cancellationToken);
+        var board = (short)LeaderboardBoard.Exploration;
+        var days = boards.Select(b => b.Day).ToArray();
+        var layers = boards.Select(b => (short)b.Layer).ToArray();
+        var seasons = boards.Select(b => b.Season).ToArray();
+        // rank() — то же правило, что у среза: одинаковое значение — одинаковое место (1, 2, 2, 4).
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            UPDATE app.leaderboard_snapshots s SET rank = r.place
+            FROM (
+                SELECT day, layer, season, user_id,
+                       rank() OVER (PARTITION BY day, layer, season ORDER BY value DESC)::int AS place
+                FROM app.leaderboard_snapshots
+                WHERE board = {board} AND (day, layer, season) IN (SELECT * FROM unnest({days}, {layers}, {seasons}))
+            ) r
+            WHERE s.board = {board} AND s.day = r.day AND s.layer = r.layer AND s.season = r.season
+                AND s.user_id = r.user_id AND s.rank <> r.place
+            """,
+            cancellationToken);
+        return boards.Count;
+    }
 }

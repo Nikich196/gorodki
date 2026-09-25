@@ -106,6 +106,7 @@ if (withDatabase)
     builder.Services.AddScoped<VisitProcessor>();
     builder.Services.AddScoped<SeasonStore>();
     builder.Services.AddScoped<FogProcessor>();
+    builder.Services.AddScoped<FogHistory>();
     builder.Services.AddScoped<TerritoryReader>();
     if (builder.Configuration.GetValue(CaptureWorker.EnabledSetting, defaultValue: true))
     {

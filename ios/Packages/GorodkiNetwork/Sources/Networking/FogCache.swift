@@ -132,7 +132,12 @@ public actor FogCache {
                 continue
             }
             stale.remove(key)
-            tiles[key] = Tile(key: key, version: view.version, cellCount: Int(view.cellCount), words: words)
+            // Пустой — тайл стёрт очисткой истории: храним его, как любой пустой, с версией 0. Тогда следующий перезапрос
+            // придёт «без изменений», а не новым пустым тайлом с версией на 1 больше — и так на каждую подсказку.
+            tiles[key] =
+                view.cellCount == 0
+                ? Tile(key: key, version: 0, cellCount: 0, words: [])
+                : Tile(key: key, version: view.version, cellCount: Int(view.cellCount), words: words)
             updated.insert(key)
         }
         for ref in response.unchanged {
