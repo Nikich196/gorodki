@@ -9,8 +9,11 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Gorodki.IntegrationTests;
 
-/// <summary>Сервер в памяти, подключённый к базе в контейнере; время и Google — подставные.</summary>
-internal sealed class ApiFactory(DatabaseFixture database) : WebApplicationFactory<Program>
+/// <summary>
+/// Сервер в памяти, подключённый к базе в контейнере; время и Google — подставные. Hangfire выключен: тесты зовут задачи
+/// сами, а включает его только тест самого Hangfire (<paramref name="scheduledJobs"/>).
+/// </summary>
+internal sealed class ApiFactory(DatabaseFixture database, bool scheduledJobs = false) : WebApplicationFactory<Program>
 {
     public FakeTimeProvider Time { get; } = new(DateTimeOffset.UtcNow);
 
@@ -85,6 +88,7 @@ internal sealed class ApiFactory(DatabaseFixture database) : WebApplicationFacto
         builder.UseSetting("Auth:GoogleClientIds:0", "test-client-id");
         builder.UseSetting(Gorodki.Api.Features.Captures.CaptureWorker.EnabledSetting, "false"); // тесты зовут обработчик сами
         builder.UseSetting(Gorodki.Api.Features.Realtime.RealtimePump.EnabledSetting, "false"); // и отправку подсказок — тоже
+        builder.UseSetting(Gorodki.Api.Infrastructure.Jobs.ScheduledJobs.EnabledSetting, scheduledJobs ? "true" : "false");
         // Токены выдаются по подставным часам, а проверяются по настоящим; тесты сдвигают часы на часы вперёд — токен
         // живёт дольше обычных 15 минут, чтобы соединение с хабом не закрылось посреди теста.
         builder.UseSetting("Auth:AccessTokenMinutes", "1440");

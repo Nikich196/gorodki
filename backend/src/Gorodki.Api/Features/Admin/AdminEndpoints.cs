@@ -117,7 +117,8 @@ public static class AdminEndpoints
         return TypedResults.Ok(ToResponse(job, frozenUntil));
     }
 
-    private static async Task<Guid?> AdminIdAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
+    /// <summary>Вошедший администратор или <c>null</c>. Роль — по базе, а не по токену (так же дашборд Hangfire).</summary>
+    internal static async Task<Guid?> AdminIdAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
         if (principal.UserId() is not { } userId)
         {

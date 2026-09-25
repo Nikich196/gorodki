@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Realtime;
+using Gorodki.Api.Infrastructure.Jobs;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -20,5 +21,6 @@ internal static class UnreachableDatabase
             builder.UseSetting("Auth:SigningKey", Convert.ToBase64String(new byte[32]));
             builder.UseSetting(CaptureWorker.EnabledSetting, "false");
             builder.UseSetting(RealtimePump.EnabledSetting, "false");
+            builder.UseSetting(ScheduledJobs.EnabledSetting, "false"); // Hangfire при старте пошёл бы в базу
         });
 }
