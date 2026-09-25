@@ -53,6 +53,29 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
         return new DateTimeOffset(edge - (edge % RevealStep.Ticks), TimeSpan.Zero);
     }
 
+    /// <summary>
+    /// Когда изменение, применённое в <paramref name="appliedAt"/>, станет публичным — первый момент, в который до него
+    /// доходит <see cref="PublicHorizon"/>: ближайшая граница по 5 минут не раньше него плюс задержка.
+    /// </summary>
+    public static DateTimeOffset PublicAt(DateTimeOffset appliedAt, TimeSpan delay)
+    {
+        var ticks = appliedAt.UtcTicks;
+        var boundary = ticks + ((RevealStep.Ticks - (ticks % RevealStep.Ticks)) % RevealStep.Ticks);
+        return new DateTimeOffset(boundary, TimeSpan.Zero) + delay;
+    }
+
+    /// <summary>
+    /// Записи журнала захватов, ещё скрытые от всех, кто не видит захват сразу (§3.16): применены позже
+    /// <paramref name="horizon"/>, не откачены (их земли уже нет) и не демо-аккаунта (на показе его захваты видны сразу).
+    /// Одно определение для карты (зритель вдобавок видит свои захваты сразу) и для визитов (<see cref="VisitProcessor"/>).
+    /// </summary>
+    public static IQueryable<CaptureJournalEntity> HiddenJournal(AppDbContext db, League league, DateTimeOffset horizon) =>
+        db.CaptureJournal.AsNoTracking()
+            .Where(j => j.League == league && j.AppliedAt > horizon
+                && db.Captures.Any(c => c.Id == j.CaptureId
+                    && c.RolledBackAt == null
+                    && !db.Users.Any(u => u.Id == c.UserId && u.Role == UserRole.Demo)));
+
     public async Task<TerritoryResponse> ReadAsync(
         League league,
         IReadOnlyList<(TileKey Tile, long? KnownVersion)> requested,
@@ -132,23 +155,20 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
     private sealed record HiddenCapture(Guid CaptureId, int TileX, int TileY, long AppliedSeq);
 
     /// <summary>
-    /// Чужие захваты в этих тайлах, ещё не публичные (применены позже <paramref name="horizon"/>). Не в счёт: свои,
-    /// откаченные (их земли уже нет) и захваты демо-аккаунта (на показе они видны сразу).
+    /// Чужие захваты в этих тайлах, ещё не публичные (<see cref="HiddenJournal"/>: применены позже
+    /// <paramref name="horizon"/>, не откачены, не демо-аккаунта). Свои зритель видит сразу.
     /// </summary>
     private async Task<List<HiddenCapture>> HiddenCapturesAsync(
         League league, Guid? viewerId, DateTimeOffset horizon, int minX, int maxX, int minY, int maxY, CancellationToken cancellationToken)
     {
-        var rows = await db.CaptureJournal.AsNoTracking()
-            .Where(j => j.League == league && j.AppliedAt > horizon
-                && j.TileX >= minX && j.TileX <= maxX && j.TileY >= minY && j.TileY <= maxY)
+        var rows = await HiddenJournal(db, league, horizon)
+            .Where(j => j.TileX >= minX && j.TileX <= maxX && j.TileY >= minY && j.TileY <= maxY)
             .Join(
                 db.Captures,
                 j => j.CaptureId,
                 c => c.Id,
-                (j, c) => new { j.CaptureId, j.TileX, j.TileY, c.UserId, c.AppliedSeq, c.RolledBackAt })
-            .Where(r => r.UserId != viewerId
-                && r.RolledBackAt == null
-                && !db.Users.Any(u => u.Id == r.UserId && u.Role == UserRole.Demo))
+                (j, c) => new { j.CaptureId, j.TileX, j.TileY, c.UserId, c.AppliedSeq })
+            .Where(r => r.UserId != viewerId)
             .ToListAsync(cancellationToken);
         return rows.Select(r => new HiddenCapture(r.CaptureId, r.TileX, r.TileY, r.AppliedSeq ?? 0)).ToList();
     }
