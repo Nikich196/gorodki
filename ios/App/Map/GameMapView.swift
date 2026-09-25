@@ -15,8 +15,6 @@ import SwiftUI
 /// - **Касание** — `UITapGestureRecognizer` → координата и допуск в метрах → `MapModel.select`.
 struct GameMapView: UIViewRepresentable {
     let model: MapModel
-    /// Значения, от которых зависит картинка: `MapScreen` читает их в `body`, поэтому их смена вызывает `updateUIView`.
-    let version: MapModel.RenderVersion
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
@@ -33,13 +31,25 @@ struct GameMapView: UIViewRepresentable {
         ants.frame = map.bounds
         ants.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         map.addSubview(ants)
+        #if DEBUG
+            map.accessibilityIdentifier = "game-map"  // снимки проверяют, что нарисовано (`accessibilityValue`)
+        #endif
+        context.coordinator.environment = Coordinator.Environment(
+            theme: Theme(context.environment.colorScheme),
+            reduceMotion: context.environment.accessibilityReduceMotion)
+        context.coordinator.observe(map)
         return map
     }
 
+    /// Тема и «Уменьшить движение» — из окружения SwiftUI; данные модели карта отслеживает сама (`observe`).
     func updateUIView(_ map: MKMapView, context: Context) {
-        context.coordinator.sync(
-            map, theme: Theme(context.environment.colorScheme),
+        let environment = Coordinator.Environment(
+            theme: Theme(context.environment.colorScheme),
             reduceMotion: context.environment.accessibilityReduceMotion)
+        if environment != context.coordinator.environment {
+            context.coordinator.environment = environment
+            context.coordinator.sync(map)
+        }
     }
 
     @MainActor
@@ -51,10 +61,17 @@ struct GameMapView: UIViewRepresentable {
         private var landOverlays: [any MKOverlay] = []
         /// Стиль каждого слоя земли: заливка или кромка.
         private var styles: [ObjectIdentifier: (style: LandStyle, isEdge: Bool)] = [:]
-        private var theme = Theme.day
+        /// Тема и «Уменьшить движение» — из `updateUIView`.
+        var environment = Environment(theme: .day, reduceMotion: false)
+        private var theme: Theme { environment.theme }
         private var appliedLand: LandKey?
         private var appliedFog: FogKey?
         private var appliedZones: ZonesKey?
+
+        struct Environment: Equatable {
+            var theme: Theme
+            var reduceMotion: Bool
+        }
 
         /// Что сейчас нарисовано из земли: меняется ключ — слои перестраиваются.
         private struct LandKey: Equatable {
@@ -93,16 +110,54 @@ struct GameMapView: UIViewRepresentable {
                     latitudeDelta: window.north - window.south, longitudeDelta: window.east - window.west))
         }
 
-        func sync(_ map: MKMapView, theme: Theme, reduceMotion: Bool) {
-            self.theme = theme
+        /// Следить за моделью: `sync` читает её внутри `withObservationTracking`, изменение — снова `sync` на следующем
+        /// витке главного потока. `updateUIView` для этого не годится: на снимке «Отношения» он не пришёл, и карта
+        /// осталась с прежними цветами.
+        func observe(_ map: MKMapView) {
+            withObservationTracking {
+                sync(map)
+            } onChange: { [weak self, weak map] in
+                Task { @MainActor in
+                    guard let self, let map else { return }
+                    self.observe(map)
+                }
+            }
+        }
+
+        func sync(_ map: MKMapView) {
+            let theme = environment.theme
+            let reduceMotion = environment.reduceMotion
             let land = LandKey(
                 revision: model.landRevision, visible: model.layer == .capture, coloring: model.coloring,
                 viewer: model.viewerId, player: model.player, theme: theme)
+            let fog = FogKey(revision: model.fogRevision, visible: model.layer == .explore, theme: theme)
+            let fogTiles = model.fog
+            // Сменился слой — карта переходит кроссфейдом (снимок старой картинки растворяется в новой), а не мигает.
+            let layerSwitched = appliedLand.map { $0.visible != land.visible } ?? false
+            if layerSwitched, !reduceMotion {
+                UIView.transition(
+                    with: map, duration: MotionSpec.LayerSwitch.duration,
+                    options: [.transitionCrossDissolve, .allowUserInteraction]
+                ) {
+                    self.apply(land: land, fog: fog, fogTiles: fogTiles, on: map)
+                }
+            } else {
+                apply(land: land, fog: fog, fogTiles: fogTiles, on: map)
+            }
+            let zones = ZonesKey(zones: model.visibleZones, theme: theme, reduceMotion: reduceMotion)
+            if zones != appliedZones {
+                ants.show(zones.zones, theme: theme, reduceMotion: reduceMotion)
+                ants.layout(on: map)
+                appliedZones = zones
+            }
+        }
+
+        /// Земля и туман — по ключам: перестраивается только то, что изменилось.
+        private func apply(land: LandKey, fog: FogKey, fogTiles: [FogTileKey: FogTileBits], on map: MKMapView) {
             if land != appliedLand {
                 rebuildLand(on: map, visible: land.visible)
                 appliedLand = land
             }
-            let fog = FogKey(revision: model.fogRevision, visible: model.layer == .explore, theme: theme)
             if fog != appliedFog {
                 let shown = map.overlays.contains { $0 === fogOverlay }
                 if fog.visible, !shown {
@@ -111,15 +166,9 @@ struct GameMapView: UIViewRepresentable {
                     map.removeOverlay(fogOverlay)
                 }
                 if fog.visible {
-                    fogRenderer.update(model.fog, theme: theme)
+                    fogRenderer.update(fogTiles, theme: fog.theme)
                 }
                 appliedFog = fog
-            }
-            let zones = ZonesKey(zones: model.visibleZones, theme: theme, reduceMotion: reduceMotion)
-            if zones != appliedZones {
-                ants.show(zones.zones, theme: theme, reduceMotion: reduceMotion)
-                ants.layout(on: map)
-                appliedZones = zones
             }
         }
 
@@ -148,6 +197,10 @@ struct GameMapView: UIViewRepresentable {
                 styles[ObjectIdentifier(multi)] = (style, false)
                 landOverlays.append(multi)
             }
+            #if DEBUG
+                // Что нарисовано: окраска и число слоёв — снимок «Отношения» проверяет, что карта перекрасилась.
+                map.accessibilityValue = "\(model.coloring.rawValue) \(fills.count)"
+            #endif
             for style in Self.ordered(edges.keys) {
                 guard let lines = edges[style] else { continue }
                 let multi = MKMultiPolyline(lines)
@@ -191,9 +244,8 @@ struct GameMapView: UIViewRepresentable {
             let style = entry.style
             let isEdge = entry.isEdge
             if !isEdge, let multi = overlay as? MKMultiPolygon {
-                let renderer = LandFillRenderer(multiPolygon: multi)
-                renderer.fillColor = style.fill(theme).uiColor
-                renderer.lineWidth = 0  // заливки без обводки: так не видно швов на краях тайлов (PLAN.md, D4)
+                let renderer = LandFillRenderer(overlay: multi)
+                renderer.prepare(multi, color: style.fill(theme))
                 return renderer
             }
             if isEdge, let multi = overlay as? MKMultiPolyline {
@@ -242,13 +294,47 @@ struct GameMapView: UIViewRepresentable {
     }
 }
 
-/// Заливка земли без сглаживания краёв. Со сглаживанием у соседних кусков одного участка (сервер режет землю по тайлам)
-/// общий край закрашен дважды наполовину, и по линии тайла видна светлая нить (снимок 24). Без него каждый пиксель —
-/// ровно одного куска, шва нет; внешний край заливки закрыт кромкой (≥ 1 pt), ступенек не видно.
-final class LandFillRenderer: MKMultiPolygonRenderer, @unchecked Sendable {
+/// Заливка земли одного стиля — все куски **одним путём**. `MKMultiPolygonRenderer` закрашивает куски по отдельности
+/// со сглаживанием, и общий край соседних кусков одного участка (сервер режет землю по тайлам) закрашен дважды
+/// наполовину — по линии тайла видна светлая нить (снимки 24 и 28 первых прогонов, и без сглаживания тоже: свой `draw`
+/// у подкласса MapKit не зовёт). Один путь с правилом чёт-нечет закрашивается целиком: шва нет, дыры — дыры.
+///
+/// Рисует тайлы карты MapKit в своих потоках; данные задаются один раз до первой отрисовки (`prepare`) и дальше не
+/// меняются. Своего инициализатора нет — как у `LandEdgeRenderer`.
+final class LandFillRenderer: MKOverlayRenderer, @unchecked Sendable {
+    private struct Piece {
+        var bounds: MKMapRect
+        var rings: [[MKMapPoint]]
+    }
+
+    private var pieces: [Piece] = []
+    private var color = CGColor(gray: 0, alpha: 0)
+
+    func prepare(_ multi: MKMultiPolygon, color: RGBA) {
+        pieces = multi.polygons.map { polygon in
+            let rings = [polygon] + (polygon.interiorPolygons ?? [])
+            return Piece(
+                bounds: polygon.boundingMapRect,
+                rings: rings.map { Array(UnsafeBufferPointer(start: $0.points(), count: $0.pointCount)) })
+        }
+        self.color = CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+    }
+
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        context.setShouldAntialias(false)
-        super.draw(mapRect, zoomScale: zoomScale, in: context)
+        // Сглаженный край заходит на пиксель за кусок — берём куски и чуть за краем части карты.
+        let margin = 2 / Double(zoomScale)
+        let area = mapRect.insetBy(dx: -margin, dy: -margin)
+        let path = CGMutablePath()
+        for piece in pieces where piece.bounds.intersects(area) {
+            for ring in piece.rings where ring.count > 2 {
+                path.addLines(between: ring.map { point(for: $0) })
+                path.closeSubpath()
+            }
+        }
+        guard !path.isEmpty else { return }
+        context.addPath(path)
+        context.setFillColor(color)
+        context.fillPath(using: .evenOdd)
     }
 }
 

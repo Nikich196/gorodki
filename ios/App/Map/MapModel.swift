@@ -252,25 +252,6 @@ final class MapModel {
 
     // MARK: - Что рисовать
 
-    /// Всё, от чего зависит картинка карты, — простыми значениями. Экран читает это в `body` и передаёт карте:
-    /// меняется — SwiftUI зовёт `updateUIView` (сам `updateUIView` за чтениями модели не следит — снимок 28 показал
-    /// «Отношения» с прежними цветами).
-    struct RenderVersion: Equatable {
-        var land: Int
-        var fog: Int
-        var layer: MapLayer
-        var coloring: LandColoring
-        var viewer: String?
-        var player: PlayerColor
-        var nowMs: Int64
-    }
-
-    var renderVersion: RenderVersion {
-        RenderVersion(
-            land: landRevision, fog: fogRevision, layer: layer, coloring: coloring, viewer: viewerId, player: player,
-            nowMs: nowMs)
-    }
-
     /// Стиль куска для этого зрителя и режима окраски.
     func style(of parcel: LandParcel) -> LandStyle {
         LandStyle.of(parcel, viewer: viewerId, player: player, coloring: coloring)

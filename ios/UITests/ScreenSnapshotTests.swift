@@ -224,6 +224,10 @@ final class ScreenSnapshotTests: XCTestCase {
         pause(6)
         snapshot("28-map-relations-day")
         XCTAssertTrue(shown, "На карте нет переключателя «Отношения»")
+        // Карта пишет в `accessibilityValue`, чем окрашены нарисованные слои (только Debug).
+        let map = app.descendants(matching: .any).matching(identifier: "game-map").firstMatch
+        let drawn = map.value as? String ?? ""
+        XCTAssertTrue(drawn.hasPrefix("relations"), "Карта не перекрасилась: «\(drawn)»")
     }
 
     /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у

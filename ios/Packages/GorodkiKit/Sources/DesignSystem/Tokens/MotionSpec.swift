@@ -69,6 +69,12 @@ public enum MotionSpec {
         public static let appear = 0.9
     }
 
+    /// Смена слоя карты «Захват | Исследование»: стекло панели перетекает (`glassEffectID`), карта — кроссфейдом.
+    /// Не седьмой приём движения, а системный переход между состояниями — по длительности как перекатка цифр.
+    public enum LayerSwitch {
+        public static let duration = 0.35
+    }
+
     /// «Бегущие муравьи» на спорной земле: пунктир ползёт на −8 pt за 1,2 с, линейно, по кругу.
     public enum Ants {
         public static let phaseShift = -8.0

@@ -7,9 +7,12 @@ import SwiftUI
 /// разрешениями. Экрана забега (HUD) ещё нет — «Старт» после подсказок говорит «Забег — скоро».
 struct MapScreen: View {
     @Bindable var model: MapModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Нажатия «Старта» — для хаптики `.start`, как в «Лаборатории → Дизайн».
+    @State private var starts = 0
 
     var body: some View {
-        GameMapView(model: model, version: model.renderVersion)
+        GameMapView(model: model)
             .ignoresSafeArea()
             .overlay(alignment: .top) {
                 MapControls(model: model)
@@ -18,6 +21,7 @@ struct MapScreen: View {
             }
             .safeAreaInset(edge: .bottom) {
                 StartButton(player: model.player) {
+                    starts += 1
                     model.selection = nil
                     model.start()
                 } label: {
@@ -25,6 +29,7 @@ struct MapScreen: View {
                 }
                 .frame(width: 200)
                 .padding(.bottom, 12)
+                .sensoryFeedback(.start, trigger: starts)
                 .sheet(item: $model.primer) { step in
                     PermissionPrimerView(step: step) {
                         Task { await model.primerContinue() }
@@ -34,10 +39,13 @@ struct MapScreen: View {
             }
             .sheet(item: $model.selection) { _ in
                 if let sheet = model.sheet, let selection = model.selection {
-                    ParcelSheet(content: sheet, color: PlayerColor(index: selection.parcel.colorIndex))
-                        .presentationDetents([.height(320), .large])
-                        .presentationBackgroundInteraction(.enabled(upThrough: .height(320)))
-                        .presentationBackground(Palette.uiBackground.color)
+                    ParcelSheet(
+                        content: sheet, color: PlayerColor(index: selection.parcel.colorIndex),
+                        animation: Motion.numericRoll.unlessReduceMotion(reduceMotion)
+                    )
+                    .presentationDetents([.height(320), .large])
+                    .presentationBackgroundInteraction(.enabled(upThrough: .height(320)))
+                    .presentationBackground(Palette.uiBackground.color)
                 }
             }
             .alert("Забег — скоро", isPresented: $model.startNoticeShown) {
@@ -46,6 +54,7 @@ struct MapScreen: View {
                 Text(startNotice)
             }
             .onChange(of: model.layer) { model.layerChanged() }
+            .sensoryFeedback(.selection, trigger: model.selection?.id)
             .task {
                 // Раз в минуту: истёкшие зоны «спорная» уходят с карты, кэши получают шанс на запасной опрос.
                 while !Task.isCancelled {
@@ -66,6 +75,9 @@ struct MapScreen: View {
 /// стеклянные элементы — в одном `GlassEffectContainer`.
 private struct MapControls: View {
     @Bindable var model: MapModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Строка окраски и карточка «Исследование» — одно стекло, которое перетекает при смене слоя.
+    @Namespace private var glass
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
@@ -88,12 +100,14 @@ private struct MapControls: View {
                     .padding(3)
                     .frame(height: Metrics.modeRowHeight)
                     .capsuleGlass()
+                    .glassEffectID("layer-detail", in: glass)
                     .frame(maxWidth: 280)
                 case .explore:
-                    ExploreCard(squareMeters: model.profile.exploredSquareMeters)
+                    ExploreCard(squareMeters: model.profile.exploredSquareMeters, glass: glass)
                 }
             }
         }
+        .animation(Motion.layerSwitch.unlessReduceMotion(reduceMotion), value: model.layer)
     }
 }
 
@@ -101,6 +115,7 @@ private struct MapControls: View {
 /// Процент Бреста и «+N га сегодня» — после маски «достижимого» (fog.md, «Что дальше»).
 private struct ExploreCard: View {
     let squareMeters: Double?
+    let glass: Namespace.ID
 
     var body: some View {
         HStack(spacing: 12) {
@@ -121,6 +136,7 @@ private struct ExploreCard: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .glassEffect(.regular, in: .rect(cornerRadius: Radius.plaque))
+        .glassEffectID("layer-detail", in: glass)
     }
 
     /// «Открыто 4,26 га»; сводка ещё не пришла — так и сказать.
@@ -135,6 +151,8 @@ private struct ExploreCard: View {
 struct ParcelSheet: View {
     let content: ParcelSheetContent
     let color: PlayerColor
+    /// Цифры строк перекатываются при выборе другого участка (`Motion.numericRoll`); `nil` — «Уменьшить движение».
+    let animation: Animation?
 
     var body: some View {
         ScrollView {
@@ -165,6 +183,7 @@ struct ParcelSheet: View {
                                 .font(.body.weight(.semibold).monospacedDigit())
                                 .foregroundStyle(Palette.uiInk.color)
                                 .multilineTextAlignment(.trailing)
+                                .contentTransition(.numericText())
                         }
                         .padding(.horizontal, 16)
                         .frame(minHeight: 48)
@@ -177,6 +196,7 @@ struct ParcelSheet: View {
                 .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
             }
             .padding(20)
+            .animation(animation, value: content)
         }
     }
 }

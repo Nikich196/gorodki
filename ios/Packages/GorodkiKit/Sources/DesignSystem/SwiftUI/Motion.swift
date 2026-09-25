@@ -45,6 +45,11 @@ public enum Motion {
     /// «Уменьшить движение»: значок просто проявляется.
     public static let reducedAppear = Animation.easeOut(duration: MotionSpec.BadgeDrop.reducedFade)
 
+    // MARK: - Слой карты
+
+    /// Смена слоя карты: стекло панели перетекает.
+    public static let layerSwitch = Animation.smooth(duration: MotionSpec.LayerSwitch.duration)
+
     // MARK: - Цифры и муравьи
 
     /// Цифры катятся при смене значения: с `.contentTransition(.numericText(value:))`.

@@ -122,17 +122,53 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
     }
 
     /// Маска тайла 256 × 256 в оттенках серого без альфы — такую принимает `clip(to:mask:)`: белое — открыто.
-    /// Строка 0 — северный край тайла (y веб-меркатора растёт на юг).
+    /// Строка 0 — северный край тайла (y веб-меркатора растёт на юг). Край мягкий: размытие σ ≈ 2 клетки
+    /// (`FogStyle.softEdgeSigmaCells`, tokens.md: «размывать один раз при сборке растра тайла») — два прохода окна
+    /// 5 клеток по строкам и столбцам (σ² = 2 · (5² − 1) / 12 = 4). У края тайла значения повторяются: открытое,
+    /// которое идёт через край, не тускнеет.
     static func mask(from bits: FogTileBits) -> CGImage? {
         var bytes = [UInt8](repeating: 0, count: 256 * 256)
         for index in 0..<(256 * 256) where bits.isSet(index) {
             bytes[index] = 255
+        }
+        let radius = Int((FogStyle.softEdgeSigmaCells * FogStyle.softEdgeSigmaCells * 12 / 2 + 1).squareRoot()) / 2
+        for _ in 0..<2 {
+            bytes = boxBlur(bytes, radius: radius, horizontal: true)
+            bytes = boxBlur(bytes, radius: radius, horizontal: false)
         }
         guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
         return CGImage(
             width: 256, height: 256, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: 256,
             space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
             provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
+
+    /// Среднее по окну 2 · `radius` + 1 клеток вдоль строк или столбцов; за краем тайла — крайнее значение.
+    static func boxBlur(_ source: [UInt8], radius: Int, horizontal: Bool) -> [UInt8] {
+        guard radius > 0 else { return source }
+        let side = 256
+        let window = 2 * radius + 1
+        var result = [UInt8](repeating: 0, count: source.count)
+        for line in 0..<side {
+            func at(_ position: Int) -> Int {
+                let clamped = min(max(position, 0), side - 1)
+                return Int(horizontal ? source[line * side + clamped] : source[clamped * side + line])
+            }
+            var sum = 0
+            for position in -radius...radius {
+                sum += at(position)
+            }
+            for position in 0..<side {
+                let value = UInt8((sum + window / 2) / window)
+                if horizontal {
+                    result[line * side + position] = value
+                } else {
+                    result[position * side + line] = value
+                }
+                sum += at(position + radius + 1) - at(position - radius)
+            }
+        }
+        return result
     }
 
     private static func cgColor(_ color: RGBA) -> CGColor {
