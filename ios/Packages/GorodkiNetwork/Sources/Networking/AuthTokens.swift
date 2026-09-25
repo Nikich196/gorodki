@@ -24,6 +24,13 @@ public struct AuthTokens: Codable, Equatable, Sendable {
         return subject
     }
 
+    /// Роль игрока — claim `role` access-токена (`player`, `demo` или `admin`): по ней приложение показывает отладочное
+    /// меню (PLAN.md, §5). Как и `playerId`, без проверки подписи: права на каждый запрос всё равно проверяет сервер.
+    public var role: String? {
+        guard let role = Self.claims(of: accessToken)?.role, !role.isEmpty else { return nil }
+        return role
+    }
+
     /// Когда истекает access-токен — claim `exp`; `nil`, если его нет. Нужен соединениям, где 401 не исправить
     /// повтором запроса (реальное время: сервер закрывает соединение, когда токен истекает).
     public var accessExpiresAt: Date? {
@@ -48,18 +55,20 @@ public struct AuthTokens: Codable, Equatable, Sendable {
     /// Нужные телефону claims. Каждое читается само по себе: неверный тип одного не прячет другое.
     struct Claims: Decodable {
         let sub: String?
+        let role: String?
         let exp: Double?
         let iat: Double?
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             sub = try? container.decode(String.self, forKey: .sub)
+            role = try? container.decode(String.self, forKey: .role)
             exp = try? container.decode(Double.self, forKey: .exp)
             iat = try? container.decode(Double.self, forKey: .iat)
         }
 
         private enum CodingKeys: String, CodingKey {
-            case sub, exp, iat
+            case sub, role, exp, iat
         }
     }
 }

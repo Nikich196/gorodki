@@ -99,6 +99,15 @@ struct AuthTokensTests {
         #expect(tokens.playerId == "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
     }
 
+    @Test("Роль — claim role access-токена; нет его или он не строка — роль неизвестна")
+    func role() {
+        let admin = AuthTokens(accessToken: Jwt.make(#"{"sub":"p-1","role":"admin"}"#), refreshToken: "R1")
+        #expect(admin.role == "admin")
+        #expect(AuthTokens(accessToken: Jwt.make(#"{"sub":"p-1"}"#), refreshToken: "R1").role == nil)
+        #expect(AuthTokens(accessToken: Jwt.make(#"{"sub":"p-1","role":7}"#), refreshToken: "R1").role == nil)
+        #expect(AuthTokens(accessToken: Jwt.make(#"{"sub":"p-1","role":""}"#), refreshToken: "R1").role == nil)
+    }
+
     @Test(
         "Без sub или не JWT — игрок неизвестен",
         arguments: [
