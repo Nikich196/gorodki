@@ -645,4 +645,5 @@ actor UnreadableChunkStore: SyncStore {
     func claims(of runId: UUID) async -> [PendingClaim] { await inner.claims(of: runId) }
     func lastClaimNo(of runId: UUID) async -> Int? { await inner.lastClaimNo(of: runId) }
     func save(_ claim: PendingClaim) async { await inner.save(claim) }
+    func removeAll() async { await inner.removeAll() }
 }

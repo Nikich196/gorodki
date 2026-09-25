@@ -110,6 +110,15 @@ public struct GRDBSyncStore: SyncStore {
         try await writer.write { db in try row.upsert(db) }
     }
 
+    public func removeAll() async throws {
+        // По таблицам, а не по прочитанному: так стираются и нечитаемые строки.
+        try await writer.write { db in
+            _ = try RunRow.deleteAll(db)
+            _ = try ChunkRow.deleteAll(db)
+            _ = try ClaimRow.deleteAll(db)
+        }
+    }
+
     /// Записи, которые читаются. Нечитаемая (файл повреждён или модель изменилась несовместимо) пропускается: иначе одна
     /// строка роняла бы всю очередь — «Старт» (новичок ли игрок), продолжение забега и каждый проход синхронизации,
     /// навсегда. Её данные считаются потерянными: чтение строку не стирает, но и не доставит её никто. Нечитаемый кусок

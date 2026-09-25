@@ -36,6 +36,9 @@ public protocol SyncStore: Sendable {
     func lastClaimNo(of runId: UUID) async throws -> Int?
     /// Сохраняет заявку (ключ — забег и номер заявки).
     func save(_ claim: PendingClaim) async throws
+
+    /// Стирает всю очередь — забеги, куски, заявки, и нечитаемые тоже: выход из аккаунта и его удаление.
+    func removeAll() async throws
 }
 
 /// Очередь в памяти — для тестов и превью.
@@ -87,4 +90,10 @@ public actor InMemorySyncStore: SyncStore {
     public func lastClaimNo(of runId: UUID) -> Int? { storedClaims[runId]?.keys.max() }
 
     public func save(_ claim: PendingClaim) { storedClaims[claim.runId, default: [:]][claim.claimNo] = claim }
+
+    public func removeAll() {
+        storedRuns = [:]
+        storedChunks = [:]
+        storedClaims = [:]
+    }
 }

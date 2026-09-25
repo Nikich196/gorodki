@@ -52,6 +52,7 @@ actor FailingOnceStore: SyncStore {
         try fail(&failNextClaim)
         await inner.save(claim)
     }
+    func removeAll() async { await inner.removeAll() }
 }
 
 @Suite("Идущий забег: исправления по ревью")

@@ -144,6 +144,22 @@ struct RulesStoreTests {
         #expect(await store.current() == .bundled)
     }
 
+    @Test("Выход из аккаунта стирает файл и память: дальше — версия, с которой собрано приложение")
+    func removeLocalWipes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storage = FileRulesStorage(url: directory.appendingPathComponent("rules.json"))
+        await server.answer(version: 2, maxRunHours: 3)
+        let store = store(storage)
+        try await store.refresh()
+
+        try await store.removeLocal()
+        #expect(await store.current() == .bundled)
+        #expect(!FileManager.default.fileExists(atPath: storage.url.path))
+        #expect(await self.store(storage).current() == .bundled)  // и после перезапуска
+        try await store.removeLocal()  // стирать нечего — не ошибка
+    }
+
     @Test("Сервер не задан — refresh ничего не запрашивает")
     func noServer() async throws {
         let store = RulesStore(api: nil, storage: InMemoryRulesStorage())
