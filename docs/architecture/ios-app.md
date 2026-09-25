@@ -263,6 +263,27 @@ sequenceDiagram
 - **При переустановке** Keychain не чистится: еженедельная переустановка через Sideloadly не требует входить заново.
 - **При печати** `AuthTokens` показывает только игрока, сами токены в журналы не попадают.
 
+## Дизайн-система
+
+Модуль `DesignSystem` пакета `GorodkiKit` — утверждённый дизайн в коде ([design/tokens.md](../design/tokens.md), «ок» —
+[design/APPROVALS.md](../../design/APPROVALS.md)). Его берут приложение и расширение (Live Activity, виджеты).
+
+- **Токены — данные без SwiftUI** (`Tokens/`): `Palette`, `PlayerColor` (кромки, текст на «Старте», заливки L1–L3),
+  `TerritoryRelation`, `FogStyle`, `BadgeMetal`, `TypeRole`, `Radius`, `Metrics`, `MotionSpec`. Тесты проверяют их
+  прямо по hex.
+- **Тема — системная.** `Themed<RGBA>.color` — динамический `UIColor` по `userInterfaceStyle`, как Color Set с вариантами
+  Any / Dark. Рендерер карты рисует вне дерева SwiftUI и берёт тему явно: `PlayerColor.fill(.two, theme: .night).uiColor`.
+- **Стекло — только нативное** (iOS 26): `panelGlass()`, `capsuleGlass()`, `segmentedGlass()` поверх `.glassEffect`,
+  `StartButton` (`.glassProminent` цвета игрока), `MapGlassButton`; соседние — в `GlassEffectContainer`.
+- **Движение** — `Motion`: `Animation`, `Spring` и `UnitCurve` из чисел `MotionSpec`. «Уменьшить движение» —
+  `Animation.unlessReduceMotion(_:)`.
+- **«Лаборатория → Дизайн»** (`App/Lab/DesignLabView.swift`, `DesignLabCeremonies.swift`) показывает систему
+  на телефоне: палитру с уровнями, отношения, шрифт, стекло поверх карты Apple, редкости и находку, церемонию захвата,
+  перекатку цифр. Переключатель темы есть только там.
+- **Проверки.** `GorodkiKit` на Linux не собирается (SwiftUI, ActivityKit), поэтому в `ios-core` его тестов нет. Тесты
+  токенов (`AppTests/DesignTokensTests.swift`) идут в тестах приложения на симуляторе (`ios-build`), снимки экрана
+  «Дизайн» днём и ночью — в `ios-snapshots`.
+
 ## Проверки
 
 `swift test --package-path ios/Packages/GorodkiNetwork`, в CI — шаг `ios-core`.
