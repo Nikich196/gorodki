@@ -159,6 +159,62 @@ public sealed class TerritoryTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Big_loop_only_marks_enemy_land_contested_and_the_mark_waits_for_the_public_delay()
+    {
+        // PLAN §3.3 (решено 25.09 в #48): петля больше 0,5 км² чужую землю не берёт и не трескает — только пометка «спорная»
+        // на 24 ч. Пометка меняет чужую землю, поэтому остальные и сама Анна видят её после границы публичности, как захват.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var before = await TileAsync(vera, tile);
+
+        // 720 × 720 м ≈ 0,52 км² — больше порога бег-лиги; 2,9 км прогулки, начатой 40 минут назад.
+        var (runId, captureId) = await WalkLoopAndOnAsync(Cancel, api, boris, Square(area, -50, -50, 720), [], TimeSpan.FromMinutes(40));
+        await ProcessAsync(api, runId);
+
+        long effectiveMs;
+        await using (var db = database.CreateContext())
+        {
+            var capture = await db.Captures.AsNoTracking().SingleAsync(c => c.Id == captureId, Cancel);
+            Assert.Equal(CaptureStatus.Applied, capture.Status);
+            Assert.Contains("\"contested\"", capture.AreaByOutcome!);
+            Assert.DoesNotContain("transferred", capture.AreaByOutcome!);
+            Assert.InRange(capture.AreaSquareMeters, 500_000, 515_000); // взята только ничья земля
+            effectiveMs = capture.EffectiveAt!.Value.ToUnixTimeMilliseconds();
+            var annaLand = await db.Parcels.AsNoTracking().SingleAsync(p => p.OwnerId == annaId, Cancel);
+            Assert.Equal(capture.EffectiveAt.Value.AddHours(24), annaLand.ContestedUntil);
+            Assert.Equal(((short)1, (DateTimeOffset?)null, (DateTimeOffset?)null), (annaLand.Level, annaLand.SiegeUntil, annaLand.ShieldUntil));
+        }
+
+        // Пока петля скрыта, пометки не видит никто, кроме Бориса, и версия тайла у Веры прежняя.
+        Assert.True(await IsUnchangedAsync(vera, tile, before.Version));
+        Assert.Null(Assert.Single((await TileAsync(vera, tile)).Parcels).ContestedUntilMs);
+        Assert.Null(Assert.Single((await TileAsync(anna, tile)).Parcels).ContestedUntilMs);
+        Assert.NotNull(Assert.Single((await TileAsync(boris, tile)).Parcels, p => p.OwnerId == annaId).ContestedUntilMs);
+
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var revealed = await TileAsync(vera, tile, known: before.Version);
+        var seenByAnna = Assert.Single((await TileAsync(anna, tile)).Parcels, p => p.OwnerId == annaId);
+
+        Assert.True(revealed.Version > before.Version);
+        Assert.Contains(revealed.Parcels, p => p.OwnerId == borisId);
+        var annaParcel = Assert.Single(revealed.Parcels, p => p.OwnerId == annaId);
+        Assert.InRange(AreaOf(annaParcel.Exterior), 9_500, 10_500); // земля Анны не ушла
+        Assert.Equal((short)1, annaParcel.Level);
+        Assert.Null(annaParcel.SiegeUntilMs);
+        // Минута петли не видна никому — даже самой Анне: вверх до 10 минут.
+        Assert.Equal(annaParcel.ContestedUntilMs, seenByAnna.ContestedUntilMs);
+        Assert.Equal(0, annaParcel.ContestedUntilMs!.Value % 600_000);
+        Assert.InRange(annaParcel.ContestedUntilMs.Value - effectiveMs, 86_400_000, 86_400_000 + 600_000);
+    }
+
+    [Fact]
     public async Task Capture_that_changes_no_land_leaves_the_map_as_it_was_for_everyone()
     {
         // Аудит BE-01: новичок обвёл землю Анны и Веры поперёк их границ и ничего не взял (§3.3). Раньше куски всё равно

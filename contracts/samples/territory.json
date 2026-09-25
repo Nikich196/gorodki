@@ -15,6 +15,7 @@
           "lastVisitAtMs": 1790000000000,
           "shieldUntilMs": 1790043200000,
           "siegeUntilMs": null,
+          "contestedUntilMs": 1790086400000,
           "exterior": [
             52.0976,
             23.688,
@@ -49,6 +50,7 @@
           "lastVisitAtMs": 1789300000000,
           "shieldUntilMs": null,
           "siegeUntilMs": null,
+          "contestedUntilMs": null,
           "exterior": [
             52.099,
             23.688,

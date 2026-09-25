@@ -2395,6 +2395,13 @@
             ],
             "format": "int64"
           },
+          "contestedUntilMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
           "exterior": {
             "type": "array",
             "items": {
@@ -2882,7 +2889,9 @@
           "ghostDays",
           "visitMinMeters",
           "newAccountHours",
-          "newAccountMinMeters"
+          "newAccountMinMeters",
+          "bigLoopSquareMeters",
+          "contestedHours"
         ],
         "type": "object",
         "properties": {
@@ -2927,6 +2936,13 @@
             "format": "double"
           },
           "newAccountMinMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "bigLoopSquareMeters": {
+            "$ref": "#/components/schemas/PerLeagueOfdouble"
+          },
+          "contestedHours": {
             "type": "number",
             "format": "double"
           }

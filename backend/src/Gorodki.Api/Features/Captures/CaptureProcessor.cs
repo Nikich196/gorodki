@@ -352,9 +352,11 @@ public sealed class CaptureProcessor(
             .Where(p => p.League == claim.League && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
             .ToListAsync(cancellationToken);
 
+        // Большая петля (§3.3, #48) — по площади P после масок и порогу лиги из правил земли на момент применения.
+        var bigLoop = current.Rules.Territory.IsBigLoop(claim.League, area.Area);
         var map = new TerritoryMap(current.Rules.Territory.ToRules(), new SliverSettings());
         map.Load(stored.Select(ToParcel));
-        var result = map.Apply(area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels));
+        var result = map.Apply(area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels, bigLoop));
 
         var now = time.GetUtcNow();
         var changedTiles = new List<TileKey>();
@@ -539,6 +541,7 @@ public sealed class CaptureProcessor(
             SiegeUntil = p.SiegeUntil,
             LossWindowSince = p.LossWindowSince,
             LossAttackers = AttackerSet.Of(p.LossAttackers),
+            ContestedUntil = p.ContestedUntil,
         });
 
     internal static ParcelEntity ToEntity(Parcel p, Gorodki.Domain.Leagues.League league) => new()
@@ -554,6 +557,7 @@ public sealed class CaptureProcessor(
         SiegeUntil = p.State.SiegeUntil,
         LossWindowSince = p.State.LossWindowSince,
         LossAttackers = [.. p.State.LossAttackers.Ids],
+        ContestedUntil = p.State.ContestedUntil,
         Geometry = p.Geometry,
     };
 }

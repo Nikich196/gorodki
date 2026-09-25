@@ -17,6 +17,10 @@ namespace Gorodki.Api.Features.Territory;
 /// <param name="LastVisitAtMs">Последний визит владельца; у чужих кусков — с точностью до часа (приватность).</param>
 /// <param name="Level">Действующий уровень с учётом угасания (§3.3); 0 — у «призрака».</param>
 /// <param name="Ghost">Земля уже потеряна (угасла), но ещё 3 дня видна «призраком».</param>
+/// <param name="ContestedUntilMs">
+/// Пометка «спорная» (§3.3, большая петля): пока сейчас раньше этого времени, кромка куска рисуется «бегущими муравьями».
+/// Игровой силы нет. С точностью до 10 минут (у всех, кроме администратора); null — пометки не было.
+/// </param>
 /// <param name="Exterior">Внешний контур: <c>[широта, долгота, широта, долгота, …]</c>, первая точка повторяется в конце.</param>
 /// <param name="Holes">Дыры (чужая земля внутри), в том же виде.</param>
 public sealed record ParcelView(
@@ -28,6 +32,7 @@ public sealed record ParcelView(
     long LastVisitAtMs,
     long? ShieldUntilMs,
     long? SiegeUntilMs,
+    long? ContestedUntilMs,
     IReadOnlyList<double> Exterior,
     IReadOnlyList<IReadOnlyList<double>> Holes);
 

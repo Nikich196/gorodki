@@ -88,11 +88,11 @@ public sealed class ApiSamplesTests
                 new TileTerritory(684, 5775, 3,
                 [
                     new ParcelView(
-                        41, Player, 7, 2, Ghost: false, Start, Start + 43_200_000, null,
+                        41, Player, 7, 2, Ghost: false, Start, Start + 43_200_000, null, Start + 86_400_000,
                         [52.0976, 23.688, 52.0976, 23.6895, 52.0985, 23.6895, 52.0985, 23.688, 52.0976, 23.688],
                         [[52.0979, 23.6884, 52.0979, 23.6888, 52.0982, 23.6888, 52.0979, 23.6884]]),
                     new ParcelView(
-                        42, Player, 7, 0, Ghost: true, Start - 700_000_000, null, null,
+                        42, Player, 7, 0, Ghost: true, Start - 700_000_000, null, null, null,
                         [52.099, 23.688, 52.099, 23.689, 52.0995, 23.689, 52.099, 23.688], []),
                 ]),
             ],

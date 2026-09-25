@@ -38,7 +38,7 @@ public sealed class TerritoryPrivacyTests
     {
         var tile = new TileKey(684, 5775);
         var piece = new ParcelView(
-            0, Guid.Parse("00000000-0000-0000-0000-00000000000a"), 3, 1, false, 1_790_000_000_000, null, null,
+            0, Guid.Parse("00000000-0000-0000-0000-00000000000a"), 3, 1, false, 1_790_000_000_000, null, null, null,
             [52.0976, 23.688, 52.0976, 23.6895, 52.0985, 23.6895, 52.0976, 23.688], []);
 
         var id = TerritoryReader.ContentId(tile, piece);
@@ -46,6 +46,7 @@ public sealed class TerritoryPrivacyTests
         Assert.Equal(id, TerritoryReader.ContentId(tile, piece with { Id = 99 })); // сам номер в нём не участвует
         Assert.NotEqual(id, TerritoryReader.ContentId(tile, piece with { Level = 2 }));
         Assert.NotEqual(id, TerritoryReader.ContentId(tile, piece with { ShieldUntilMs = 1_790_043_200_000 }));
+        Assert.NotEqual(id, TerritoryReader.ContentId(tile, piece with { ContestedUntilMs = 1_790_086_400_000 }));
         Assert.NotEqual(id, TerritoryReader.ContentId(new TileKey(684, 5776), piece));
         Assert.InRange(id, 0, (1L << 53) - 1); // точно представим в JavaScript
     }

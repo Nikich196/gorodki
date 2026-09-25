@@ -45,6 +45,7 @@ struct SampleDecodingTests {
         #expect(tile.version == 3 && tile.parcels.count == 2)
         #expect(tile.parcels[0].exterior.count == 10 && tile.parcels[0].holes.first?.count == 8)
         #expect(tile.parcels[0].siegeUntilMs == nil && tile.parcels[0].shieldUntilMs != nil)
+        #expect(tile.parcels[0].contestedUntilMs == 1_790_086_400_000 && tile.parcels[1].contestedUntilMs == nil)
         #expect(tile.parcels[1].ghost && tile.parcels[1].level == 0)
         #expect(map.unchanged.map(\.x) == [685])
     }

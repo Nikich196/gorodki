@@ -235,6 +235,13 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             siegeUntil = CeilTo(siegeUntil, 600_000);
         }
 
+        // Пометку «спорная» ставит чужая петля: и владельцу её минута не нужна — вверх до 10 минут у всех.
+        var contestedUntil = state.ContestedUntil?.ToUnixTimeMilliseconds();
+        if (!viewer.Immediate)
+        {
+            contestedUntil = CeilTo(contestedUntil, 600_000);
+        }
+
         var view = new ParcelView(
             0,
             state.OwnerId,
@@ -244,6 +251,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             lastVisit,
             shieldUntil,
             siegeUntil,
+            contestedUntil,
             LatLon(geometry.ExteriorRing),
             [.. geometry.InteriorRings.Select(LatLon)]);
         return view with { Id = ContentId(tile, view) };
@@ -269,6 +277,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             writer.Write(view.LastVisitAtMs);
             writer.Write(view.ShieldUntilMs ?? -1);
             writer.Write(view.SiegeUntilMs ?? -1);
+            writer.Write(view.ContestedUntilMs ?? -1);
             foreach (var ring in view.Holes.Prepend(view.Exterior))
             {
                 writer.Write(ring.Count);
