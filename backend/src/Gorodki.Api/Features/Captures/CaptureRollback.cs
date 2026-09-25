@@ -1,3 +1,4 @@
+using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
@@ -18,7 +19,8 @@ namespace Gorodki.Api.Features.Captures;
 /// от новых к старым, каждый отдельно: откат считается без блокировок, а записывается короткой транзакцией под
 /// блокировками тайлов — и только если версии тайлов не изменились с момента чтения (иначе всё считается заново).
 /// </remarks>
-public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimeProvider time, ILogger<CaptureRollback> logger)
+public sealed class CaptureRollback(
+    AppDbContext db, GameConfigStore configs, RealtimeHints hints, TimeProvider time, ILogger<CaptureRollback> logger)
 {
     /// <summary>Заморозка при откате — как в PLAN.md, §3.9, слой 5.</summary>
     public static readonly TimeSpan FreezeFor = TimeSpan.FromDays(7);
@@ -180,6 +182,7 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
         var owners = changes.SelectMany(c => c.Before).Select(p => p.State.OwnerId).Distinct().ToList();
         var existing = (await db.Users.AsNoTracking().Where(u => owners.Contains(u.Id)).Select(u => u.Id).ToListAsync(cancellationToken))
             .ToHashSet();
+        var rules = (await configs.GetCurrentAsync(cancellationToken)).Rules.Territory.ToRules(); // визиты — по тем же правилам
 
         for (var attempt = 1; attempt <= MaxWriteAttempts; attempt++)
         {
@@ -191,13 +194,17 @@ public sealed class CaptureRollback(AppDbContext db, RealtimeHints hints, TimePr
                     .ToListAsync(cancellationToken))
                 .Where(p => tiles.Contains(new TileKey(p.TileX, p.TileY)))
                 .ToList();
-            var map = new TerritoryMap();
+            var map = new TerritoryMap(rules, new SliverSettings());
             map.Load(stored.Select(CaptureProcessor.ToParcel));
-            // Свои визиты нарушителя на отнятую землю касанием не считаются: побегав по ней, он бы её «отмыл».
+            // Свои визиты нарушителя на отнятую землю касанием не считаются: побегав по ней, он бы её «отмыл». Визиты
+            // других владельцев — тоже: жертва, пробежавшая по треснувшей части, получает её назад без трещины и осады, с
+            // этим визитом (иначе они оставались бы у неё и после отката нарушителя). Остаток её куска вне следа визит от
+            // треснувшей части не получает — перенос идёт по граням следа (docs/architecture/captures.md).
             var result = map.Restore(
                 changes,
                 state => existing.Contains(state.OwnerId) ? state : null,
-                (current, after) => current == after || (current?.OwnerId == userId && after?.OwnerId == userId));
+                (current, after) => current == after || (current?.OwnerId == userId && after?.OwnerId == userId),
+                replayVisits: true);
 
             if (BeforeWrite is { } hook)
             {

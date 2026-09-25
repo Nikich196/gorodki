@@ -1,4 +1,5 @@
 using CsCheck;
+using Gorodki.Domain.Config;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Territory;
 using NetTopologySuite.Algorithm.Locate;
@@ -173,6 +174,388 @@ public sealed class TerritoryRestoreTests
         Assert.Equal(0, map.AreaOf(Boris), 1);
     }
 
+    // ── Визиты после захвата (replayVisits) ──────────────────────────────────
+    // Публичная проекция скрытого захвата — откат по журналу (TerritoryReader.ProjectAsync). Визиты, засчитанные, пока
+    // захват скрыт, меняют записанные им куски, и без переноса визитов откат оставлял бы их как есть — захват был бы
+    // виден раньше 20 минут. Эталон — тот же мир без захвата с теми же визитами: куски те же до вершины и состояния.
+    // VisitAll даёт всем кускам владельца одно время визита — у сервера так бывает редко: там у каждого куска своё время
+    // (последний шаг пути в нём) и свой порог 50 м, это моделирует Run. Тесты с Run ниже держат, что остаётся (шов).
+
+    [Fact]
+    public void Victims_visit_with_one_time_on_both_parts_of_a_cracked_piece_is_replayed_on_the_whole_piece_and_leaves_no_seam()
+    {
+        // Анна (L2) пробежала по своей земле, пока захват Бориса, треснувший её правую половину, скрыт. Без переноса
+        // визитов треснувшая часть осталась бы в проекции отдельным куском с уровнем −1 и осадой — скрытая петля видна.
+        // Визит ложится на целый кусок так, как лёг бы без захвата: осады нет, и уровень растёт до 3. Шва нет только
+        // потому, что у обеих частей одно время визита (VisitAll); с разным временем он остаётся — см. тесты с Run.
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(100, 100, 200, 200));
+        Capture(map, Anna, T0.AddHours(21), RectanglePolygon(100, 100, 200, 200)); // L2
+        var withoutCapture = Copy(map);
+        var hidden = Capture(map, Boris, T0.AddHours(42), RectanglePolygon(200, 90, 200, 220));
+        Assert.Equal(20_000, hidden.Area(PieceOutcome.Cracked), 1);
+        var at = T0.AddHours(42).AddMinutes(10);
+        VisitAll(map, Anna, at);
+        VisitAll(withoutCapture, Anna, at);
+
+        var projection = Copy(map);
+        var result = projection.Restore(hidden.Changes, replayVisits: true);
+
+        Assert.Empty(TerritoryInvariants.Check(projection));
+        Assert.Equal(0, result.SkippedArea, 1);
+        AssertSameLand(withoutCapture, projection);
+        var anna = Assert.Single(projection.Parcels);
+        Assert.Equal((3, (DateTimeOffset?)null, at), (anna.State.Level, anna.State.SiegeUntil, anna.State.LastVisitAt));
+
+        // Без переноса (по умолчанию, как у отката по растровому оракулу) треснувшая часть осталась бы как есть.
+        var legacy = Copy(map);
+        Assert.Equal(20_000, legacy.Restore(hidden.Changes).SkippedArea, 1);
+        Assert.Contains(legacy.Parcels, p => p.State.SiegeUntil is not null);
+    }
+
+    [Fact]
+    public void Authors_visits_to_land_of_a_hidden_capture_are_replayed_only_where_he_owned_it_before()
+    {
+        // Борис взял половину квадрата Анны и ничью землю и освежил часть своей старой земли; забег продолжился по
+        // взятому, и визиты засчитались, пока захват скрыт. Взятое в проекции — снова Анны и ничьё (без визитов Бориса:
+        // в мире без захвата этой земли у него нет), а освежённая часть — его прежняя земля с тем же визитом. Освежённая
+        // часть и остаток его старого куска здесь получают одно время визита (VisitAll); с разным — шов, см. тест с Run.
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(100, 100, 200, 200));
+        Capture(map, Boris, T0, RectanglePolygon(400, 100, 200, 200));
+        var withoutCapture = Copy(map);
+        var hidden = Capture(map, Boris, T0.AddHours(21), RectanglePolygon(200, 150, 300, 100));
+        Assert.Equal(10_000, hidden.Area(PieceOutcome.Transferred), 1);
+        Assert.Equal(10_000, hidden.Area(PieceOutcome.ClaimedNeutral), 1);
+        Assert.Equal(10_000, hidden.Area(PieceOutcome.Refreshed), 1);
+        var at = T0.AddHours(21).AddMinutes(10);
+        VisitAll(map, Boris, at);
+        VisitAll(withoutCapture, Boris, at);
+
+        var projection = Copy(map);
+        var result = projection.Restore(hidden.Changes, replayVisits: true);
+
+        Assert.Empty(TerritoryInvariants.Check(projection));
+        Assert.Equal(0, result.SkippedArea, 1);
+        AssertSameLand(withoutCapture, projection);
+        Assert.Equal(40_000, projection.AreaOf(Boris), 1); // только старая земля — одним куском, уровень поднят визитом
+        var boris = Assert.Single(projection.Parcels, p => p.State.OwnerId == Boris);
+        Assert.Equal((2, at), (boris.State.Level, boris.State.LastLevelUpAt));
+
+        var legacy = Copy(map);
+        Assert.Equal(30_000, legacy.Restore(hidden.Changes).SkippedArea, 1);
+        Assert.Equal(60_000, legacy.AreaOf(Boris), 1); // без переноса скрытый захват виден целиком
+    }
+
+    [Fact]
+    public void Land_changed_by_another_capture_is_not_returned_even_with_visit_replay()
+    {
+        // Вера после щита забрала часть земли, взятой Борисом: это не визит, и откат её не трогает.
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(100, 100, 200, 200));
+        var cheat = Capture(map, Boris, T0.AddHours(1), RectanglePolygon(200, 100, 200, 200));
+        Capture(map, Vera, T0.AddHours(14), RectanglePolygon(250, 150, 100, 100));
+        VisitAll(map, Boris, T0.AddHours(14).AddMinutes(10));
+
+        var result = map.Restore(cheat.Changes, replayVisits: true);
+
+        Assert.Empty(TerritoryInvariants.Check(map));
+        Assert.Equal(10_000, result.SkippedArea, 1);
+        Assert.Equal(10_000, map.AreaOf(Vera), 1);
+        Assert.Equal(35_000, map.AreaOf(Anna), 1);
+        Assert.Equal(0, map.AreaOf(Boris), 1);
+    }
+
+    [Fact]
+    public void Victims_visit_to_the_rest_of_a_transferred_piece_leaves_a_seam_in_the_fallback()
+    {
+        // Известный остаток отката по граням (docs/architecture/territory-map.md): Борис взял половину квадрата Анны,
+        // а Анна пробежала по оставшейся половине. Взятая половина возвращается без визита (на ней Анна не была — там
+        // земля Бориса), оставшаяся — с визитом: два куска Анны, шов по линии петли. В мире без захвата визит лёг бы на
+        // весь квадрат. Закрывает это точный откат по исходным кускам (следующий шаг BE-01); когда этот тест упадёт,
+        // значит, откат по граням научился большему — обнови документ.
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(100, 100, 200, 200));
+        var hidden = Capture(map, Boris, T0.AddHours(1), RectanglePolygon(200, 100, 200, 200));
+        var at = T0.AddHours(1).AddMinutes(10);
+        VisitAll(map, Anna, at);
+
+        map.Restore(hidden.Changes, replayVisits: true);
+
+        Assert.Empty(TerritoryInvariants.Check(map));
+        var anna = map.Parcels.Where(p => p.State.OwnerId == Anna).OrderBy(p => p.State.LastVisitAt).ToList();
+        Assert.Equal([T0, at], anna.Select(p => p.State.LastVisitAt));
+        Assert.Equal(40_000, map.AreaOf(Anna), 1);
+    }
+
+    // Остаток отката по граням в обычной игре: Анна (L2) пробежала по своему квадрату, а через пару минут Борис треснул
+    // его правую половину; визиты Анны засчитаны, когда граница публичности дошла до конца её забега, — захват Бориса ещё
+    // скрыт. Визиты ложатся на настоящие куски: треснувшую часть и остаток, каждому своё время и свой порог (Run, как
+    // VisitProcessor). Остаток лежит вне следа захвата, в журнал он не попал, и откат по граням его не видит: в проекции
+    // два куска Анны вместо одного, шов ровно по линии скрытой петли. Лечить это слиянием соседних кусков вне следа
+    // нельзя — откат не отличит остаток куска от законного соседнего куска того же владельца и сотрёт настоящий шов.
+    // Закроет шов в проекции точный откат по исходным кускам (шаг 6 BE-01: времена со всех записанных кусков над
+    // исходным) — тогда перевернутся интеграционные тесты проекции; эти останутся пределом отката по граням.
+
+    [Fact]
+    public void Victims_run_over_both_parts_of_a_cracked_piece_leaves_a_seam_in_the_fallback()
+    {
+        var map = LandOfAnnaAtLevelTwo();
+        var whole = Assert.Single(map.Parcels).State;
+        var withoutCapture = Copy(map);
+        var capturedAt = T0.AddHours(42);
+        var hidden = Capture(map, Boris, capturedAt, RectanglePolygon(200, 90, 200, 220));
+        var cracked = Assert.Single(map.Parcels, p => p.State.SiegeUntil is not null);
+        var rest = Assert.Single(map.Parcels, p => p.State == whole);
+
+        // С запада на восток по y = 200, закончил за 6 минут до петли Бориса: у остатка последний шаг — через линию петли
+        // (−7 мин), у треснувшей части — следующий (−6 мин). По 100 м в каждом куске.
+        (double, double, DateTimeOffset)[] path =
+        [
+            (50, 200, capturedAt.AddMinutes(-9)),
+            (150, 200, capturedAt.AddMinutes(-8)),
+            (250, 200, capturedAt.AddMinutes(-7)),
+            (350, 200, capturedAt.AddMinutes(-6)),
+        ];
+        Run(map, Anna, path);
+        Run(withoutCapture, Anna, path);
+
+        var projection = Copy(map);
+        var result = projection.Restore(hidden.Changes, replayVisits: true);
+
+        Assert.Empty(TerritoryInvariants.Check(projection));
+        Assert.Equal(0, result.SkippedArea, 1);
+        var expected = Assert.Single(withoutCapture.Parcels); // без захвата — один кусок с визитом по последнему шагу в нём
+        Assert.Equal(CaptureRules.Visit(whole, capturedAt.AddMinutes(-6), map.Rules), expected.State);
+
+        // Сейчас: ни уровня −1, ни осады, но два куска Анны (оба L3, разное время визита и повышения) — шов по петле.
+        AssertPieces(
+            projection,
+            (CaptureRules.Visit(whole, capturedAt.AddMinutes(-7), map.Rules)!, rest.Geometry),
+            (CaptureRules.Visit(whole, capturedAt.AddMinutes(-6), map.Rules)!, cracked.Geometry));
+    }
+
+    [Fact]
+    public void Victims_run_only_over_the_cracked_part_leaves_a_level_step_in_the_fallback()
+    {
+        // Тот же забег, но по остатку лишь 20 м — меньше порога визита. Без захвата весь квадрат получил бы визит и вырос
+        // до L3; в проекции треснувшая часть — L3 с визитом, остаток — L2 без него: ступенька уровня по линии петли видна
+        // всем, и без разбора геометрии.
+        var map = LandOfAnnaAtLevelTwo();
+        var whole = Assert.Single(map.Parcels).State;
+        var withoutCapture = Copy(map);
+        var capturedAt = T0.AddHours(42);
+        var hidden = Capture(map, Boris, capturedAt, RectanglePolygon(200, 90, 200, 220));
+        var cracked = Assert.Single(map.Parcels, p => p.State.SiegeUntil is not null);
+        var rest = Assert.Single(map.Parcels, p => p.State == whole);
+        (double, double, DateTimeOffset)[] path =
+        [
+            (180, 200, capturedAt.AddMinutes(-9)),
+            (230, 200, capturedAt.AddMinutes(-8)),
+            (350, 200, capturedAt.AddMinutes(-6)),
+        ];
+        Run(map, Anna, path);
+        Run(withoutCapture, Anna, path);
+        Assert.Contains(map.Parcels, p => p.State == whole); // остаток без визита: 20 м — меньше порога
+        Assert.Contains(map.Parcels, p => p.State.SiegeUntil is not null && p.State.LastVisitAt == capturedAt.AddMinutes(-6));
+
+        var projection = Copy(map);
+        projection.Restore(hidden.Changes, replayVisits: true);
+
+        Assert.Empty(TerritoryInvariants.Check(projection));
+        var expected = Assert.Single(withoutCapture.Parcels);
+        Assert.Equal((3, capturedAt.AddMinutes(-6)), (expected.State.Level, expected.State.LastVisitAt));
+        var visited = CaptureRules.Visit(whole, capturedAt.AddMinutes(-6), map.Rules)!;
+        Assert.Equal((3, 2), (visited.Level, whole.Level));
+        AssertPieces(projection, (whole, rest.Geometry), (visited, cracked.Geometry));
+    }
+
+    [Fact]
+    public void Authors_run_over_his_refreshed_part_and_the_rest_of_his_piece_leaves_a_seam_in_the_fallback()
+    {
+        // Борис (L1) петлёй освежил часть своего куска и взял ничью землю рядом; забег (из офлайна — захват применён позже
+        // его конца) продолжился по освежённой части и по остатку куска, визиты засчитаны, пока захват скрыт. Освежённая
+        // часть возвращается его прежним куском с её визитом, остаток вне следа — со своим: два куска, шов по петле.
+        var map = new TerritoryMap();
+        Capture(map, Boris, T0, RectanglePolygon(400, 100, 200, 200));
+        var old = Assert.Single(map.Parcels).State;
+        var withoutCapture = Copy(map);
+        var capturedAt = T0.AddHours(21);
+        var hidden = Capture(map, Boris, capturedAt, RectanglePolygon(300, 150, 200, 100));
+        Assert.Equal(10_000, hidden.Area(PieceOutcome.Refreshed), 1);
+        Assert.Equal(10_000, hidden.Area(PieceOutcome.ClaimedNeutral), 1);
+        var refreshed = Assert.Single(map.Parcels, p => p.State.Level == 2);
+        var rest = Assert.Single(map.Parcels, p => p.State == old);
+
+        // После петли — на восток по y = 200: 60 м по освежённой части (последний шаг в ней кончился через 2 минуты после
+        // петли), 100 м по остатку (через 3 минуты).
+        (double, double, DateTimeOffset)[] path =
+        [
+            (440, 200, capturedAt.AddMinutes(1)),
+            (550, 200, capturedAt.AddMinutes(2)),
+            (650, 200, capturedAt.AddMinutes(3)),
+        ];
+        Run(map, Boris, path);
+        Run(withoutCapture, Boris, path);
+
+        var projection = Copy(map);
+        var result = projection.Restore(hidden.Changes, replayVisits: true);
+
+        Assert.Empty(TerritoryInvariants.Check(projection));
+        Assert.Equal(0, result.SkippedArea, 1);
+        var expected = Assert.Single(withoutCapture.Parcels);
+        Assert.Equal(CaptureRules.Visit(old, capturedAt.AddMinutes(3), map.Rules), expected.State);
+        AssertPieces(
+            projection,
+            (CaptureRules.Visit(old, capturedAt.AddMinutes(2), map.Rules)!, refreshed.Geometry),
+            (CaptureRules.Visit(old, capturedAt.AddMinutes(3), map.Rules)!, rest.Geometry));
+    }
+
+    [Fact]
+    public void Victims_own_refreshing_capture_over_a_cracked_part_is_replayed_as_a_visit()
+    {
+        // Анна, не зная о скрытой трещине, замкнула свою петлю внутри треснувшей части. Освежение — тот же
+        // CaptureRules.Visit, от визита его не отличить, и откат переносит его как визит: внутри её петли — прежний кусок с
+        // этим визитом (L3), вокруг — прежний кусок. Так же, как без захвата Бориса. Без переноса эта земля «тронута» и
+        // осталась бы треснувшей — с осадой, на месте её петли.
+        var map = LandOfAnnaAtLevelTwo();
+        var withoutCapture = Copy(map);
+        var hidden = Capture(map, Boris, T0.AddHours(42), RectanglePolygon(200, 90, 200, 220));
+        var refreshedAt = T0.AddHours(42).AddMinutes(10);
+        Assert.Equal(3_600, Capture(map, Anna, refreshedAt, RectanglePolygon(220, 120, 60, 60)).Area(PieceOutcome.Refreshed), 1);
+        Capture(withoutCapture, Anna, refreshedAt, RectanglePolygon(220, 120, 60, 60));
+
+        var projection = Copy(map);
+        var result = projection.Restore(hidden.Changes, replayVisits: true);
+
+        Assert.Empty(TerritoryInvariants.Check(projection));
+        Assert.Equal(0, result.SkippedArea, 1);
+        AssertSameLand(withoutCapture, projection);
+        Assert.Contains(projection.Parcels, p => p.State.Level == 3 && p.State.LastVisitAt == refreshedAt);
+
+        var legacy = Copy(map);
+        Assert.Equal(3_600, legacy.Restore(hidden.Changes).SkippedArea, 1);
+        Assert.Contains(legacy.Parcels, p => p.State.SiegeUntil is not null);
+    }
+
+    /// <summary>Квадрат Анны 200 × 200 м уровня 2 (повышение в T0 + 21 ч).</summary>
+    private static TerritoryMap LandOfAnnaAtLevelTwo()
+    {
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(100, 100, 200, 200));
+        Capture(map, Anna, T0.AddHours(21), RectanglePolygon(100, 100, 200, 200));
+        Assert.Equal(2, Assert.Single(map.Parcels).State.Level);
+        return map;
+    }
+
+    [Fact]
+    public void Rollback_with_visit_replay_returns_a_visited_cracked_part_and_keeps_the_cheater_exemption()
+    {
+        // Откат нарушителя (CaptureRollback): Анна пробежала по треснувшей части — раньше это «касание», и трещина с
+        // осадой оставалась у жертвы после отката. Свои визиты Бориса по взятому по-прежнему не защищают его: он дважды
+        // поднял на нём уровень, а два повышения переносом визитов не объяснить (VisitReplay.Trace — null) — землю у него
+        // забирает только исключение для нарушителя.
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(100, 100, 200, 200));
+        Capture(map, Anna, T0.AddHours(21), RectanglePolygon(100, 100, 200, 200)); // L2
+        Capture(map, Vera, T0, RectanglePolygon(100, 300, 200, 100));
+        Capture(map, Vera, T0.AddHours(21), RectanglePolygon(100, 300, 200, 100)); // L2
+        var cheat = Capture(map, Boris, T0.AddHours(42), RectanglePolygon(200, 90, 200, 350)); // трещины у Анны и Веры
+        Assert.Equal(30_000, cheat.Area(PieceOutcome.Cracked), 1);
+        var at = T0.AddHours(43);
+        VisitAll(map, Anna, at);
+        VisitAll(map, Boris, T0.AddHours(62));
+        VisitAll(map, Boris, T0.AddHours(82));
+        Assert.All(map.Parcels.Where(p => p.State.OwnerId == Boris), p => Assert.Equal(3, p.State.Level));
+        var withoutExemption = Copy(map);
+
+        var result = map.Restore(
+            cheat.Changes,
+            untouched: (current, after) => current == after || (current?.OwnerId == Boris && after?.OwnerId == Boris),
+            replayVisits: true);
+
+        // Контроль: без исключения земля Бориса «тронута» и осталась бы у него.
+        Assert.Equal(40_000, withoutExemption.Restore(cheat.Changes, replayVisits: true).SkippedArea, 1);
+        Assert.Equal(40_000, withoutExemption.AreaOf(Boris), 1);
+        Assert.Empty(TerritoryInvariants.Check(map));
+        Assert.Equal(0, result.SkippedArea, 1);
+        Assert.Equal(0, map.AreaOf(Boris), 1);
+        var anna = Assert.Single(map.Parcels, p => p.State.OwnerId == Anna);
+        Assert.Equal((3, (DateTimeOffset?)null, at), (anna.State.Level, anna.State.SiegeUntil, anna.State.LastVisitAt));
+        Assert.Equal(40_000, anna.Geometry.Area, 1);
+        var vera = Assert.Single(map.Parcels, p => p.State.OwnerId == Vera); // Вера не бегала — прежнее состояние
+        Assert.Equal((2, (DateTimeOffset?)null), (vera.State.Level, vera.State.SiegeUntil));
+    }
+
+    /// <summary>
+    /// Визит владельца на все его куски в один момент <paramref name="at"/>, на месте, как <c>VisitProcessor</c>. Одно время
+    /// на все куски — упрощение: у сервера время у каждого куска своё (<see cref="Run"/>).
+    /// </summary>
+    private static void VisitAll(TerritoryMap map, Guid owner, DateTimeOffset at) => VisitEach(map, owner, _ => at);
+
+    /// <summary>
+    /// Визит владельца на каждый его кусок со своим временем: <paramref name="at"/> — по номеру куска владельца (null — без
+    /// визита).
+    /// </summary>
+    private static void VisitEach(TerritoryMap map, Guid owner, Func<int, DateTimeOffset?> at)
+    {
+        var index = 0;
+        var parcels = new List<Parcel>();
+        foreach (var piece in map.Parcels)
+        {
+            var visited = piece.State.OwnerId == owner && at(index++) is { } time ? CaptureRules.Visit(piece.State, time, map.Rules) : null;
+            parcels.Add(visited is null ? piece : piece with { State = visited });
+        }
+
+        map.Load(parcels);
+    }
+
+    /// <summary>
+    /// Засчитанный путь забега владельца (метры от начала тестов, время точки) — как <c>VisitProcessor</c>: визит получает
+    /// каждый его кусок, внутри которого не меньше <c>territory.visitMinMeters</c> пути, и время у каждого своё — конец
+    /// последнего шага пути в этом куске (<see cref="Visits.Inside"/>). Обрезки 200 м у концов забега нет: путь — уже она.
+    /// </summary>
+    private static void Run(TerritoryMap map, Guid owner, IReadOnlyList<(double X, double Y, DateTimeOffset Time)> points)
+    {
+        var path = points
+            .Zip(points.Skip(1), (from, to) => new Visits.Step(At(from.X, from.Y), At(to.X, to.Y), to.Time.ToUnixTimeMilliseconds()))
+            .ToList();
+        var own = map.Parcels.Where(p => p.State.OwnerId == owner).ToList();
+        var inside = Visits.Inside(path, [.. own.Select(p => p.Geometry)]);
+        VisitEach(map, owner, i => inside.TryGetValue(i, out var visit) && visit.Meters >= GameConfig.Default.Territory.VisitMinMeters
+            ? DateTimeOffset.FromUnixTimeMilliseconds(visit.LastTimeMs)
+            : null);
+    }
+
+    /// <summary>На карте ровно эти куски: состояние целиком и геометрия до вершины и порядка обхода.</summary>
+    private static void AssertPieces(TerritoryMap map, params (ParcelState State, Polygon Geometry)[] expected)
+    {
+        var actual = map.Parcels.ToList();
+        Assert.Equal(expected.Length, actual.Count);
+        foreach (var (state, geometry) in expected)
+        {
+            Assert.True(
+                actual.Any(p => p.State == state && p.Geometry.EqualsExact(geometry)),
+                $"нет куска {state} {geometry}; есть: {string.Join("; ", actual.Select(p => $"{p.State} {p.Geometry}"))}");
+        }
+    }
+
+    /// <summary>Та же земля: куски те же до вершины и порядка обхода и с тем же состоянием целиком.</summary>
+    private static void AssertSameLand(TerritoryMap expected, TerritoryMap actual)
+    {
+        Assert.Equal(expected.Tiles, actual.Tiles);
+        foreach (var tile in expected.Tiles)
+        {
+            Assert.Equal(expected.ParcelsIn(tile).Count, actual.ParcelsIn(tile).Count);
+            foreach (var piece in expected.ParcelsIn(tile))
+            {
+                Assert.True(
+                    actual.ParcelsIn(tile).Any(p => p.State == piece.State && p.Geometry.EqualsExact(piece.Geometry)),
+                    $"нет куска {piece.State} {piece.Geometry}");
+            }
+        }
+    }
+
     // ── Property-тесты ───────────────────────────────────────────────────────
 
     private static readonly Guid[] Players = [Anna, Boris, Vera, new("00000000-0000-0000-0000-00000000000d")];
@@ -334,6 +717,108 @@ public sealed class TerritoryRestoreTests
             Assert.True(
                 mismatched * pixel * pixel <= tolerance,
                 $"захват {cheatIndex}: не совпало {mismatched} пикселей (допуск {tolerance:0.#} м²)");
+        }, iter: Math.Max(20, Iterations / 3));
+    }
+
+    /// <summary>
+    /// Растровый оракул отката с переносом визитов (публичная проекция скрытого захвата): после последнего захвата истории
+    /// случайные владельцы пробежали по всем своим кускам, у каждого куска своё время визита. В точке следа, где земля
+    /// такая, какой её оставил захват, — прежнее состояние; где её меняли только визиты — прежнее с теми же визитами
+    /// (владелец до и после один) или просто прежнее (другой); в остальных точках — текущее.
+    /// </summary>
+    /// <remarks>
+    /// Ожидаемое оракул считает теми же <see cref="VisitReplay.Trace"/> и <see cref="VisitReplay.Apply"/>: он проверяет
+    /// учёт граней (какая грань какое состояние получает, самопроверки, сборку кусков), а не смысл переноса. Совпадение
+    /// с миром без захвата проверяют сценарии выше; независимый оракул — «хранилище без скрытых захватов с визитами по
+    /// номерам кусков, как у VisitProcessor» — шаг 9 BE-01. Этот тест доказательством такого совпадения не считать.
+    /// </remarks>
+    [Fact]
+    public void Rollback_with_visit_replay_matches_a_raster_oracle()
+    {
+        const double pixel = 1.0;
+        var samples =
+            from sample in HistoryGen
+            from visitors in Gen.Int[1, (1 << Players.Length) - 1]
+            from minutes in Gen.Double[1, 25].Array[1, 6]
+            select (sample.History, Visitors: visitors, Minutes: minutes);
+        samples.Sample(sample =>
+        {
+            var (history, visitors, minutes) = sample;
+            var map = new TerritoryMap();
+            var time = T0;
+            CaptureResult? hidden = null;
+            foreach (var step in history)
+            {
+                time = time.AddHours(step.HoursLater);
+                if (ShapeOf(step) is { } area)
+                {
+                    hidden = map.Apply(area, new CaptureContext(Players[step.Player], time, new HashSet<Guid>()));
+                }
+            }
+
+            if (hidden is null || hidden.Changes.Count == 0)
+            {
+                return;
+            }
+
+            for (var i = 0; i < Players.Length; i++)
+            {
+                if ((visitors & (1 << i)) != 0)
+                {
+                    VisitEach(map, Players[i], piece => time.AddMinutes(minutes[piece % minutes.Length]));
+                }
+            }
+
+            var current = Sampler.Of(map.Parcels.Select(p => new JournalPiece(p.Geometry, p.State)));
+            var before = Sampler.Of(hidden.Changes.SelectMany(c => c.Before));
+            var after = Sampler.Of(hidden.Changes.SelectMany(c => c.After));
+            var footprint = GeoOps.UnionAll(hidden.Changes.Select(c => c.Footprint));
+            var boundaries = footprint.Boundary.Length
+                + hidden.Changes.SelectMany(c => c.Before.Concat(c.After)).Sum(p => p.Geometry.Boundary.Length)
+                + map.Parcels.Where(p => p.Geometry.EnvelopeInternal.Intersects(footprint.EnvelopeInternal))
+                    .Sum(p => p.Geometry.Boundary.Length);
+
+            var restore = map.Restore(hidden.Changes, replayVisits: true);
+
+            Assert.Empty(TerritoryInvariants.Check(map));
+            var restored = Sampler.Of(map.Parcels.Select(p => new JournalPiece(p.Geometry, p.State)));
+            var inside = new IndexedPointInAreaLocator(footprint);
+            var envelope = footprint.EnvelopeInternal;
+            var mismatched = 0;
+            for (var x = Math.Floor(envelope.MinX) - 5; x <= envelope.MaxX + 5; x += pixel)
+            {
+                for (var y = Math.Floor(envelope.MinY) - 5; y <= envelope.MaxY + 5; y += pixel)
+                {
+                    var point = new Coordinate(x + pixel / 2, y + pixel / 2);
+                    var now = current.At(point);
+                    var expected = now;
+                    if (inside.Locate(point) == Location.Interior)
+                    {
+                        var written = after.At(point);
+                        var previous = before.At(point);
+                        if (now == written)
+                        {
+                            expected = previous;
+                        }
+                        else if (now is not null && written is not null && VisitReplay.Trace(written, now, map.Rules) is { } visits)
+                        {
+                            expected = previous is not null && previous.OwnerId == written.OwnerId
+                                ? VisitReplay.Apply(previous, visits, map.Rules)
+                                : previous;
+                        }
+                    }
+
+                    if (restored.At(point) != expected)
+                    {
+                        mismatched++;
+                    }
+                }
+            }
+
+            var tolerance = boundaries * pixel * 0.2 + restore.SliverArea + 5;
+            Assert.True(
+                mismatched * pixel * pixel <= tolerance,
+                $"не совпало {mismatched} пикселей (допуск {tolerance:0.#} м²), пропущено {restore.SkippedArea:0.#} м²");
         }, iter: Math.Max(20, Iterations / 3));
     }
 

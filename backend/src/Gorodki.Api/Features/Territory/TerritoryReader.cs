@@ -104,7 +104,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             var stored = parcels.Where(p => p.TileX == tile.X && p.TileY == tile.Y).ToList();
             var pieces = pending.Count == 0
                 ? stored.Select(p => (CaptureProcessor.ToParcel(p).State, p.Geometry)).ToList()
-                : await ProjectAsync(tile, stored, pending, cancellationToken);
+                : await ProjectAsync(tile, stored, pending, rules, cancellationToken);
             tiles.Add((tile, version, pieces));
         }
 
@@ -155,19 +155,30 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
 
     /// <summary>
     /// Тайл таким, каким его видят остальные: недавние чужие захваты откатываются в памяти — от новых к старым, только там,
-    /// где земля и сейчас такая, какой её оставил захват (свои более поздние изменения зрителя остаются).
+    /// где земля и сейчас такая, какой её оставил захват или какой её сделали с тех пор визиты владельцев (свои более
+    /// поздние изменения зрителя остаются).
     /// </summary>
+    /// <remarks>
+    /// Визиты забега засчитываются, когда публичен его конец, — а чужой захват той же земли, применённый в эти 20 минут, ещё
+    /// скрыт. У жертвы это обычная игра: она пробежала по своей земле, петля по её части пришла следом, и визиты ложатся на
+    /// треснувшую часть и на остаток куска; у автора — если захват применён позже конца забега (забег из офлайна), на
+    /// взятое. Такие визиты переносятся на прежнюю землю (<see cref="TerritoryMap.Restore"/> с <c>replayVisits</c>): иначе
+    /// земля «после захвата» осталась бы в проекции как есть — взятое, уровень −1 и осада видны раньше 20 минут. Шов по
+    /// линии петли при этом остаётся, если части куска получили разное время визита или остаток — никакого: откат по
+    /// граням видит только след захвата (docs/architecture/territory-map.md, остаток BE-01). Правила земли — действующего
+    /// конфига, как у визитов (<see cref="VisitProcessor"/>).
+    /// </remarks>
     private async Task<List<(ParcelState State, Polygon Geometry)>> ProjectAsync(
-        TileKey tile, List<ParcelEntity> stored, List<HiddenCapture> pending, CancellationToken cancellationToken)
+        TileKey tile, List<ParcelEntity> stored, List<HiddenCapture> pending, TerritoryRules rules, CancellationToken cancellationToken)
     {
         try
         {
-            var map = new TerritoryMap();
+            var map = new TerritoryMap(rules, new SliverSettings());
             map.Load(stored.Select(CaptureProcessor.ToParcel));
             foreach (var capture in pending.OrderByDescending(h => h.AppliedSeq))
             {
                 var changes = (await CaptureJournal.LoadAsync(db, capture.CaptureId, cancellationToken)).Where(c => c.Tile == tile).ToList();
-                map.Restore(changes);
+                map.Restore(changes, replayVisits: true);
             }
 
             return map.ParcelsIn(tile).Select(p => (p.State, p.Geometry)).ToList();
