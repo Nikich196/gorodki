@@ -61,7 +61,8 @@ public static class InviteEndpoints
         // ЗАДАЧА #114 (Егор): только админ (AdminEndpoints.AdminIdAsync; иначе 403 admin_only). Проверить Count (1–50),
         // MaxUses (1–20), ExpiresAtMs (если есть — позже «сейчас»), Note (до 200 символов) — иначе 400 invites_invalid, и
         // ничего не создавать. Коды — InviteCodes.New(); совпал с уже выданным — взять другой. Сохранить InviteEntity
-        // (CreatedAt — по часам time) и вернуть 201 со списком. Тесты — AdminInvitesTests.
+        // (CreatedAt — по часам time) и вернуть 201 со списком: TypedResults.Created<IReadOnlyList<InviteResponse>>(…) —
+        // тип в скобках обязателен, иначе CS0029 (egor-server.md, 6.2). Тесты — AdminInvitesTests.
         _ = (request, principal, db, time, cancellationToken);
         throw new NotImplementedException("ЗАДАЧА #114");
     }
@@ -72,7 +73,8 @@ public static class InviteEndpoints
         AppDbContext db,
         CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #114 (Егор): только админ; все InviteEntity, новые сверху (CreatedAt по убыванию). Тесты — AdminInvitesTests.
+        // ЗАДАЧА #114 (Егор): только админ; все InviteEntity, новые сверху (CreatedAt по убыванию). Ответ —
+        // TypedResults.Ok<IReadOnlyList<InviteResponse>>(…), тип в скобках обязателен. Тесты — AdminInvitesTests.
         _ = (principal, db, cancellationToken);
         throw new NotImplementedException("ЗАДАЧА #114");
     }

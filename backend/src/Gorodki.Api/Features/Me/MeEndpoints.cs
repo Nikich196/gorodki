@@ -21,10 +21,10 @@ public sealed record PublicProfileRequest
 
 /// <summary>Своя статистика для профиля — только числа.</summary>
 /// <param name="Runs">Завершённые живые забеги (статус не «идёт»); повторы демо не считаются.</param>
-/// <param name="DistanceMeters">Засчитанный судьёй путь этих забегов, м.</param>
-/// <param name="ExploredSquareMeters">Открыто тумана за всё время, м²: оба слоя вместе, как «Всего» в рейтинге.</param>
+/// <param name="DistanceMeters">Засчитанный судьёй путь этих забегов, м, округлён до 0,1.</param>
+/// <param name="ExploredSquareMeters">Открыто тумана за всё время, м²: оба слоя вместе, как «Всего» в рейтинге; округлено до 0,1.</param>
 /// <param name="Season">Номер текущего сезона; <c>null</c> — сезона сейчас нет.</param>
-/// <param name="SeasonExploredSquareMeters">Открыто в текущем сезоне, м²; сезона нет — 0.</param>
+/// <param name="SeasonExploredSquareMeters">Открыто в текущем сезоне, м², округлено до 0,1; сезона нет — 0.</param>
 /// <param name="ExplorationRank">Место в «Кто открыл больше» («Всего», за всё время) по последнему срезу; <c>null</c> — в срезе нет.</param>
 /// <remarks>
 /// Площади своей земли здесь нет намеренно: посчитанная по настоящей земле, она выдала бы ещё скрытый чужой захват
@@ -105,6 +105,7 @@ public static class MeEndpoints
         // ЗАДАЧА #116 (Егор): забеги игрока с Source = Live и Status != Active — их число и сумма AcceptedMeters (null — 0);
         // площадь тумана за всё время и за текущий сезон — как FogEndpoints.GetSummary, но оба слоя вместе; место — строка
         // игрока в последнем срезе «Исследования» (слой Total, Season = −1), как LeaderboardEndpoints.GetExploration.
+        // Метры и площади округлить до 0,1 — Math.Round(…, 1), как площади в GetSummary (тест: 3 000,44 + 1 000 → 4 000,4).
         // Площадь своей земли не добавлять (см. MyStatsResponse). Игрока нет — 404. Тесты — StatsTests.
         _ = (principal, db, seasons, time, cancellationToken);
         throw new NotImplementedException("ЗАДАЧА #116");
