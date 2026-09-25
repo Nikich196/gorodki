@@ -15,11 +15,16 @@ public enum FogTileCodec {
     /// Распаковать тайл в слова по 64 бита — в том же порядке, что `FogTileBits.words` в GameCore.
     public static func words(fromCompressed data: Data) throws -> [UInt64] {
         let bytes = try inflateRaw(data, expected: byteCount)
-        return (0..<wordCount).map { index in
-            (0..<8).reduce(UInt64(0)) { word, shift in
-                word | UInt64(bytes[index * 8 + shift]) << (8 * UInt64(shift))
+        // Обычный цикл, а не reduce: выражение с reduce и сдвигами Xcode 26 не успевает проверить по типам.
+        var words = [UInt64](repeating: 0, count: wordCount)
+        for index in 0..<wordCount {
+            var word: UInt64 = 0
+            for shift in 0..<8 {
+                word |= UInt64(bytes[index * 8 + shift]) << UInt64(8 * shift)
             }
+            words[index] = word
         }
+        return words
     }
 
     /// Число открытых клеток — чтобы сверить с `cellCount` из ответа.
