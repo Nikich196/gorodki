@@ -205,4 +205,67 @@ public sealed class TerritoryMapScenarioTests
 
         Assert.Equal(Play().StateHash(), Play().StateHash());
     }
+
+    /// <summary>
+    /// Карта Анны для петли Бориса: L1-квадрат, L2-квадрат и L1-квадрат наполовину за краем петли 700 × 800 м
+    /// (0,56 км² — больше порога 0,5 км²) или 700 × 700 м (0,49 км² — меньше).
+    /// </summary>
+    private static TerritoryMap AnnasLand()
+    {
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(100, 100, 100, 100));
+        Capture(map, Anna, T0, RectanglePolygon(300, 100, 100, 100));
+        Capture(map, Anna, T0.AddHours(21), RectanglePolygon(300, 100, 100, 100)); // визит через 21 ч → L2
+        Capture(map, Anna, T0, RectanglePolygon(650, 300, 100, 100));
+        return map;
+    }
+
+    private static CaptureResult BorisLoop(TerritoryMap map, Polygon loop)
+    {
+        var bigLoop = Gorodki.Domain.Config.GameConfig.Default.Territory.IsBigLoop(Gorodki.Domain.Leagues.League.Run, loop.Area);
+        var result = map.Apply(loop, new CaptureContext(Boris, T0.AddHours(22), new HashSet<Guid>(), BigLoop: bigLoop));
+        Assert.Empty(TerritoryInvariants.Check(map));
+        return result;
+    }
+
+    [Fact]
+    public void Big_loop_marks_enemy_land_inside_contested_and_takes_only_neutral_land()
+    {
+        var map = AnnasLand();
+        var loop = RectanglePolygon(0, 0, 700, 800); // 0,56 км²
+
+        var result = BorisLoop(map, loop);
+
+        Assert.Equal(30_000, map.AreaOf(Anna), 3);
+        Assert.Equal(loop.Area - 25_000, map.AreaOf(Boris), 3);
+        Assert.Equal(25_000, result.Area(PieceOutcome.Contested), 3);
+        Assert.Equal(0, result.Area(PieceOutcome.Transferred) + result.Area(PieceOutcome.Cracked));
+
+        // Пометка — только на части внутри петли; уровни, щиты, осада и счётчики снятия — как были.
+        var marked = LandOf(map, Anna).Where(p => p.State.ContestedUntil is not null).ToList();
+        Assert.Equal(25_000, marked.Sum(p => p.Geometry.Area), 3);
+        Assert.All(marked, p => Assert.Equal(T0.AddHours(46), p.State.ContestedUntil));
+        Assert.Equal([1, 1, 2], marked.Select(p => p.State.Level).Order());
+        Assert.All(LandOf(map, Anna), p => Assert.True(p.State is { SiegeUntil: null, ShieldUntil: null, LossWindowSince: null }));
+        Assert.Equal(5_000, LandOf(map, Anna).Where(p => p.State.ContestedUntil is null).Sum(p => p.Geometry.Area), 3);
+
+        // Пометка записана в журнал: откат возвращает землю без неё (так же её прячет публичная проекция).
+        map.Restore(result.Changes);
+        Assert.Equal(30_000, map.AreaOf(Anna), 3);
+        Assert.All(map.Parcels, p => Assert.Null(p.State.ContestedUntil));
+        Assert.Equal(0, map.AreaOf(Boris), 3);
+    }
+
+    [Fact]
+    public void Loop_just_under_the_threshold_takes_and_cracks_as_before()
+    {
+        var map = AnnasLand();
+
+        var result = BorisLoop(map, RectanglePolygon(0, 0, 700, 700)); // 0,49 км²
+
+        Assert.Equal(0, result.Area(PieceOutcome.Contested));
+        Assert.Equal(15_000, result.Area(PieceOutcome.Transferred), 3); // L1 и половина L1 у края
+        Assert.Equal(10_000, result.Area(PieceOutcome.Cracked), 3);
+        Assert.All(map.Parcels, p => Assert.Null(p.State.ContestedUntil));
+    }
 }

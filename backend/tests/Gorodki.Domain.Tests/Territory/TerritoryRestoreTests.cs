@@ -599,6 +599,13 @@ public sealed class TerritoryRestoreTests
         return shape.IsAccepted ? shape.Area : null;
     }
 
+    /// <summary>
+    /// Каждая третья петля — «большая» (§3.3, #48): пометка «спорная» тоже откатывается по журналу. Признак — из числа
+    /// лучей, а не из генератора: так истории прежних seed не меняются.
+    /// </summary>
+    private static CaptureContext ContextOf(Step step, DateTimeOffset time) =>
+        new(Players[step.Player], time, new HashSet<Guid>(), BigLoop: step.Radii.Length % 3 == 0);
+
     private static TerritoryMap Copy(TerritoryMap map)
     {
         var copy = new TerritoryMap(map.Rules, map.Slivers);
@@ -625,7 +632,7 @@ public sealed class TerritoryRestoreTests
                 }
 
                 before = Copy(map);
-                last = map.Apply(area, new CaptureContext(Players[step.Player], time, new HashSet<Guid>()));
+                last = map.Apply(area, ContextOf(step, time));
             }
 
             if (last is null || before is null)
@@ -672,7 +679,7 @@ public sealed class TerritoryRestoreTests
                     continue;
                 }
 
-                var result = map.Apply(area, new CaptureContext(Players[history[i].Player], time, new HashSet<Guid>()));
+                var result = map.Apply(area, ContextOf(history[i], time));
                 if (i == cheatIndex)
                 {
                     cheat = result;
@@ -817,7 +824,7 @@ public sealed class TerritoryRestoreTests
                 time = time.AddHours(step.HoursLater);
                 if (ShapeOf(step) is { } area)
                 {
-                    hidden = map.Apply(area, new CaptureContext(Players[step.Player], time, new HashSet<Guid>()));
+                    hidden = map.Apply(area, ContextOf(step, time));
                 }
             }
 

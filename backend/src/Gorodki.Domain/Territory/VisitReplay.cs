@@ -35,12 +35,14 @@ public static class VisitReplay
             return [];
         }
 
-        // Визит не меняет ни владельца, ни щит, ни осаду, ни окно снятия уровней: такое изменение — не визит.
+        // Визит не меняет ни владельца, ни щит, ни осаду, ни окно снятия уровней, ни пометку «спорная»: такое изменение —
+        // не визит.
         if (current.OwnerId != written.OwnerId
             || current.ShieldUntil != written.ShieldUntil
             || current.SiegeUntil != written.SiegeUntil
             || current.LossWindowSince != written.LossWindowSince
-            || current.LossAttackers != written.LossAttackers)
+            || current.LossAttackers != written.LossAttackers
+            || current.ContestedUntil != written.ContestedUntil)
         {
             return null;
         }

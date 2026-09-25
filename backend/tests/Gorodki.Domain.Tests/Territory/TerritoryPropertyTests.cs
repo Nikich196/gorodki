@@ -91,7 +91,9 @@ public sealed class TerritoryPropertyTests
                     .ToDictionary(p => p, p => GeoOps.Difference(LandOf(map, p), capture).Area);
                 var piecesBefore = map.Tiles.ToDictionary(tile => tile, tile => map.ParcelsIn(tile));
 
-                var result = map.Apply(capture, new CaptureContext(capturer, time, new HashSet<Guid>()));
+                // Каждая четвёртая петля — «большая» (§3.3, #48): чужая земля внутри только помечается «спорной». Признак —
+                // из шума, а не из генератора: так истории прежних seed не меняются.
+                var result = map.Apply(capture, new CaptureContext(capturer, time, new HashSet<Guid>(), BigLoop: step.NoiseSeed % 4 == 0));
 
                 // Snap-rounding сдвигает любую точку не дальше полудиагонали клетки сетки (0,0707 м), поэтому
                 // площадь меняется не больше чем на 0,0707 × длину границы. Это доказуемая граница, не «на глаз».
@@ -110,11 +112,12 @@ public sealed class TerritoryPropertyTests
                     Math.Abs(decided - capture.Area) <= snapTolerance,
                     $"{step}: решено {decided:0.##} из {capture.Area:0.##} м²");
 
-                // I5: не досталось игроку только то, что под щитом, треснуло, упёрлось в лимит снятия уровней
-                // или ушло в осколки.
+                // I5: не досталось игроку только то, что под щитом, треснуло, упёрлось в лимит снятия уровней, помечено
+                // «спорной» большой петлёй или ушло в осколки.
                 var notTaken = GeoOps.Difference(capture, LandOf(map, capturer)).Area;
                 var protectedArea = result.Area(PieceOutcome.Shielded) + result.Area(PieceOutcome.Cracked)
-                    + result.Area(PieceOutcome.LossLimited) + result.Area(PieceOutcome.Superseded);
+                    + result.Area(PieceOutcome.LossLimited) + result.Area(PieceOutcome.Superseded)
+                    + result.Area(PieceOutcome.Contested);
                 Assert.True(
                     Math.Abs(notTaken - protectedArea) <= result.SliverArea + snapTolerance,
                     $"{step}: не взято {notTaken:0.##}, защищено {protectedArea:0.##}, осколки {result.SliverArea:0.##} м²");
