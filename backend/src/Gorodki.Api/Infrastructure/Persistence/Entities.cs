@@ -368,6 +368,29 @@ public sealed class CaptureJournalEntity
 }
 
 /// <summary>
+/// Зона «спорная» (PLAN.md, §3.3, большая петля): чужая земля внутри большой петли в одном тайле — отдельный слой карты
+/// на 24 ч, куски земли она не меняет. Видна остальным, когда захват станет публичным (как сам захват); уходит вместе с
+/// захватом (откат, удаление) и стирается через сутки после истечения.
+/// </summary>
+public sealed class ContestedZoneEntity
+{
+    public long Id { get; set; }
+
+    public Guid CaptureId { get; set; }
+
+    public League League { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    /// <summary>Многоугольник в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
+    public required Polygon Geometry { get; set; }
+
+    public DateTimeOffset ContestedUntil { get; set; }
+}
+
+/// <summary>
 /// Земля одного состояния внутри следа — до или после захвата. Без внешнего ключа на владельца: журнал переживает
 /// удаление аккаунта, а откат вернёт землю несуществующего игрока ничьей.
 /// </summary>
