@@ -12,12 +12,10 @@ public struct BadgeShape: Shape {
     }
 
     public nonisolated func path(in rect: CGRect) -> Path {
+        // Круг — тоже многоугольник (`BadgeShapeKind.unitVertices`). С `Path(ellipseIn:)` на снимках симулятора iOS 27
+        // у бронзового значка появлялся лишний скруглённый квадрат заливки; причину не выяснили, общий путь — проще.
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let scale = min(rect.width, rect.height) / 2 * radius
-        guard kind != .circle else {
-            return Path(
-                ellipseIn: CGRect(x: center.x - scale, y: center.y - scale, width: 2 * scale, height: 2 * scale))
-        }
         var path = Path()
         path.addLines(kind.unitVertices.map { CGPoint(x: center.x + scale * $0.x, y: center.y + scale * $0.y) })
         path.closeSubpath()

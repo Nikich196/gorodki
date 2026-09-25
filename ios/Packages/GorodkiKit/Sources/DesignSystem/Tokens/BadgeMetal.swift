@@ -116,7 +116,8 @@ public enum BadgeShapeKind: CaseIterable, Sendable {
         }
     }
 
-    /// Вершины многоугольника единичного радиуса с центром в нуле, ось y — вниз, как на экране. У круга вершин нет.
+    /// Вершины многоугольника единичного радиуса с центром в нуле, ось y — вниз, как на экране. Круг — тоже
+    /// многоугольник, из 72 вершин: на экране его не отличить от круга, а все формы рисуются одним путём.
     public var unitVertices: [(x: Double, y: Double)] {
         func polygon(_ count: Int, startDegrees: Double) -> [(x: Double, y: Double)] {
             (0..<count).map { index in
@@ -126,7 +127,7 @@ public enum BadgeShapeKind: CaseIterable, Sendable {
         }
         switch self {
         case .circle:
-            return []
+            return polygon(72, startDegrees: -90)
         case .hexagon:
             // Острым углом вверх.
             return polygon(6, startDegrees: -90)

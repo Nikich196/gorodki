@@ -153,6 +153,10 @@ struct DesignTokensTests {
             #expect(metal.shape.faceRadius < metal.shape.rimRadius, "\(metal)")
             #expect(metal.shape.rimRadius <= 1, "\(metal)")
         }
+        for kind in BadgeShapeKind.allCases {
+            let radii = kind.unitVertices.map { ($0.x * $0.x + $0.y * $0.y).squareRoot() }
+            #expect(radii.count >= 6 && radii.allSatisfy { $0 <= 1 + 1e-9 }, "\(kind)")
+        }
         #expect(BadgeShapeKind.star.unitVertices.count == 16)
         #expect(BadgeShapeKind.hexagon.unitVertices.count == 6)
         #expect(BadgeShapeKind.octagon.unitVertices.count == 8)
