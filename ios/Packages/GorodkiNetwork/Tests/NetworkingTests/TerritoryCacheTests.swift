@@ -55,7 +55,8 @@ struct TerritoryCacheTests {
                     unchanged.append(#"{"x":\#(key.x),"y":\#(key.y)}"#)
                 } else {
                     tiles.append(
-                        #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"parcels":[\#(Self.parcel(version))],"contestedZones":[]}"#)
+                        #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"parcels":[\#(Self.parcel(version))],"contestedZones":[]}"#
+                    )
                 }
             }
             if holdNext {
