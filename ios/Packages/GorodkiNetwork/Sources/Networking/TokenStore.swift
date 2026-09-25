@@ -89,6 +89,19 @@ public actor TokenStore {
         }
     }
 
+    /// Кто вошёл — с отличием «точно не вошёл» от «хранилище сейчас недоступно»: по первому стираются файлы
+    /// прежнего игрока (кэш тайлов), по второму — нет.
+    public func sessionOwner() -> SessionOwner {
+        if let tokens = current() {
+            // Токен без игрока — не выход: вход есть, просто неизвестно чей.
+            return tokens.playerId.map { .signedIn(playerId: $0) } ?? .unknown
+        }
+        if case .loaded = cache {
+            return .signedOut
+        }
+        return .unknown
+    }
+
     /// Вход выполнен (`POST /auth/google`): токены сохраняются. Если Keychain сейчас недоступен, вход работает по копии
     /// в памяти, а запись повторяется при следующем обращении.
     public func signIn(_ tokens: AuthTokens) {

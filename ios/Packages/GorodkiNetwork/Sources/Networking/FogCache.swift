@@ -22,6 +22,10 @@ public struct FogTileRef: Hashable, Sendable, Comparable {
 /// «туман изменился» (`FogChanged`) и при каждом подключении реального времени (подсказки за время разрыва
 /// потеряны). Версии свои у каждого игрока — при смене аккаунта кэш очищается (`reset`). Повреждённый тайл пропускается
 /// и считается в `corruptedTiles`, остальные — нет.
+///
+/// С `disk` тайлы переживают перезапуск (docs/architecture/ios-app.md): биты пишутся в файл как пришли, а
+/// восстановленный тайл считается устаревшим — подсказки `FogChanged`, пока приложение было выгружено, потеряны, и первый
+/// запрос идёт с его версией. Стёртый очисткой истории тайл и на диске — обычный пустой с версией 0.
 public actor FogCache {
     /// Не больше стольких тайлов за запрос — предел сервера.
     public static let maxTilesPerRequest = 25
@@ -51,14 +55,22 @@ public actor FogCache {
     /// Номер «поколения»: `reset` его меняет, и ответ, начатый до смены аккаунта, выбрасывается.
     private var generation = 0
     public private(set) var corruptedTiles = 0
+    private var disk: TileDiskBinding?
+    /// Файлы, отброшенные при чтении как испорченные (они стёрты, тайл запрашивается заново).
+    public private(set) var corruptedFiles = 0
+    /// Тайлы, не записанные на диск: кэш в памяти от этого не страдает, после перезапуска их просто запросят.
+    public private(set) var diskWriteFailures = 0
 
+    /// - Parameter disk: где хранить тайлы между запусками; `nil` — только в памяти.
     public init(
-        api: any APIProtocol, layer: Components.Schemas.FogLayerKind, season: Int? = nil,
+        api: any APIProtocol, layer: Components.Schemas.FogLayerKind, season: Int? = nil, disk: TileCacheDisk? = nil,
         now: @escaping @Sendable () -> Double = { Date().timeIntervalSince1970 }
     ) {
         self.api = api
         self.layer = layer
         self.season = season
+        let period = season.map { "s\($0)" } ?? "all"
+        self.disk = disk.map { TileDiskBinding(disk: $0, cache: "fog-\(layer.rawValue)-\(period)") }
         self.now = now
     }
 
@@ -73,29 +85,97 @@ public actor FogCache {
         stale.formUnion(tiles.keys)
     }
 
-    /// Смена аккаунта.
+    /// Смена аккаунта. Файлы стираются все — и других игроков.
     public func reset() {
+        resetMemory()
+        disk?.forget()
+    }
+
+    private func resetMemory() {
         tiles = [:]
         stale = []
         lastWanted = [:]
         generation += 1
     }
 
+    /// Показать тайлы с диска без сети. Тайлы, уже бывшие в памяти, не трогаются.
+    /// - Returns: восстановленные тайлы — их нужно нарисовать.
+    @discardableResult
+    public func restore(visible: Set<FogTileRef>) async -> Set<FogTileRef> {
+        await bindCurrentOwner()
+        return restoreMissing(visible)
+    }
+
+    /// Сначала — кто вошёл: без этого после смены аккаунта (до `reset` от приложения) на карту попал бы чужой туман.
+    private func bindCurrentOwner() async {
+        guard let owner = await disk?.disk.owner() else { return }
+        if disk?.bind(owner, capacity: Self.capacity) == true {
+            resetMemory()
+        }
+    }
+
+    private func restoreMissing(_ keys: Set<FogTileRef>) -> Set<FogTileRef> {
+        guard let store = disk?.store else { return [] }
+        var restored: Set<FogTileRef> = []
+        for key in keys where tiles[key] == nil {
+            switch store.read(x: key.x, y: key.y) {
+            case .missing:
+                continue
+            case .corrupted:
+                corruptedFiles += 1
+            case .ok(let file):
+                // Та же проверка, что у ответа сервера; пустой тайл хранится без бит.
+                let cellCount = file.cellCount ?? -1
+                let words: [UInt64]? =
+                    cellCount == 0 && file.payload.isEmpty
+                    ? []
+                    : (try? FogTileCodec.words(fromCompressed: file.payload)).flatMap {
+                        FogTileCodec.cellCount($0) == cellCount ? $0 : nil
+                    }
+                guard let words else {
+                    store.delete(x: key.x, y: key.y)
+                    corruptedFiles += 1
+                    continue
+                }
+                tiles[key] = Tile(key: key, version: file.version, cellCount: cellCount, words: words)
+                stale.insert(key)
+                restored.insert(key)
+            }
+        }
+        return restored
+    }
+
+    /// Записать тайл, каким он принят в память, — с битами ответа (пустой — без бит).
+    private func persist(_ key: FogTileRef, bits: Data) {
+        guard let store = disk?.store, let tile = tiles[key] else { return }
+        let time = TileFile.milliseconds(now())
+        do {
+            try store.write(
+                TileFile(
+                    x: key.x, y: key.y, version: tile.version, loadedAtMs: time, savedAtMs: time,
+                    cellCount: tile.cellCount, payload: tile.cellCount == 0 ? Data() : bits))
+        } catch {
+            diskWriteFailures += 1
+        }
+    }
+
     /// Обновить тайлы, которые показывает карта.
     /// - Returns: тайлы с новыми данными — их нужно перерисовать.
     @discardableResult
     public func refresh(visible: Set<FogTileRef>) async throws -> Set<FogTileRef> {
+        await bindCurrentOwner()
+        let restored = restoreMissing(visible)
         let time = now()
         for key in visible {
             lastWanted[key] = time
         }
         let due = visible.filter { tiles[$0] == nil || stale.contains($0) }.sorted()
-        var updated: Set<FogTileRef> = []
+        var updated = restored
         for start in stride(from: 0, to: due.count, by: Self.maxTilesPerRequest) {
             let batch = Array(due[start..<min(start + Self.maxTilesPerRequest, due.count)])
             updated.formUnion(try await fetch(batch))
         }
-        evict()
+        evict()  // файлы остаются: диск — второй уровень кэша, обрезается при привязке к игроку
         return updated
     }
 
@@ -138,6 +218,7 @@ public actor FogCache {
                 view.cellCount == 0
                 ? Tile(key: key, version: 0, cellCount: 0, words: [])
                 : Tile(key: key, version: view.version, cellCount: Int(view.cellCount), words: words)
+            persist(key, bits: Data(view.bits.data))
             updated.insert(key)
         }
         for ref in response.unchanged {
