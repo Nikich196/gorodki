@@ -3,7 +3,7 @@
 #                      затем дымовой запуск и тесты приложения на симуляторе;
 #  ios-build-xcode26 — раз в неделю резервная сборка на Xcode 26 (раннер macos-26),
 #                      чтобы не зависеть только от preview-раннера.
-# Снимки экранов, UI-тесты и SF Symbols — информационно, в ios-snapshots.yml.
+# Снимки экранов, UI-тесты и SF Symbols — в ios-snapshots.yml, слияние не держат.
 # -skipPackagePluginValidation: клиент API (пакет GorodkiAPI) генерируется плагином при сборке, а xcodebuild
 # из командной строки без этого флага требует вручную подтвердить доверие плагину (docs/adr/0004-openapi-swift.md).
 name: ios
