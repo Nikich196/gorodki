@@ -2,7 +2,7 @@ import DesignSystem
 import Networking
 import SwiftUI
 
-/// Онбординг до входа (PLAN.md, §3.18): интро → код приглашения → 16+ → соглашение и согласие → Google. Контентный
+/// Онбординг до входа (PLAN.md, §3.18): интро → код приглашения → 16+ → соглашение → согласие → Google. Контентный
 /// слой — без стекла; главная кнопка — нейтральная (`.neutral`), цвет игрока появится только на «Старте».
 struct OnboardingView: View {
     @Bindable var model: OnboardingModel
@@ -32,6 +32,7 @@ struct OnboardingView: View {
         case .intro: IntroStep(model: model)
         case .invite: InviteStep(model: model)
         case .age: AgeStep(model: model)
+        case .terms: TermsStep(model: model)
         case .consent: ConsentStep(model: model)
         case .signIn: SignInStep(model: model, browseWithoutSignIn: browseWithoutSignIn)
         }
@@ -144,16 +145,15 @@ private struct AgeStep: View {
     }
 }
 
-private struct ConsentStep: View {
+private struct TermsStep: View {
     @Bindable var model: OnboardingModel
     @State private var opened: LegalDocument.Name?
-    private let consent = LegalDocument.load(.consent)
 
     var body: some View {
         StepScaffold(
-            title: "Правила и согласие",
-            text: "Две отдельные отметки: принять соглашение и дать согласие на обработку данных.",
-            error: model.errorMessage(on: .consent)
+            title: "Правила игры",
+            text: "Пользовательское соглашение и политика: что можно в игре и как мы обращаемся с данными.",
+            error: model.errorMessage(on: .terms)
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Принимаю пользовательское соглашение", isOn: $model.termsAccepted)
@@ -167,7 +167,29 @@ private struct ConsentStep: View {
                 .padding(.leading, 36)
             }
             .contentCard()
+        } footer: {
+            Button("Дальше") { model.advance(from: .terms) }
+                .buttonStyle(.neutral)
+                .disabled(!model.termsAccepted)
+        }
+        .sheet(item: $opened) { name in
+            LegalDocumentSheet(name: name)
+        }
+    }
+}
 
+/// Согласие — отдельно от иной информации (статья 5 Закона, docs/legal/consent-v1.md): на экране только его текст и
+/// одна отметка.
+private struct ConsentStep: View {
+    @Bindable var model: OnboardingModel
+    private let consent = LegalDocument.load(.consent)
+
+    var body: some View {
+        StepScaffold(
+            title: "Согласие на обработку данных",
+            text: "Прочитай, какие данные игра обрабатывает и зачем, — и отметь согласие.",
+            error: model.errorMessage(on: .consent)
+        ) {
             VStack(alignment: .leading, spacing: 16) {
                 // Подпись отметки — из раздела «Отметка» самого документа: без текста согласия отметки нет.
                 if let consent, let checkbox = consent.checkbox {
@@ -185,9 +207,6 @@ private struct ConsentStep: View {
             Button("Дальше") { model.advance(from: .consent) }
                 .buttonStyle(.neutral)
                 .disabled(!model.consentReady)
-        }
-        .sheet(item: $opened) { name in
-            LegalDocumentSheet(name: name)
         }
     }
 }

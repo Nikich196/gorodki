@@ -2,10 +2,11 @@ import Foundation
 import Networking
 import Observation
 
-/// Шаги онбординга (PLAN.md, §3.18 и §5): интро → код приглашения → 16+ → соглашение и согласие → вход через Google.
-/// «Дом» — позже, вместе с картой.
+/// Шаги онбординга (PLAN.md, §3.18 и §5): интро → код приглашения → 16+ → соглашение → согласие → вход через Google.
+/// Согласие — на своём шаге: статья 5 Закона требует показать его сведения «отдельно от иной информации»
+/// (docs/legal/consent-v1.md). «Дом» — позже, вместе с картой.
 enum OnboardingStep: String, CaseIterable, Hashable, Sendable {
-    case intro, invite, age, consent, signIn
+    case intro, invite, age, terms, consent, signIn
 }
 
 /// Код приглашения, как его набрал игрок: без пробелов по краям и заглавными буквами — коды выдаются заглавными
@@ -74,7 +75,8 @@ final class OnboardingModel {
         !InviteCode.normalized(inviteCode).isEmpty
     }
 
-    /// Соглашение и согласие — две отдельные отметки (docs/legal/README.md); серверу уходит одна: обе обязательны.
+    /// Соглашение и согласие — две отдельные отметки на двух шагах (docs/legal/README.md); серверу уходит одна: обе
+    /// обязательны.
     var consentReady: Bool {
         termsAccepted && consentGiven
     }
@@ -114,7 +116,8 @@ final class OnboardingModel {
         case .invite:
             inviteCode = InviteCode.normalized(inviteCode)
             path.append(.age)
-        case .age: path.append(.consent)
+        case .age: path.append(.terms)
+        case .terms: path.append(.consent)
         case .consent: path.append(.signIn)
         case .signIn: break
         }
@@ -157,7 +160,7 @@ final class OnboardingModel {
                 // Токен истёк или этим аккаунтом не войти — следующий вход откроет окно Google заново.
                 pendingIdToken = nil
             }
-            let steps: [OnboardingStep] = [.invite, .age, .consent, .signIn]
+            let steps: [OnboardingStep] = [.invite, .age, .terms, .consent, .signIn]
             let step: OnboardingStep =
                 switch failure {
                 case .inviteInvalid, .inviteRequired: .invite
