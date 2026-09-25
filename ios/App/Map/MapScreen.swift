@@ -112,7 +112,7 @@ private struct ExploreCard: View {
                 Text(verbatim: summary)
                     .font(.headline.monospacedDigit())
                     .foregroundStyle(Palette.uiInk.color)
-                Text("Слой «Пешком» · туман открывается только на забеге")
+                Text("Слой «Пешком» · открывается на забеге")
                     .font(.caption)
                     .foregroundStyle(Palette.uiInk2.color)
             }

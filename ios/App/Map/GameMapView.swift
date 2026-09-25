@@ -196,8 +196,8 @@ struct GameMapView: UIViewRepresentable {
             }
             if isEdge, let multi = overlay as? MKMultiPolyline {
                 let stroke = style.relation.edge
-                let renderer = LandEdgeRenderer(
-                    multiPolyline: multi, glow: style.relation.glowRadius(theme: theme))
+                let renderer = LandEdgeRenderer(multiPolyline: multi)
+                renderer.glow = style.relation.glowRadius(theme: theme)
                 renderer.strokeColor = style.edge(theme).uiColor
                 renderer.lineWidth = stroke.width
                 renderer.lineCap = .round
@@ -242,13 +242,12 @@ struct GameMapView: UIViewRepresentable {
 
 /// Кромка земли: толщина и пунктир — у `MKOverlayPathRenderer` в экранных pt, свечение своей ночью — тенью того же
 /// цвета (`TerritoryRelation.glowRadius`, 3 pt).
+///
+/// Своего инициализатора нет: `init(multiPolyline:)` MapKit внутри зовёт `init(overlay:)`, и подкласс со своим
+/// назначенным инициализатором падал бы («unimplemented initializer»). Свечение задаётся после создания.
 final class LandEdgeRenderer: MKMultiPolylineRenderer, @unchecked Sendable {
-    private let glow: Double
-
-    init(multiPolyline: MKMultiPolyline, glow: Double) {
-        self.glow = glow
-        super.init(multiPolyline: multiPolyline)
-    }
+    /// Радиус свечения, pt; 0 — без свечения. Задаётся до первой отрисовки.
+    var glow = 0.0
 
     override func applyStrokeProperties(to context: CGContext, atZoomScale zoomScale: MKZoomScale) {
         super.applyStrokeProperties(to: context, atZoomScale: zoomScale)

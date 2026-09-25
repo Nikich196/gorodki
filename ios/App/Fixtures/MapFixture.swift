@@ -19,10 +19,10 @@
         /// и 300…410 м к северу от угла.
         static let origin = PlanarPoint(east: 684_000, north: 5_775_000)
 
-        /// Окно камеры — вся земля фикстуры.
+        /// Окно камеры — вся земля фикстуры: ~1 км по ширине экрана (земля — от −420 до 550 м по x).
         static let window = MapWindow(
-            center: Utm34.unproject(PlanarPoint(east: origin.east + 40, north: origin.north + 250)),
-            latitudeDelta: 0.0125, longitudeDelta: 0.0125)
+            center: Utm34.unproject(PlanarPoint(east: origin.east + 65, north: origin.north + 280)),
+            latitudeDelta: 0.009, longitudeDelta: 0.015)
 
         /// Касание листа участка (`map-parcel`): свой кусок 41 образца, в углу — живая зона «спорная».
         static let parcelTap = Coordinate(latitude: 52.0984, longitude: 23.6892)
