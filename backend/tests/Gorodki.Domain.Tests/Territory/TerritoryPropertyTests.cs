@@ -230,6 +230,37 @@ public sealed class TerritoryPropertyTests
         Assert.Equal([0, 0, 1], fallbacks);
     }
 
+    /// <summary>
+    /// Issue #113 (seed clJtO7MV94Z4, история сокращена до одного захвата): петля в 56 369 м² целиком в одном тайле, а
+    /// проверка узости сказала, что она уже 1,5 м (<see cref="GeoOps.IsNarrowerThan"/>). Движок сделал весь кусок ничьим
+    /// осколком без соседей, в тайле ничего не изменилось, и захват пропал, хотя решения по нему посчитаны.
+    /// </summary>
+    [Fact]
+    public void Wide_capture_is_not_lost_as_a_sliver()
+    {
+        var step = new Step(
+            Player: 0,
+            CenterX: 221.9669932274494,
+            CenterY: -314.9663212021858,
+            Radii:
+            [
+                182.5032486566879, 190.48866389598618, 123.94527000506139, 206.5466206520099, 138.83699039273705, 212, 34,
+                44.61904761904762,
+            ],
+            Rotation: 0,
+            HoursLater: 0,
+            NoiseSeed: 820720);
+        var shape = CaptureShapeBuilder.Build(TrailOf(step), 40, null, ShapeSettings);
+        Assert.True(shape.IsAccepted, $"{step}: {shape.Rejection}");
+
+        var map = new TerritoryMap();
+        var result = map.Apply(shape.Area, new CaptureContext(Players[0], T0, new HashSet<Guid>()));
+
+        Assert.Empty(TerritoryInvariants.Check(map));
+        Assert.Equal(shape.Area.Area, map.AreaOf(Players[0]), TerritoryMap.SnapTolerance(shape.Area));
+        Assert.Equal(0, result.SliverArea);
+    }
+
     [Fact]
     public void Same_history_always_gives_the_same_map()
     {

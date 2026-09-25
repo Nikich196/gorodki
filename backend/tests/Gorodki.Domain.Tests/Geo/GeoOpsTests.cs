@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Gorodki.Domain.Geo;
 using NetTopologySuite.Geometries;
+using NetTopologySuite.Operation.Buffer;
 
 namespace Gorodki.Domain.Tests.Geo;
 
@@ -67,6 +68,43 @@ public sealed class GeoOpsTests
 
         Assert.False(GeoOps.IsNarrowerThan(strip, 4));
         Assert.True(GeoOps.IsNarrowerThan(strip, 6));
+    }
+
+    [Fact]
+    public void Narrowness_does_not_depend_on_the_grid()
+    {
+        // Issue #113: 5 из 80 вершин петли в 56 000 м², которую движок принял за осколок, — до 6 м шириной. NTS на
+        // геометрии с сеткой 0,1 м сжимает её на 0,75 м «в ничто»; без сетки остаётся 469 м².
+        var polygon = GeoOps.Factory.CreatePolygon(
+        [
+            new Coordinate(684406.6, 5774683.1), new Coordinate(684389.6, 5774683.4), new Coordinate(684083.9, 5774670.2),
+            new Coordinate(684401.6, 5774689.4), new Coordinate(684405, 5774684.4), new Coordinate(684406.6, 5774683.1),
+        ]);
+        var mitre = new BufferParameters { JoinStyle = JoinStyle.Mitre, MitreLimit = 2.0, EndCapStyle = EndCapStyle.Flat };
+
+        Assert.True(BufferOp.Buffer(polygon, -0.75, mitre).IsEmpty); // так считает NTS на нашей сетке
+        Assert.False(GeoOps.IsNarrowerThan(polygon, 0.75));
+        Assert.True(GeoOps.IsNarrowerThan(polygon, 4));
+    }
+
+    [Fact]
+    public void Overlap_does_not_depend_on_how_the_shared_border_is_split()
+    {
+        // Issue #101: угол (…78; …93,7) лежит на стороне соседа, где у того вершины нет. Snap-rounding находит там точку
+        // пересечения не точно, и сторона соседа уходит к вершине (…77,8; …93,8): «наложение» 0,01 м², которого нет.
+        var corner = GeoOps.Factory.CreatePolygon(
+        [
+            new Coordinate(684077.8, 5775093.9), new Coordinate(684078, 5775093.7), new Coordinate(684077.8, 5775093.8),
+            new Coordinate(684077.8, 5775093.9),
+        ]);
+        var neighbour = GeoOps.Factory.CreatePolygon(
+        [
+            new Coordinate(684077.8, 5775093.9), new Coordinate(684098.1, 5775079), new Coordinate(684078.1, 5775093.6),
+            new Coordinate(684077.8, 5775093.9),
+        ]);
+
+        Assert.Equal(0.01, GeoOps.Intersection(corner, neighbour).Area, 6);
+        Assert.Equal(0, GeoOps.OverlapArea(corner, neighbour));
     }
 
     [Fact]
