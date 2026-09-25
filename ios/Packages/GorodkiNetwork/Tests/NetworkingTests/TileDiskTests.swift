@@ -166,6 +166,40 @@ struct TerritoryCacheDiskTests {
         #expect(await online.requests == [["684:5775@3", "685:5775@0"]])
     }
 
+    @Test("Зоны «спорная» переживают перезапуск вместе с кусками")
+    func zonesSurviveRestart() async throws {
+        let server = TerritoryCacheTests.Server()
+        await server.set(Self.a, version: 3)
+        await server.setZone(Self.a, untilMs: 1_790_086_800_000)
+        try await cache(server).refresh(visible: [Self.a])
+        let offline = TerritoryCacheTests.Server()
+        await offline.fail(status: 503)
+        let restarted = cache(offline)
+        #expect(await restarted.restore(visible: [Self.a]) == [Self.a])
+        #expect(await restarted.tile(Self.a)?.contestedZones.map(\.untilMs) == [1_790_086_800_000])
+    }
+
+    @Test("Файл прежнего вида (только куски) читается без зон, а тайл запрашивается целиком — чтобы пришли зоны")
+    func fileWithoutZones() async throws {
+        let store = fixture.location.store(owner: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", cache: "territory-run")
+        let ms = TileFile.milliseconds(clock.now)
+        try store.write(
+            TileFile(
+                x: Self.a.x, y: Self.a.y, version: 3, loadedAtMs: ms, savedAtMs: ms, cellCount: nil,
+                payload: Data(("[" + TerritoryCacheTests.Server.parcel(3) + "]").utf8)))
+        let offline = TerritoryCacheTests.Server()
+        await offline.fail(status: 503)
+        let restarted = cache(offline)
+        #expect(await restarted.restore(visible: [Self.a]) == [Self.a])
+        #expect(await restarted.tile(Self.a)?.parcels.first?.level == 3)
+        #expect(await restarted.tile(Self.a)?.contestedZones == [])
+
+        let online = TerritoryCacheTests.Server()
+        await online.set(Self.a, version: 3)
+        try await cache(online).refresh(visible: [Self.a])
+        #expect(await online.requests == [["684:5775"]])
+    }
+
     @Test("Время загрузки — из файла: через два часа после перезапуска тайл запрашивается целиком")
     func decayAfterRestart() async throws {
         _ = try await seeded()

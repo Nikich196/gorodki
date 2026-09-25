@@ -1,6 +1,6 @@
 /// Участок на карте для касания: внешний контур и дыры в координатах (как в `GET /territory`, docs/architecture/
 /// territory-map.md: кольца `[широта, долгота, …]`, первая точка повторяется в конце).
-public struct ParcelShape: Sendable, Equatable {
+public struct ParcelShape: Hashable, Sendable {
     public var exterior: [Coordinate]
     public var holes: [[Coordinate]]
 

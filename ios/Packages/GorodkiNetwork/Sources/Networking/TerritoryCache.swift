@@ -32,6 +32,9 @@ public actor TerritoryCache {
         /// Видимая версия — какой её видит этот игрок.
         public var version: Int64
         public var parcels: [Components.Schemas.ParcelView]
+        /// Зоны «спорная» (большая петля, §3.3). Сервер присылает только неистёкшие, но тайл живёт здесь до часа,
+        /// а версия при истечении зоны не меняется: истёкшие по `untilMs` скрывает карта.
+        public var contestedZones: [Components.Schemas.ContestedZoneView]
         /// Когда тайл пришёл с сервера целиком (секунды): от этого считается `maxAge`.
         public var loadedAt: Double
         /// Когда сервер последний раз подтвердил тайл (целиком или «без изменений»): от этого считается опрос.
@@ -120,17 +123,19 @@ public actor TerritoryCache {
             case .corrupted:
                 corruptedFiles += 1
             case .ok(let file):
-                guard let parcels = try? JSONDecoder().decode([Components.Schemas.ParcelView].self, from: file.payload)
-                else {
+                guard let payload = DiskPayload.decode(file.payload) else {
                     store.delete(x: key.x, y: key.y)
                     corruptedFiles += 1
                     continue
                 }
                 // Загружен «в будущем» — часы телефона перевели назад: такой тайл считался бы свежим, пока часы его
-                // не догонят, и угасание не перезапрашивалось бы целиком. Считать его старым.
+                // не догонят, и угасание не перезапрашивалось бы целиком. Считать его старым. Файл прежнего вида
+                // (без зон) — тоже: тогда он придёт целиком, с зонами.
                 let loadedAt = Double(file.loadedAtMs) / 1_000
                 tiles[key] = Tile(
-                    key: key, version: file.version, parcels: parcels, loadedAt: loadedAt <= time ? loadedAt : 0,
+                    key: key, version: file.version, parcels: payload.parcels,
+                    contestedZones: payload.contestedZones ?? [],
+                    loadedAt: loadedAt <= time && payload.contestedZones != nil ? loadedAt : 0,
                     checkedAt: 0)  // перепроверить один раз: подсказки, пока приложение было выгружено, потеряны
                 restored.insert(key)
             }
@@ -145,7 +150,9 @@ public actor TerritoryCache {
                 TileFile(
                     x: tile.key.x, y: tile.key.y, version: tile.version,
                     loadedAtMs: TileFile.milliseconds(tile.loadedAt), savedAtMs: TileFile.milliseconds(now()),
-                    cellCount: nil, payload: try JSONEncoder().encode(tile.parcels)))
+                    cellCount: nil,
+                    payload: try JSONEncoder().encode(
+                        DiskPayload(parcels: tile.parcels, contestedZones: tile.contestedZones))))
         } catch {
             diskWriteFailures += 1
         }
@@ -214,7 +221,9 @@ public actor TerritoryCache {
             {
                 continue
             }
-            let accepted = Tile(key: key, version: tile.version, parcels: tile.parcels, loadedAt: time, checkedAt: time)
+            let accepted = Tile(
+                key: key, version: tile.version, parcels: tile.parcels, contestedZones: tile.contestedZones,
+                loadedAt: time, checkedAt: time)
             tiles[key] = accepted
             persist(accepted)
             updated.insert(key)
@@ -238,6 +247,21 @@ public actor TerritoryCache {
             lastWanted[key] = nil
             changed[key] = nil
         }
+    }
+}
+
+/// Земля тайла в файле: куски и зоны «спорная». Файлы до зон хранили один список кусков — они читаются, а зон
+/// в них нет (`nil`).
+struct DiskPayload: Codable, Equatable {
+    var parcels: [Components.Schemas.ParcelView]
+    var contestedZones: [Components.Schemas.ContestedZoneView]?
+
+    static func decode(_ data: Data) -> DiskPayload? {
+        if let payload = try? JSONDecoder().decode(DiskPayload.self, from: data) {
+            return payload
+        }
+        return (try? JSONDecoder().decode([Components.Schemas.ParcelView].self, from: data))
+            .map { DiskPayload(parcels: $0, contestedZones: nil) }
     }
 }
 

@@ -20,8 +20,11 @@ struct TerritoryCacheTests {
         private var failWith: Int?
         private var holdNext = false
         private var held: CheckedContinuation<Void, Never>?
+        private var zones: [TileKey: Int64] = [:]
 
         func set(_ key: TileKey, version: Int64) { versions[key] = version }
+        /// Зона «спорная» в тайле до `untilMs`.
+        func setZone(_ key: TileKey, untilMs: Int64) { zones[key] = untilMs }
         func fail(status: Int) { failWith = status }
         /// Следующий ответ — готов, но придержан до `release()`: как медленная сеть.
         func holdNextResponse() { holdNext = true }
@@ -54,8 +57,9 @@ struct TerritoryCacheTests {
                 if parts.count == 2, Int64(parts[1]) == version {
                     unchanged.append(#"{"x":\#(key.x),"y":\#(key.y)}"#)
                 } else {
+                    let zone = zones[key].map(Self.zone) ?? ""
                     tiles.append(
-                        #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"parcels":[\#(Self.parcel(version))],"contestedZones":[]}"#
+                        #"{"x":\#(key.x),"y":\#(key.y),"version":\#(version),"parcels":[\#(Self.parcel(version))],"contestedZones":[\#(zone)]}"#
                     )
                 }
             }
@@ -68,6 +72,11 @@ struct TerritoryCacheTests {
             var fields = HTTPFields()
             fields[.contentType] = "application/json"
             return (HTTPResponse(status: .ok, headerFields: fields), HTTPBody(Data(json.utf8)))
+        }
+
+        /// Зона «спорная» до `untilMs`.
+        static func zone(_ untilMs: Int64) -> String {
+            #"{"untilMs":\#(untilMs),"exterior":[52.1,23.7,52.1,23.705,52.105,23.705,52.1,23.7],"holes":[]}"#
         }
 
         /// Кусок, по которому видно, какой версии тайл: уровень = версия (до 3).
@@ -126,6 +135,17 @@ struct TerritoryCacheTests {
         #expect(await server.requests.suffix(2) == [["684:5775@0"], ["684:5775@0"]])
         #expect(await cache.tile(key)?.version == 2)
         #expect(await cache.tile(key)?.parcels.first?.level == 2)
+    }
+
+    @Test("Зоны «спорная» приходят с тайлом и хранятся с ним — истёкшие скрывает карта, не кэш")
+    func contestedZonesKept() async throws {
+        let key = TileKey(x: 684, y: 5775)
+        await server.set(key, version: 1)
+        await server.setZone(key, untilMs: 1_790_086_800_000)
+        let cache = cache()
+        try await cache.refresh(visible: [key])
+        #expect(await cache.tile(key)?.contestedZones.map(\.untilMs) == [1_790_086_800_000])
+        #expect(await cache.tile(TileKey(x: 685, y: 5775)) == nil)
     }
 
     @Test("Подсказка про тайл, которого карта не показывает, запроса не вызывает — до его показа")
