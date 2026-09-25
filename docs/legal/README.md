@@ -59,7 +59,7 @@
 | Туман и контуры захватов — пока существует аккаунт | `FogTileEntity`, `CaptureEntity.Shape` в `Entities.cs`; чистки для них нет |
 | Журнал захватов — 7 дней | §3.16 «журнал захватов — 7–30 дней»; в коде 7 — `CaptureProcessor.JournalRetention` |
 | Срезы рейтинга — 7 дней | `LeaderboardSnapshots.KeepDays` (в плане срока нет) |
-| Входы — до конца срока (30 дней), затем стираются в течение часа | `AuthOptions.RefreshTokenDays`, `RefreshTokenRetention` |
+| Входы — до конца срока (30 дней), затем стираются в течение часа | `AuthOptions.RefreshTokenDays`, `RefreshTokenRetention`; раз в час — задача Hangfire `refresh-tokens-purge` (`ScheduledJobs`), поэтому на проде выключатель `Jobs__Hangfire` не выключать |
 | Удаление не больше 15 дней, обычно 1–2 часа, не раньше чем через 20–25 минут | §3.16; `AccountDeletion.Deadline`; `TerritoryReader.PublicHorizon` (20 минут вниз до шага 5 минут); `CaptureWorker.PruneInterval` (час); [auth.md](../architecture/auth.md#удаление-аккаунта) |
 | Срок удаления показывается при запросе | `AccountDeletionResponse.DeleteByMs` в `MeEndpoints` |
 | Номер удалённого — до 7 дней в журнале чужих захватов | Пояснение к `AccountDeletion`; [auth.md](../architecture/auth.md#удаление-аккаунта) |
