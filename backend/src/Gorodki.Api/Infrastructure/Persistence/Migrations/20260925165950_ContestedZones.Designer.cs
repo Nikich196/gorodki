@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Gorodki.Api.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260925160510_ContestedMark")]
-    partial class ContestedMark
+    [Migration("20260925165950_ContestedZones")]
+    partial class ContestedZones
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -224,10 +224,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("capture_id");
 
-                    b.Property<DateTimeOffset?>("ContestedUntil")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("contested_until");
-
                     b.Property<byte[]>("Geometry")
                         .IsRequired()
                         .HasColumnType("bytea")
@@ -354,6 +350,52 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_capture_rollbacks_user_id");
 
                     b.ToTable("capture_rollbacks", "app");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.ContestedZoneEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("CaptureId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("capture_id");
+
+                    b.Property<DateTimeOffset>("ContestedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("contested_until");
+
+                    b.Property<Polygon>("Geometry")
+                        .IsRequired()
+                        .HasColumnType("geometry(Polygon, 32634)")
+                        .HasColumnName("geometry");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<int>("TileX")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_x");
+
+                    b.Property<int>("TileY")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_y");
+
+                    b.HasKey("Id")
+                        .HasName("pk_contested_zones");
+
+                    b.HasIndex("CaptureId")
+                        .HasDatabaseName("ix_contested_zones_capture_id");
+
+                    b.HasIndex("League", "TileX", "TileY")
+                        .HasDatabaseName("ix_contested_zones_league_tile_x_tile_y");
+
+                    b.ToTable("contested_zones", "app");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FogTileEntity", b =>
@@ -522,10 +564,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTimeOffset?>("ContestedUntil")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("contested_until");
 
                     b.Property<Polygon>("Geometry")
                         .IsRequired()
@@ -1091,6 +1129,16 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_capture_rollbacks_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.ContestedZoneEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.CaptureEntity", null)
+                        .WithMany()
+                        .HasForeignKey("CaptureId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_contested_zones_captures_capture_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FogTileEntity", b =>

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -159,23 +160,33 @@ public sealed class TerritoryTests(DatabaseFixture database)
     }
 
     [Fact]
-    public async Task Big_loop_only_marks_enemy_land_contested_and_the_mark_waits_for_the_public_delay()
+    public async Task Big_loop_leaves_enemy_land_as_it_was_and_its_contested_zone_waits_for_the_public_delay()
     {
-        // PLAN §3.3 (решено 25.09 в #48): петля больше 0,5 км² чужую землю не берёт и не трескает — только пометка «спорная»
-        // на 24 ч. Пометка меняет чужую землю, поэтому остальные и сама Анна видят её после границы публичности, как захват.
+        // PLAN §3.3 (решено 25.09 в #48): петля больше 0,5 км² чужую землю не берёт и не трескает — куски не меняются вовсе,
+        // а чужая земля внутри попадает в зону «спорная» на 24 ч (отдельный слой). Зона — след чужой петли, поэтому видна
+        // остальным и самой Анне только после границы публичности, как захват. В тайле, где петля накрыла только землю Анны,
+        // земля не меняется, но зона всё равно должна дойти до телефона с известной версией тайла — и не раньше границы.
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
         var (boris, borisId) = await api.CreatePlayerClientAsync();
         var (vera, _) = await api.CreatePlayerClientAsync();
+        var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
         var area = NewArea();
-        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
-        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
-        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
-        var before = await TileAsync(vera, tile);
+        var x0 = WalkOrigin.X + area.X;
+        var east = 1_000 - (((x0 % 1_000) + 1_000) % 1_000); // до ближайшей границы тайлов на восток: 500 или 1000 м
 
-        // 720 × 720 м ≈ 0,52 км² — больше порога бег-лиги; 2,9 км прогулки, начатой 40 минут назад.
-        var (runId, captureId) = await WalkLoopAndOnAsync(Cancel, api, boris, Square(area, -50, -50, 720), [], TimeSpan.FromMinutes(40));
+        // Анна — полоса 150 × 1050 м поперёк границы тайлов; Борис — петля до 30 м за границей: там только земля Анны.
+        await ProcessAsync(api, (await WalkLoopAndOnAsync(Cancel, api, anna, Rectangle(area, east - 50, -100, 150, 1_050), [], TimeSpan.FromMinutes(40))).RunId);
+        api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        var mixedTile = TileKey.Of(x0 + east - 25, WalkOrigin.Y + area.Y + 400);
+        var zoneOnlyTile = TileKey.Of(x0 + east + 15, WalkOrigin.Y + area.Y + 400);
+        var mixedBefore = await TileAsync(vera, mixedTile);
+        var zoneOnlyBefore = await TileAsync(vera, zoneOnlyTile);
+        var annaBefore = await AnnasLandAsync(annaId);
+
+        var loop = Rectangle(area, -50, -50, east + 80, 900); // ≥ 0,52 км²
+        var (runId, captureId) = await WalkLoopAndOnAsync(Cancel, api, boris, loop, [], TimeSpan.FromMinutes(60));
         await ProcessAsync(api, runId);
 
         long effectiveMs;
@@ -185,33 +196,98 @@ public sealed class TerritoryTests(DatabaseFixture database)
             Assert.Equal(CaptureStatus.Applied, capture.Status);
             Assert.Contains("\"contested\"", capture.AreaByOutcome!);
             Assert.DoesNotContain("transferred", capture.AreaByOutcome!);
-            Assert.InRange(capture.AreaSquareMeters, 500_000, 515_000); // взята только ничья земля
+            Assert.DoesNotContain("cracked", capture.AreaByOutcome!);
             effectiveMs = capture.EffectiveAt!.Value.ToUnixTimeMilliseconds();
-            var annaLand = await db.Parcels.AsNoTracking().SingleAsync(p => p.OwnerId == annaId, Cancel);
-            Assert.Equal(capture.EffectiveAt.Value.AddHours(24), annaLand.ContestedUntil);
-            Assert.Equal(((short)1, (DateTimeOffset?)null, (DateTimeOffset?)null), (annaLand.Level, annaLand.SiegeUntil, annaLand.ShieldUntil));
+            var zones = await db.ContestedZones.AsNoTracking().Where(z => z.CaptureId == captureId).ToListAsync(Cancel);
+            Assert.InRange(zones.Sum(z => z.Geometry.Area), 70_000, 74_000); // 80 × 900 м земли Анны внутри петли
+            Assert.All(zones, z => Assert.Equal(capture.EffectiveAt.Value.AddHours(24), z.ContestedUntil));
+            Assert.Contains(zones, z => z.TileX == zoneOnlyTile.X && z.TileY == zoneOnlyTile.Y);
         }
 
-        // Пока петля скрыта, пометки не видит никто, кроме Бориса, и версия тайла у Веры прежняя.
-        Assert.True(await IsUnchangedAsync(vera, tile, before.Version));
-        Assert.Null(Assert.Single((await TileAsync(vera, tile)).Parcels).ContestedUntilMs);
-        Assert.Null(Assert.Single((await TileAsync(anna, tile)).Parcels).ContestedUntilMs);
-        Assert.NotNull(Assert.Single((await TileAsync(boris, tile)).Parcels, p => p.OwnerId == annaId).ContestedUntilMs);
+        // Земля Анны — прежняя до состояния: ни трещины, ни осады, ни счётчиков, ни перехода.
+        Assert.Equal(annaBefore, await AnnasLandAsync(annaId));
+
+        // Пока петля скрыта: у Веры и Анны версии прежние и зон нет; Борис видит свою зону сразу.
+        Assert.True(await IsUnchangedAsync(vera, mixedTile, mixedBefore.Version));
+        Assert.True(await IsUnchangedAsync(vera, zoneOnlyTile, zoneOnlyBefore.Version));
+        Assert.Empty((await TileAsync(vera, zoneOnlyTile)).ContestedZones);
+        Assert.Empty((await TileAsync(anna, zoneOnlyTile)).ContestedZones);
+        Assert.Empty((await TileAsync(anna, mixedTile)).ContestedZones);
+        Assert.NotEmpty((await TileAsync(boris, zoneOnlyTile)).ContestedZones);
 
         api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
-        var revealed = await TileAsync(vera, tile, known: before.Version);
-        var seenByAnna = Assert.Single((await TileAsync(anna, tile)).Parcels, p => p.OwnerId == annaId);
+        var revealed = await TileAsync(vera, zoneOnlyTile, known: zoneOnlyBefore.Version);
+        var mixed = await TileAsync(vera, mixedTile, known: mixedBefore.Version);
 
-        Assert.True(revealed.Version > before.Version);
-        Assert.Contains(revealed.Parcels, p => p.OwnerId == borisId);
-        var annaParcel = Assert.Single(revealed.Parcels, p => p.OwnerId == annaId);
-        Assert.InRange(AreaOf(annaParcel.Exterior), 9_500, 10_500); // земля Анны не ушла
-        Assert.Equal((short)1, annaParcel.Level);
-        Assert.Null(annaParcel.SiegeUntilMs);
-        // Минута петли не видна никому — даже самой Анне: вверх до 10 минут.
-        Assert.Equal(annaParcel.ContestedUntilMs, seenByAnna.ContestedUntilMs);
-        Assert.Equal(0, annaParcel.ContestedUntilMs!.Value % 600_000);
-        Assert.InRange(annaParcel.ContestedUntilMs.Value - effectiveMs, 86_400_000, 86_400_000 + 600_000);
+        Assert.True(revealed.Version > zoneOnlyBefore.Version); // иначе телефон с этой версией зону бы не запросил
+        Assert.Equal(Content(zoneOnlyBefore), Content(revealed)); // куски Анны в нём те же до поля
+        Assert.NotEmpty(mixed.ContestedZones);
+        Assert.Contains(mixed.Parcels, p => p.OwnerId == borisId);
+        var zone = Assert.Single(revealed.ContestedZones);
+        Assert.Equal(0, zone.UntilMs % 600_000); // минута петли не видна никому — вверх до 10 минут
+        Assert.InRange(zone.UntilMs - effectiveMs, 86_400_000, 86_400_000 + 600_000);
+        Assert.Equal(zone.UntilMs, Assert.Single((await TileAsync(anna, zoneOnlyTile)).ContestedZones).UntilMs);
+
+        // Откат Бориса убирает его зоны, и тайл без изменений земли всё равно получает новую версию.
+        var rollback = await admin.PostAsJsonAsync($"/admin/users/{borisId}/rollback", new RollbackRequest("тест: большая петля"), Json, Cancel);
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            var id = (await rollback.Content.ReadFromJsonAsync<RollbackResponse>(Json, Cancel))!.Id;
+            await scope.ServiceProvider.GetRequiredService<CaptureRollback>().ProcessAsync(id, CancellationToken.None);
+        }
+
+        var afterRollback = await TileAsync(vera, zoneOnlyTile, known: revealed.Version);
+        Assert.True(afterRollback.Version > revealed.Version);
+        Assert.Empty(afterRollback.ContestedZones);
+        await using (var db = database.CreateContext())
+        {
+            Assert.False(await db.ContestedZones.AnyAsync(z => z.CaptureId == captureId, Cancel));
+        }
+    }
+
+    [Fact]
+    public async Task Expired_contested_zone_leaves_the_map_and_is_pruned_a_day_later()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+        var now = DateTimeOffset.FromUnixTimeMilliseconds(api.Time.GetUtcNow().ToUnixTimeMilliseconds()); // как хранит база
+        await using (var db = database.CreateContext())
+        {
+            var square = (await db.Parcels.AsNoTracking().FirstAsync(p => p.TileX == tile.X && p.TileY == tile.Y, Cancel)).Geometry;
+            db.ContestedZones.AddRange(
+                new ContestedZoneEntity { CaptureId = claim.CaptureId, League = Gorodki.Domain.Leagues.League.Run, TileX = tile.X, TileY = tile.Y, Geometry = square, ContestedUntil = now.AddHours(1) },
+                new ContestedZoneEntity { CaptureId = claim.CaptureId, League = Gorodki.Domain.Leagues.League.Run, TileX = tile.X, TileY = tile.Y, Geometry = square, ContestedUntil = now.AddHours(-12) },
+                new ContestedZoneEntity { CaptureId = claim.CaptureId, League = Gorodki.Domain.Leagues.League.Run, TileX = tile.X, TileY = tile.Y, Geometry = square, ContestedUntil = now.AddDays(-2) });
+            await db.SaveChangesAsync(Cancel);
+        }
+
+        // На карте — только не истёкшая; в базе истёкшая меньше суток назад ещё лежит, раньше — стёрта.
+        Assert.Single((await TileAsync(anna, tile)).ContestedZones);
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<CaptureProcessor>().PruneJournalAsync(CancellationToken.None);
+        }
+
+        await using (var db = database.CreateContext())
+        {
+            Assert.Equal(
+                [now.AddHours(-12), now.AddHours(1)],
+                (await db.ContestedZones.AsNoTracking().Where(z => z.CaptureId == claim.CaptureId).Select(z => z.ContestedUntil).ToListAsync(Cancel)).Order());
+        }
+    }
+
+    /// <summary>Земля Анны в базе — состояние и площадь каждого куска, по порядку.</summary>
+    private async Task<List<(short Level, long LastVisitMs, DateTimeOffset? Shield, DateTimeOffset? Siege, DateTimeOffset? Window, int Attackers, double Area)>> AnnasLandAsync(Guid annaId)
+    {
+        await using var db = database.CreateContext();
+        return [.. (await db.Parcels.AsNoTracking().Where(p => p.OwnerId == annaId).ToListAsync(Cancel))
+            .Select(p => (p.Level, p.LastVisitAt.ToUnixTimeMilliseconds(), p.ShieldUntil, p.SiegeUntil, p.LossWindowSince, p.LossAttackers.Length, Math.Round(p.Geometry.Area, 1)))
+            .Order()];
     }
 
     [Fact]

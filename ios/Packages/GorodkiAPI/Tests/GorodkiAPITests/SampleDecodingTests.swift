@@ -45,7 +45,7 @@ struct SampleDecodingTests {
         #expect(tile.version == 3 && tile.parcels.count == 2)
         #expect(tile.parcels[0].exterior.count == 10 && tile.parcels[0].holes.first?.count == 8)
         #expect(tile.parcels[0].siegeUntilMs == nil && tile.parcels[0].shieldUntilMs != nil)
-        #expect(tile.parcels[0].contestedUntilMs == 1_790_086_400_000 && tile.parcels[1].contestedUntilMs == nil)
+        #expect(tile.contestedZones.first?.untilMs == 1_790_086_800_000 && tile.contestedZones.first?.exterior.count == 10)
         #expect(tile.parcels[1].ghost && tile.parcels[1].level == 0)
         #expect(map.unchanged.map(\.x) == [685])
     }
@@ -73,7 +73,7 @@ struct SampleDecodingTests {
         #expect(!tile.bits.data.isEmpty)
         #expect(summary.layers.first?.areaSquareMeters == 42_580.5 && summary.layers.first?.season == nil)
         #expect(summary.layers.last?.season == 0)  // сезонный слой; nil — за всё время
-        #expect(run.fogNewCells == 1_234 && run.visitedParcels == 3)
+        #expect(run.fogNewCells == 1_234 && run.visitedParcels == nil)  // визиты — только когда все точки на месте
     }
 
     @Test("Ошибки: код для приложения и дополнительные поля (problems, overlaps)")

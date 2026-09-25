@@ -374,10 +374,34 @@ public sealed class CaptureProcessor(
             db.Parcels.AddRange(diff.Added.Select(p => ToEntity(p, claim.League)));
         }
 
+        // Зоны «спорная» большой петли (§3.3) — отдельный слой: чужие куски не меняются. Тайл, где петля накрыла только
+        // чужую землю, не переписан, но версию получает и запись журнала без следа: иначе телефон с этой версией зону бы не
+        // запросил, а без записи журнала рост версии был бы виден всем сразу, до границы публичности.
+        var contestedUntil = effectiveAt + TimeSpan.FromHours(current.Rules.Territory.ContestedHours);
+        db.ContestedZones.AddRange(result.Contested.SelectMany(zone => GeoOps.Polygons(zone.Area).Select(polygon => new ContestedZoneEntity
+        {
+            CaptureId = claim.Id,
+            League = claim.League,
+            TileX = zone.Tile.X,
+            TileY = zone.Tile.Y,
+            Geometry = polygon,
+            ContestedUntil = contestedUntil,
+        })));
+        var zoneOnlyTiles = result.Contested.Select(z => z.Tile).Distinct().Where(t => !changedTiles.Contains(t)).ToList();
+        changedTiles.AddRange(zoneOnlyTiles);
+
         // Журнал — в той же транзакции: земля без записи для отката (или запись без земли) не сохраняется никогда.
         // Только тайлы, версия которых выросла: публичная проекция считает скрытые захваты по журналу и вычитает их
         // из версии тайла — запись без роста версии дала бы зрителю «провал» версии.
-        CaptureJournal.Add(db, claim.Id, claim.League, now, [.. result.Changes.Where(c => changedTiles.Contains(c.Tile))]);
+        CaptureJournal.Add(
+            db,
+            claim.Id,
+            claim.League,
+            now,
+            [
+                .. result.Changes.Where(c => changedTiles.Contains(c.Tile)),
+                .. zoneOnlyTiles.Select(tile => new TileChange(tile, GeoOps.EmptyPolygon(), [], [])),
+            ]);
 
         await db.SaveChangesAsync(cancellationToken);
         foreach (var tile in changedTiles)
@@ -430,11 +454,17 @@ public sealed class CaptureProcessor(
         return 1;
     }
 
-    /// <summary>Стирает журнал захватов старше <see cref="JournalRetention"/> (куски — каскадом). Возвращает, сколько записей стёрто.</summary>
-    public Task<int> PruneJournalAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Стирает журнал захватов старше <see cref="JournalRetention"/> (куски — каскадом) и зоны «спорная», истёкшие больше
+    /// суток назад (задача E6 перенесёт это в повторяющуюся задачу Hangfire). Возвращает, сколько записей журнала стёрто.
+    /// </summary>
+    public async Task<int> PruneJournalAsync(CancellationToken cancellationToken)
     {
-        var before = time.GetUtcNow() - JournalRetention;
-        return db.CaptureJournal.Where(j => j.AppliedAt < before).ExecuteDeleteAsync(cancellationToken);
+        var now = time.GetUtcNow();
+        var expired = now - TimeSpan.FromDays(1);
+        await db.ContestedZones.Where(z => z.ContestedUntil < expired).ExecuteDeleteAsync(cancellationToken);
+        var before = now - JournalRetention;
+        return await db.CaptureJournal.Where(j => j.AppliedAt < before).ExecuteDeleteAsync(cancellationToken);
     }
 
     /// <summary>Сколько захватов игрока уже применено в те же игровые сутки (по Минску).</summary>
@@ -541,7 +571,6 @@ public sealed class CaptureProcessor(
             SiegeUntil = p.SiegeUntil,
             LossWindowSince = p.LossWindowSince,
             LossAttackers = AttackerSet.Of(p.LossAttackers),
-            ContestedUntil = p.ContestedUntil,
         });
 
     internal static ParcelEntity ToEntity(Parcel p, Gorodki.Domain.Leagues.League league) => new()
@@ -557,7 +586,6 @@ public sealed class CaptureProcessor(
         SiegeUntil = p.State.SiegeUntil,
         LossWindowSince = p.State.LossWindowSince,
         LossAttackers = [.. p.State.LossAttackers.Ids],
-        ContestedUntil = p.State.ContestedUntil,
         Geometry = p.Geometry,
     };
 }

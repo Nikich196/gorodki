@@ -39,12 +39,15 @@ public sealed class PublicBoundaryTests(DatabaseFixture database)
             Assert.InRange(real, 14_500, 15_500); // по настоящим кускам вышло бы «−5 000 м²» — захват Бориса раньше карты
         }
 
-        // Как видят остальные: захват Бориса ещё не вычтен, свежий квадрат Анны ещё не прибавлен.
+        // Как видят остальные: захват Бориса ещё не вычтен, свежий квадрат Анны ещё не прибавлен. Сама Анна (её
+        // «Статистика») свой квадрат видит сразу, как на своей карте, а захват Бориса — тоже только после границы.
         Assert.InRange(await VisibleOwnedAreaAsync(api, annaId), 9_500, 10_500);
+        Assert.InRange(await VisibleOwnedAreaAsync(api, annaId, self: true), 19_500, 20_500);
 
         api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
         Assert.InRange(await VisibleOwnedAreaAsync(api, annaId), 14_500, 15_500);
-        Assert.Equal(0, await VisibleOwnedAreaAsync(api, annaId, League.Bike));
+        Assert.InRange(await VisibleOwnedAreaAsync(api, annaId, self: true), 14_500, 15_500);
+        Assert.Equal(0, await VisibleOwnedAreaAsync(api, annaId, league: League.Bike));
 
         // Угасшая земля — «призрак» на карте, но уже не своя: не считается.
         api.Time.Advance(TimeSpan.FromDays(7));
@@ -68,9 +71,11 @@ public sealed class PublicBoundaryTests(DatabaseFixture database)
         Assert.Equal(applied, await reader.VisibleAtAsync(demoId, applied, Cancel));
     }
 
-    private static async Task<double> VisibleOwnedAreaAsync(ApiFactory api, Guid userId, League league = League.Run)
+    /// <param name="self">Как видит сам игрок; иначе — посторонний.</param>
+    private static async Task<double> VisibleOwnedAreaAsync(ApiFactory api, Guid userId, bool self = false, League league = League.Run)
     {
         await using var scope = api.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<TerritoryReader>().VisibleOwnedAreaAsync(userId, league, CancellationToken.None);
+        return await scope.ServiceProvider.GetRequiredService<TerritoryReader>()
+            .VisibleOwnedAreaAsync(userId, league, new TerritoryViewer(self ? userId : null, Immediate: false), CancellationToken.None);
     }
 }

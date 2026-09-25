@@ -71,7 +71,7 @@ public sealed class ApiSamplesTests
             Run, League.Run, RunSource.Live, 1, Start, null, RunStatus.Active, null, -1, [new SeqRange(0, 119)], [], Newcomer: true, FogNewCells: null, VisitedParcels: null));
         yield return ("run-finished", new RunResponse(
             Run, League.Bike, RunSource.Replay, 1, Start, Start + 3_600_000, RunStatus.Finished, 199, 179,
-            [new SeqRange(0, 59), new SeqRange(120, 199)], [new SeqRange(60, 119)], Newcomer: false, FogNewCells: 1_234, VisitedParcels: 3));
+            [new SeqRange(0, 59), new SeqRange(120, 199)], [new SeqRange(60, 119)], Newcomer: false, FogNewCells: 1_234, VisitedParcels: null));
         yield return ("chunk-receipt", new ChunkReceipt(0, 119, Duplicate: true));
         yield return ("capture-pending", new CaptureResponse(
             Guid.Parse("2e19b697-e397-532d-a6e6-7c0fc1940226"), 0, 10, 300, CaptureStatus.Pending, "sensors", null, 0, null, null, null));
@@ -88,12 +88,19 @@ public sealed class ApiSamplesTests
                 new TileTerritory(684, 5775, 3,
                 [
                     new ParcelView(
-                        41, Player, 7, 2, Ghost: false, Start, Start + 43_200_000, null, Start + 86_400_000,
+                        41, Player, 7, 2, Ghost: false, Start, Start + 43_200_000, null,
                         [52.0976, 23.688, 52.0976, 23.6895, 52.0985, 23.6895, 52.0985, 23.688, 52.0976, 23.688],
                         [[52.0979, 23.6884, 52.0979, 23.6888, 52.0982, 23.6888, 52.0979, 23.6884]]),
                     new ParcelView(
-                        42, Player, 7, 0, Ghost: true, Start - 700_000_000, null, null, null,
+                        42, Player, 7, 0, Ghost: true, Start - 700_000_000, null, null,
                         [52.099, 23.688, 52.099, 23.689, 52.0995, 23.689, 52.099, 23.688], []),
+                ],
+                [
+                    // Чужая большая петля обвела угол куска 41: зона до «через сутки», вверх до 10 минут.
+                    new ContestedZoneView(
+                        1_790_086_800_000,
+                        [52.0983, 23.689, 52.0983, 23.6895, 52.0985, 23.6895, 52.0985, 23.689, 52.0983, 23.689],
+                        []),
                 ]),
             ],
             [new TileRef(685, 5775)]));
