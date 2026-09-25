@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Gorodki.Api.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using static Gorodki.IntegrationTests.Walks;
 
 namespace Gorodki.IntegrationTests;
@@ -48,6 +49,14 @@ public sealed class HealthTests(DatabaseFixture database)
         var parcels = data.GetProperty("parcels").GetInt64();
         Assert.True(parcels >= 1); // квадрат из этого теста
         Assert.True(data.GetProperty("vertices").GetInt64() >= parcels * 4);
-        Assert.True(data.GetProperty("captureJournalParcelsBytes").GetInt64() > 0); // строки точного отката (BE-01) — своя строка бюджета
+
+        // Строки точного отката (BE-01) — своя строка бюджета, и считается она по своей таблице: «больше нуля» прошло бы
+        // для любой таблицы (у пустой с индексами размер уже 16 КБ и больше). Фоновый обработчик в тестах выключен, так
+        // что между ответом и этим запросом таблицу никто не пишет.
+        await using var db = database.CreateContext();
+        var size = await db.Database
+            .SqlQuery<long>($"SELECT pg_total_relation_size('app.capture_journal_parcels') AS \"Value\"")
+            .SingleAsync(Cancel);
+        Assert.Equal(size, data.GetProperty("captureJournalParcelsBytes").GetInt64());
     }
 }

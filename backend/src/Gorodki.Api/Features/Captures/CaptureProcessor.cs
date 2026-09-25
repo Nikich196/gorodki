@@ -43,6 +43,15 @@ public sealed class CaptureProcessor(
     /// <summary>Столько хранится журнал захватов — и столько после захвата доступен его откат (PLAN.md, §7.3, шаг B.5).</summary>
     public static readonly TimeSpan JournalRetention = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// Нижняя граница хранения строк точного отката. Срок считается по задержке в конфиге на момент чистки, а скрытость —
+    /// по конфигу на момент чтения: если задержку поднимут, захваты, применённые раньше, снова станут скрытыми, и при сроке
+    /// «вдвое от прежней задержки» их строки уже были бы стёрты — проекция ушла бы в запасной путь (изломы и шов, аудит
+    /// BE-01). Три часа покрывают подъём задержки до 2 ч 55 мин (плюс шаг раскрытия — те же три часа) без потерь. Место —
+    /// строки за четыре часа вместо двух, по оценке 2–4 МБ.
+    /// </summary>
+    public static readonly TimeSpan ExactUndoFloor = TimeSpan.FromHours(3);
+
     /// <summary>Обрабатывает готовые заявки забега. Возвращает, сколько заявок получили итог.</summary>
     public async Task<int> ProcessRunAsync(Guid runId, CancellationToken cancellationToken)
     {
@@ -525,14 +534,14 @@ public sealed class CaptureProcessor(
 
     /// <summary>
     /// Столько хранятся строки точного отката: они нужны только публичной проекции, а захват скрыт не дольше задержки плюс
-    /// шаг раскрытия (<see cref="TerritoryReader.PublicHorizon"/>). С запасом вдвое и не меньше часа — чистка идёт раз в
-    /// час, так что строки живут до двух часов. Раньше срока их стирать нельзя: проекция скрытого захвата ушла бы в
-    /// запасной путь. Дольше не нужно: строка удалённого куска — с контуром, а бесплатная база — 500 МБ.
+    /// шаг раскрытия (<see cref="TerritoryReader.PublicHorizon"/>). С запасом вдвое и не меньше <see cref="ExactUndoFloor"/>;
+    /// чистка идёт раз в час, так что строки живут до четырёх часов. Раньше срока их стирать нельзя: проекция скрытого
+    /// захвата ушла бы в запасной путь. Дольше не нужно: строка удалённого куска — с контуром, а бесплатная база — 500 МБ.
     /// </summary>
     public static TimeSpan ExactUndoRetention(TimeSpan publicDelay)
     {
         var twice = 2 * (publicDelay + TerritoryReader.RevealStep);
-        return twice > TimeSpan.FromHours(1) ? twice : TimeSpan.FromHours(1);
+        return twice > ExactUndoFloor ? twice : ExactUndoFloor;
     }
 
     /// <summary>Сколько захватов игрока уже применено в те же игровые сутки (по Минску).</summary>

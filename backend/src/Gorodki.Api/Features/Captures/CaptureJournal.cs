@@ -48,24 +48,62 @@ public static class CaptureJournal
     }
 
     /// <summary>
-    /// Запись журнала захвата в одном тайле для публичной проекции: строки точного отката (<c>null</c> — их нет: захват
-    /// записан до них, контур не сохранился без потерь, строки стёрты) и запись «до/после» для запасного пути. Геометрия
-    /// здесь не разбирается: испорченная запись «до/после» не мешает точному откату, а испорченная строка точного отката —
-    /// запасному пути (<see cref="ExactUndo.Project"/>).
+    /// Записи журнала скрытых захватов для публичной проекции — по паре «захват, тайл»: строки точного отката (<c>null</c> —
+    /// их нет: захват записан до них, контур не сохранился без потерь, строки стёрты) и запись «до/после» для запасного
+    /// пути. Геометрия здесь не разбирается: испорченная запись «до/после» не мешает точному откату, а испорченная строка
+    /// точного отката — запасному пути (<see cref="ExactUndo.Project"/>).
     /// </summary>
-    public static async Task<HiddenTileChange> LoadTileAsync(AppDbContext db, Guid captureId, TileKey tile, CancellationToken cancellationToken)
+    /// <remarks>
+    /// Три запроса на всё чтение карты, сколько бы скрытых захватов в нём ни было: по три на каждый захват в каждом тайле
+    /// нагружали бы базу, а тайл со скрытыми захватами отвечал бы тем дольше, чем их больше (время ответа — боковой канал,
+    /// docs/architecture/territory-map.md). Запись «до/после» грузится сразу, хотя нужна только запасному пути: она
+    /// маленькая (след и куски в нём, TWKB) рядом с кусками всех тайлов запроса, а загрузка по требованию — это второй
+    /// проход по тайлам или запрос посреди расчёта. Пар, которых нет в журнале, нет и в ответе: список скрытых захватов
+    /// взят из того же журнала тем же снимком базы (<c>TerritoryReader</c>).
+    /// </remarks>
+    public static async Task<IReadOnlyDictionary<(Guid CaptureId, TileKey Tile), HiddenTileChange>> LoadHiddenAsync(
+        AppDbContext db, IReadOnlyCollection<(Guid CaptureId, TileKey Tile)> pairs, CancellationToken cancellationToken)
     {
-        var journal = await db.CaptureJournal.AsNoTracking()
-            .SingleAsync(j => j.CaptureId == captureId && j.TileX == tile.X && j.TileY == tile.Y, cancellationToken);
-        var pieces = await db.CaptureJournalPieces.AsNoTracking()
-            .Where(p => p.CaptureId == captureId && p.TileX == tile.X && p.TileY == tile.Y)
-            .OrderBy(p => p.Id)
-            .ToListAsync(cancellationToken);
-        var rows = await db.CaptureJournalParcels.AsNoTracking()
-            .Where(r => r.CaptureId == captureId && r.TileX == tile.X && r.TileY == tile.Y)
-            .OrderBy(r => r.Id)
-            .ToListAsync(cancellationToken);
+        if (pairs.Count == 0)
+        {
+            return new Dictionary<(Guid, TileKey), HiddenTileChange>();
+        }
 
+        // Захваты запроса и рамка его тайлов; лишнее (другие тайлы тех же захватов в рамке) отсеивается в памяти.
+        var wanted = pairs.ToHashSet();
+        var ids = wanted.Select(p => p.CaptureId).Distinct().ToList();
+        int minX = wanted.Min(p => p.Tile.X), maxX = wanted.Max(p => p.Tile.X);
+        int minY = wanted.Min(p => p.Tile.Y), maxY = wanted.Max(p => p.Tile.Y);
+        var journal = await db.CaptureJournal.AsNoTracking()
+            .Where(j => ids.Contains(j.CaptureId) && j.TileX >= minX && j.TileX <= maxX && j.TileY >= minY && j.TileY <= maxY)
+            .ToListAsync(cancellationToken);
+        var pieces = (await db.CaptureJournalPieces.AsNoTracking()
+                .Where(p => ids.Contains(p.CaptureId) && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
+                .OrderBy(p => p.Id)
+                .ToListAsync(cancellationToken))
+            .ToLookup(p => (p.CaptureId, new TileKey(p.TileX, p.TileY)));
+        var rows = (await db.CaptureJournalParcels.AsNoTracking()
+                .Where(r => ids.Contains(r.CaptureId) && r.TileX >= minX && r.TileX <= maxX && r.TileY >= minY && r.TileY <= maxY)
+                .OrderBy(r => r.Id)
+                .ToListAsync(cancellationToken))
+            .ToLookup(r => (r.CaptureId, new TileKey(r.TileX, r.TileY)));
+
+        var result = new Dictionary<(Guid, TileKey), HiddenTileChange>();
+        foreach (var entry in journal)
+        {
+            var key = (entry.CaptureId, new TileKey(entry.TileX, entry.TileY));
+            if (wanted.Contains(key))
+            {
+                result[key] = ToHidden(key.Item2, entry, [.. pieces[key]], [.. rows[key]]);
+            }
+        }
+
+        return result;
+    }
+
+    private static HiddenTileChange ToHidden(
+        TileKey tile, CaptureJournalEntity journal, List<CaptureJournalPieceEntity> pieces, List<CaptureJournalParcelEntity> rows)
+    {
         var swap = rows.Count == 0
             ? null
             : new ParcelSwap(

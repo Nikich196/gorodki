@@ -401,6 +401,47 @@ public sealed class TerritoryTests(DatabaseFixture database)
         Assert.Contains(revealed.Parcels, p => p.OwnerId == borisId);
     }
 
+    [Fact]
+    public async Task Victims_run_under_fifty_meters_on_each_part_of_a_hidden_crack_leaves_no_visit_to_carry_over()
+    {
+        // Остаток точного пути (territory-map.md, «что остаётся»). Порог визита — 50 м пути на кусок (VisitProcessor), и
+        // считается он по настоящим кускам. Анна пробежала по своему квадрату 80 м, а Борис уже треснул его правую часть:
+        // по остатку 40 м, по треснувшей части 40 м — визита нет ни на одном куске, и переносить на прежний кусок нечего.
+        // В мире без захвата все 80 м пришлись бы на один кусок — визит и рост до L3. Вера до раскрытия видит квадрат Анны
+        // без визита (L2): контур петли не утекает, а Анна может заметить это на своей карте. Тест закрепляет поведение:
+        // если визиты начнут считаться по земле до скрытого захвата, его надо перевернуть вместе с документом.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(21));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId); // L2
+        api.Time.Advance(TimeSpan.FromHours(23)); // визит поднял бы уровень: с повышения больше 20 ч
+        var beforeBoris = await TileAsync(vera, tile);
+        Assert.Equal((annaId, (short)2), (Assert.Single(beforeBoris.Parcels).OwnerId, beforeBoris.Parcels[0].Level));
+
+        // Засчитанный путь (первые и последние 200 м не в счёт): с запада по y = 95 до x = 75 и 5 м на север, до края
+        // квадрата. Треснувшая часть — восточнее x = 40.
+        var walk = await WalkAndFinishAsync(
+            Cancel,
+            api,
+            anna,
+            [(area.X - 250, area.Y + 95), (area.X + 75, area.Y + 95), (area.X + 75, area.Y + 300)],
+            startedAgo: TimeSpan.FromMinutes(90));
+        Assert.Equal(1, await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 40, -10, 100, 120))).RunId));
+        Assert.Equal(0, await VisitAsync(api, walk.Id)); // ни на одном куске нет 50 м
+
+        var hidden = await TileAsync(vera, tile);
+        var (_, stats) = await ProjectedAsync(api, tile, veraId);
+
+        Assert.Equal((beforeBoris.Version, Content(beforeBoris)), (hidden.Version, Content(hidden))); // L2, прежний визит
+        Assert.Equal((1, 0), (stats.Exact, stats.Fallback));
+    }
+
     /// <summary>
     /// Где на высоте <paramref name="north"/> (метры от угла места теста) проходит западная граница треснувшей части земли
     /// игрока — её общая граница с остальной его землёй, метры от угла места.
@@ -484,7 +525,7 @@ public sealed class TerritoryTests(DatabaseFixture database)
         // Сценарий отличает точный откат: запасной путь (по граням) вернул бы Анне кусок с изломом, а не тот, что лежал.
         await using (var db = database.CreateContext())
         {
-            var journal = await CaptureJournal.LoadTileAsync(db, claim.CaptureId, tile, Cancel);
+            var journal = (await CaptureJournal.LoadHiddenAsync(db, [(claim.CaptureId, tile)], Cancel))[(claim.CaptureId, tile)];
             var fallback = ExactUndo.Restore(tile, await StoredAsync(tile), journal.Change(), new TerritoryRules(), new SliverSettings());
             var annaFallback = Assert.Single(fallback, p => p.Parcel.State == annaBefore.State).Parcel;
             Assert.False(annaFallback.Geometry.EqualsExact(annaBefore.Geometry));
@@ -677,6 +718,99 @@ public sealed class TerritoryTests(DatabaseFixture database)
 
         Assert.Equal((before.Version, 0), (seen.Version, seen.Parcels.Count));
         Assert.Equal((1, 0, 0), (stats.Exact, stats.Fallback, stats.EmptyTiles));
+    }
+
+    [Fact]
+    public async Task Journal_that_parses_but_makes_no_polygon_empties_the_tile_instead_of_breaking_the_map()
+    {
+        // Байты куска журнала — правильный TWKB, но кольцо в нём из двух одинаковых точек: NTS такой многоугольник не
+        // строит (ArgumentException). Строк точного отката нет — нужен запасной путь, а ему нужен этот кусок. Раньше
+        // проекция ловила только три своих исключения, и карта отвечала 500 каждому, кто смотрит тайл, до конца скрытия —
+        // а 500 ровно на тайле со скрытым захватом ещё и показывал, где он.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+        byte[] twoPointRing = [0x23, 0x00, 1, 2, 200, 1, 200, 1, 0, 0]; // многоугольник, одно кольцо: (10; 10), (10; 10)
+        await using (var db = database.CreateContext())
+        {
+            Assert.True(await db.CaptureJournalPieces
+                .Where(p => p.CaptureId == claim.CaptureId)
+                .ExecuteUpdateAsync(set => set.SetProperty(p => p.Geometry, twoPointRing), Cancel) > 0);
+            await db.CaptureJournalParcels.Where(r => r.CaptureId == claim.CaptureId).ExecuteDeleteAsync(Cancel);
+        }
+
+        var response = await vera.GetAsync($"/territory?league=run&tiles={tile.X}:{tile.Y}", Cancel);
+        var (_, stats) = await ProjectedAsync(api, tile, veraId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var seen = await response.Content.ReadFromJsonAsync<TerritoryResponse>(Json, Cancel);
+        Assert.Empty(Assert.Single(seen!.Tiles).Parcels);
+        Assert.Equal(1, stats.EmptyTiles);
+    }
+
+    [Fact]
+    public async Task Map_read_costs_the_same_queries_however_many_captures_are_hidden_in_the_tile()
+    {
+        // Журнал скрытых захватов грузится тремя запросами на всё чтение карты, а не тремя на каждый захват в каждом тайле:
+        // иначе база нагружалась бы по числу скрытых захватов, а тайл отвечал бы тем дольше, чем их в нём больше (время
+        // ответа — боковой канал, territory-map.md).
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, _) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (gleb, _) = await api.CreatePlayerClientAsync();
+        var (_, veraId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        var one = await CommandsOfReadAsync(api, tile, veraId);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 200, 0, 100))).RunId);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, gleb, Square(area, 0, 200, 100))).RunId);
+        var three = await CommandsOfReadAsync(api, tile, veraId);
+
+        Assert.Equal((1, 3), (one.Exact, three.Exact)); // все скрыты от Веры и откачены точно
+        Assert.Equal(one.Commands.Count, three.Commands.Count);
+        // Список скрытых захватов и три загрузки журнала: запись «до/после», её куски, строки точного отката.
+        Assert.Equal(4, three.Commands.Count(c => c.Contains("capture_journal", StringComparison.Ordinal)));
+    }
+
+    /// <summary>Чтение тайла глазами игрока через свой контекст базы: какие команды ушли в базу и сколько откатов точных.</summary>
+    private async Task<(List<string> Commands, int Exact)> CommandsOfReadAsync(ApiFactory api, TileKey tile, Guid viewerId)
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>();
+        AppDbContext.Configure(options, database.ConnectionString);
+        var log = new CommandLog();
+        options.AddInterceptors(log);
+        await using var db = new AppDbContext(options.Options);
+        await using var scope = api.Services.CreateAsyncScope();
+        var reader = new TerritoryReader(
+            db,
+            scope.ServiceProvider.GetRequiredService<Gorodki.Api.Features.Config.GameConfigStore>(),
+            api.Time,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<TerritoryReader>.Instance);
+        await reader.ReadAsync(Gorodki.Domain.Leagues.League.Run, [(tile, null)], new TerritoryViewer(viewerId, Immediate: false), Cancel);
+        return (log.Commands, reader.Projections.Exact);
+    }
+
+    /// <summary>Тексты запросов, которые контекст отправил в базу.</summary>
+    private sealed class CommandLog : Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor
+    {
+        public List<string> Commands { get; } = [];
+
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(
+            System.Data.Common.DbCommand command,
+            Microsoft.EntityFrameworkCore.Diagnostics.CommandEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            Commands.Add(command.CommandText);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
     }
 
     private async Task<bool> IsUnchangedAsync(HttpClient client, TileKey tile, long known)

@@ -26,6 +26,13 @@ public sealed class ProjectionStats
 
     public bool IsEmpty => _paths.Count == 0 && EmptyTiles == 0;
 
+    /// <summary>
+    /// С каким уровнем писать строку в лог. Запасной путь и пустой тайл — <see cref="LogLevel.Information"/>: их частоту
+    /// в проде и надо видеть. Всё точно — <see cref="LogLevel.Debug"/>: карту перечитывают часто (подсказки
+    /// <c>/live</c>, опрос), и строка на каждое такое чтение была бы только шумом.
+    /// </summary>
+    public LogLevel Level => Fallback > 0 || EmptyTiles > 0 ? LogLevel.Information : LogLevel.Debug;
+
     public void Add(TileProjection projection)
     {
         foreach (var path in projection.Paths)

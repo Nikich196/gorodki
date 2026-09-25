@@ -116,13 +116,24 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             .Where(p => p.League == league && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
             .ToListAsync(cancellationToken);
 
+        // Журнал скрытых захватов — сразу для всех тайлов запроса и до расчёта: сбой базы остаётся ошибкой сервера (5xx),
+        // а расчёт проекции (ProjectTile) базы уже не касается.
+        var journals = await CaptureJournal.LoadHiddenAsync(
+            db, [.. changed.SelectMany(c => c.Pending.Select(h => (h.CaptureId, c.Tile)))], cancellationToken);
+
         var tiles = new List<(TileKey Tile, long Version, List<(ParcelState State, Polygon Geometry)> Pieces)>();
         foreach (var (tile, version, pending) in changed)
         {
             var stored = parcels.Where(p => p.TileX == tile.X && p.TileY == tile.Y).ToList();
             var pieces = pending.Count == 0
                 ? stored.Select(p => (CaptureProcessor.ToParcel(p).State, p.Geometry)).ToList()
-                : await ProjectAsync(tile, stored, pending, rules, cancellationToken);
+                : ProjectTile(
+                    tile,
+                    [.. stored.Select(p => new ProjectedParcel(p.Id, CaptureProcessor.ToParcel(p)))],
+                    [.. pending.OrderByDescending(h => h.AppliedSeq).Select(h => journals[(h.CaptureId, tile)])],
+                    rules,
+                    Projections,
+                    logger);
             tiles.Add((tile, version, pieces));
         }
 
@@ -134,8 +145,9 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
         if (!Projections.IsEmpty)
         {
             // Одна строка на запрос: как часто точный откат уходит в запасной путь (и почему) — иначе в проде не узнать.
-            // Без тайлов, координат и игроков: сам лог не должен выдавать, где бегали.
-            logger.LogInformation("Публичная проекция: {Projections}", Projections.Describe());
+            // Без тайлов, координат и игроков: сам лог не должен выдавать, где бегали. Уровень — от содержания
+            // (ProjectionStats.Level): карту перечитывают часто, и строка на каждое точное чтение была бы шумом.
+            logger.Log(Projections.Level, "Публичная проекция: {Projections}", Projections.Describe());
         }
 
         var result = tiles
@@ -186,36 +198,39 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
     /// земля и сейчас такая, какой её оставил захват (свои более поздние изменения зрителя остаются).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Номера строк переходят от захвата к захвату: вставленное старым захватом новый удалил, точный откат нового вернул
     /// его с тем же номером — и старый откатывается точно. Всё читается в той же транзакции REPEATABLE READ, что версии и
     /// список скрытых захватов: захват, записанный посреди чтения, не виден ни в кусках, ни в журнале. Правила земли —
     /// действующего конфига, как у визитов (<see cref="VisitProcessor"/>). Что остаётся — docs/architecture/territory-map.md.
+    /// </para>
+    /// <para>
+    /// Это чистый расчёт — журнал уже загружен (<see cref="CaptureJournal.LoadHiddenAsync"/>), — и он не бросает ничего,
+    /// кроме отмены: любая ошибка — пустой тайл до раскрытия и строка в журнале ошибок сервера. Ошибки бывают не только
+    /// свои (движок не сошёлся, запись журнала испорчена): запасной путь — это NTS и весь движок, и неожиданное исключение
+    /// оттуда без этого стало бы 500 каждому, кто смотрит тайл, до конца скрытия — а 500 ровно на тайлах со скрытым
+    /// захватом ещё и показал бы, где он. Лучше пустой тайл на 20 минут.
+    /// </para>
     /// </remarks>
-    private async Task<List<(ParcelState State, Polygon Geometry)>> ProjectAsync(
-        TileKey tile, List<ParcelEntity> stored, List<HiddenCapture> pending, TerritoryRules rules, CancellationToken cancellationToken)
+    /// <param name="newestFirst">Скрытые от зрителя захваты тайла — от новых к старым.</param>
+    /// <param name="stats">Сюда — каким путём откачен каждый захват или что тайл отдан пустым.</param>
+    public static List<(ParcelState State, Polygon Geometry)> ProjectTile(
+        TileKey tile,
+        IReadOnlyList<ProjectedParcel> stored,
+        IReadOnlyList<HiddenTileChange> newestFirst,
+        TerritoryRules rules,
+        ProjectionStats stats,
+        ILogger logger)
     {
         try
         {
-            var hidden = new List<HiddenTileChange>();
-            foreach (var capture in pending.OrderByDescending(h => h.AppliedSeq))
-            {
-                hidden.Add(await CaptureJournal.LoadTileAsync(db, capture.CaptureId, tile, cancellationToken));
-            }
-
-            var projection = ExactUndo.Project(
-                tile,
-                [.. stored.Select(p => new ProjectedParcel(p.Id, CaptureProcessor.ToParcel(p)))],
-                hidden,
-                rules,
-                new SliverSettings());
-            Projections.Add(projection);
+            var projection = ExactUndo.Project(tile, stored, newestFirst, rules, new SliverSettings());
+            stats.Add(projection);
             return [.. projection.Pieces.Select(p => (p.Parcel.State, p.Parcel.Geometry))];
         }
-        catch (Exception e) when (e is TerritoryEngineException or TopologyException or FormatException)
+        catch (Exception e) when (e is not OperationCanceledException)
         {
-            // Запасной путь не сошёлся или запись журнала для него испорчена (FormatException из TWKB). Лучше пустой тайл
-            // на 20 минут, чем показать, где человек сейчас, или ответить 500 всем, кто смотрит эти тайлы.
-            Projections.AddEmptyTile();
+            stats.AddEmptyTile();
             logger.LogError(e, "Публичная проекция тайла {Tile} не собралась — тайл отдан пустым до раскрытия", tile);
             return [];
         }

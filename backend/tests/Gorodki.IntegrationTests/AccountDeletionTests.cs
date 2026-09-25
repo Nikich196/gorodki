@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
+using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
@@ -91,6 +92,101 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         var reader = readerScope.ServiceProvider.GetRequiredService<TerritoryReader>();
         await reader.ReadAsync(Gorodki.Domain.Leagues.League.Run, [(tile, null)], new TerritoryViewer(veraId, Immediate: false), Cancel);
         Assert.Equal((1, 0), (reader.Projections.Exact, reader.Projections.Fallback));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)] // строк точного отката нет (захват записан до них) — проекция возвращала землю Анны по журналу
+    public async Task Tile_where_a_hidden_capture_took_all_of_the_deleted_accounts_land_gets_a_new_version(bool exactRows)
+    {
+        // Борис забрал весь квадрат Анны, его захват ещё скрыт, и тут стирается аккаунт Анны. Кусков Анны в parcels уже
+        // нет, но Вере проекция их возвращала — как в мире без захвата. После удаления не вернёт, и у Веры тайл должен
+        // обновиться (видимая версия +1, подсказка): иначе с кэшем она до раскрытия видела бы землю удалённого аккаунта, а
+        // этот тайл — единственный тайл Анны без новой версии — выдал бы, где скрытый захват.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var tile = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 50);
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 20, 20, 80))).RunId);
+        Assert.Equal(HttpStatusCode.Accepted, (await anna.DeleteAsync("/me", Cancel)).StatusCode);
+        api.Time.Advance(TimeSpan.FromMinutes(25));
+        var claim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 0, 0, 120));
+        Assert.Equal(1, await Walks.ProcessAsync(api, claim.RunId));
+        Assert.Equal(0.0, await LandAreaAsync(annaId)); // у Анны не осталось ни куска
+        if (!exactRows)
+        {
+            await using var db = database.CreateContext();
+            Assert.True(await db.CaptureJournalParcels.Where(r => r.CaptureId == claim.CaptureId).ExecuteDeleteAsync(Cancel) > 0);
+        }
+
+        var cached = Assert.Single((await vera.GetFromJsonAsync<TerritoryResponse>(
+            $"/territory?league=run&tiles={tile.X}:{tile.Y}", Json, Cancel))!.Tiles);
+        Assert.Equal(annaId, Assert.Single(cached.Parcels).OwnerId); // захват Бориса скрыт — Вера видит квадрат Анны
+        var hints = api.Services.GetRequiredService<RealtimeHints>();
+        while (hints.Reader.TryRead(out _))
+        {
+        }
+
+        Assert.True(await DeleteRequestedAsync(api) >= 1);
+        Assert.False(await ExistsAsync(annaId));
+
+        var after = await vera.GetFromJsonAsync<TerritoryResponse>(
+            $"/territory?league=run&tiles={tile.X}:{tile.Y}@{cached.Version}", Json, Cancel);
+        var refreshed = Assert.Single(after!.Tiles); // не «без изменений»
+        Assert.Equal(cached.Version + 1, refreshed.Version);
+        Assert.Empty(refreshed.Parcels); // на месте Анны — ничья земля, как без захвата
+        var sent = new List<RealtimeHint>();
+        while (hints.Reader.TryRead(out var hint))
+        {
+            sent.Add(hint);
+        }
+
+        Assert.Contains(sent, h => h is TilesChangedHint { UserId: null } changed && changed.Tiles.Contains(tile));
+    }
+
+    [Fact]
+    public async Task Deletion_waits_for_the_tiles_where_the_account_is_only_in_the_lists_of_attackers()
+    {
+        // Номер Анны — в списке снявших уровень у куска Бориса, в тайле, где своей земли у Анны нет. Захват в этом тайле,
+        // прочитавший кусок до чистки, записал бы номер Анны обратно уже после неё. Поэтому удаление берёт блокировку и этого
+        // тайла, как захват: пока тайл держит захват (здесь — другое соединение), аккаунт не стирается — удаление ждёт
+        // (lock_timeout 5 с) и отступает до следующего прохода.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var borisArea = NewArea();
+        var borisTile = TileKey.Of(WalkOrigin.X + borisArea.X + 50, WalkOrigin.Y + borisArea.Y + 50);
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100))).RunId);
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(borisArea, 0, 0, 100))).RunId);
+        await using (var db = database.CreateContext())
+        {
+            Assert.True(await db.Database.ExecuteSqlAsync(
+                $"UPDATE app.parcels SET loss_attackers = ARRAY[{annaId}] WHERE owner_id = {borisId}", Cancel) > 0);
+            Assert.False(await db.Parcels.AnyAsync(p => p.OwnerId == annaId && p.TileX == borisTile.X && p.TileY == borisTile.Y, Cancel));
+        }
+
+        Assert.Equal(HttpStatusCode.Accepted, (await anna.DeleteAsync("/me", Cancel)).StatusCode);
+        api.Time.Advance(TimeSpan.FromMinutes(25));
+        await using (var capture = database.CreateContext())
+        {
+            await using var transaction = await capture.Database.BeginTransactionAsync(Cancel);
+            await capture.Database.ExecuteSqlAsync(
+                $"SELECT pg_advisory_xact_lock({100 + (int)Gorodki.Domain.Leagues.League.Run}, {borisTile.LockKey})", Cancel);
+
+            await DeleteRequestedAsync(api);
+            Assert.True(await ExistsAsync(annaId));
+        }
+
+        await DeleteRequestedAsync(api);
+        Assert.False(await ExistsAsync(annaId));
+        await using (var db = database.CreateContext())
+        {
+            Assert.False(await db.Parcels.AnyAsync(p => p.LossAttackers.Contains(annaId), Cancel));
+        }
     }
 
     private static async Task<int> DeleteRequestedAsync(ApiFactory api)
