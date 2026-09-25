@@ -2,6 +2,8 @@ using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Scoring;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
@@ -24,7 +26,7 @@ namespace Gorodki.Api.Features.Captures;
 /// путь, скрыт захват, в журнале которого есть земля игрока, визиты ждут его раскрытия — иначе скрытую петлю выдал бы шов.
 /// </remarks>
 public sealed class VisitProcessor(
-    AppDbContext db, RunJudgements judgements, GameConfigStore configs, RealtimeHints hints, TimeProvider time)
+    AppDbContext db, RunJudgements judgements, GameConfigStore configs, SeasonStore seasons, RealtimeHints hints, TimeProvider time)
 {
     /// <summary>
     /// Забеги, готовые к подсчёту визитов, — сначала закончившиеся раньше. Не раньше, чем конец забега станет публичным
@@ -129,6 +131,13 @@ public sealed class VisitProcessor(
         var acceptedMeters = Math.Round(JudgedPath.Length(segments), 1); // пробег — весь путь, без обрезки
         var path = Visits.TrimmedPath(segments, current.Privacy.TrimMeters);
 
+        // Дистанция для очков (§3.5) — засчитанный путь без первых и последних 200 м (§3.16: «обрезка 200 м — для треков,
+        // визитов и начислений»). Приватные зоны здесь не вычитаются: число километров не говорит, где бегали. Повтор
+        // записанного забега (демо) дистанцию второй раз не даёт.
+        var distanceMeters = run.Source == RunSource.Live ? path.Sum(s => s.From.Distance(s.To)) : 0;
+        var startedAt = run.StartedAt.AddMilliseconds(-run.ClockSkewMs); // по часам сервера, как у сезонного тумана
+        var season = (await seasons.CalendarAsync(cancellationToken)).At(startedAt)?.Number;
+
         // Свои куски в тайлах, которые задевает путь: сколько пути прошло внутри каждого.
         var candidates = new List<(long Id, DateTimeOffset At, TileKey Tile)>();
         if (path.Count > 0)
@@ -187,6 +196,11 @@ public sealed class VisitProcessor(
         db.ChangeTracker.Clear();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await db.Database.ExecuteSqlRawAsync("SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '15s'", cancellationToken);
+
+        // Блокировка игрока — до тайлов, как у захвата (порядок один — взаимной блокировки нет): суточный потолок дистанции
+        // считается под ней, и два забега игрока, посчитанные одновременно, его не превысят.
+        var userKey = run.UserId.ToString();
+        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(1, hashtext({userKey}))", cancellationToken);
         var lockSpace = 100 + (int)run.League;
         foreach (var tile in candidates.Select(c => c.Tile).Distinct().Order())
         {
@@ -209,8 +223,14 @@ public sealed class VisitProcessor(
             parcel.Level = (short)visited.Level;
             parcel.LastVisitAt = visited.LastVisitAt;
             parcel.LastLevelUpAt = visited.LastLevelUpAt;
+            parcel.TouchedAt = visited.TouchedAt;
             changedTiles.Add(new TileKey(parcel.TileX, parcel.TileY));
             visitedCount++;
+        }
+
+        if (distanceMeters > 0)
+        {
+            await ScoreBook.AddDistanceAsync(db, run, distanceMeters, startedAt, season, current.Scoring, now, cancellationToken);
         }
 
         await db.SaveChangesAsync(cancellationToken);

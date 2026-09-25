@@ -20,6 +20,7 @@ public sealed class VisitReplayTests
         Level = level,
         LastVisitAt = visited,
         LastLevelUpAt = levelled,
+        TouchedAt = visited, // до кланов и смены сезона «последний визит» и есть касание владельца
     };
 
     private static ParcelState Visit(ParcelState state, DateTimeOffset at) => CaptureRules.Visit(state, at, Rules)!;
@@ -101,7 +102,7 @@ public sealed class VisitReplayTests
         var trace = VisitReplay.Trace(written, current, Rules);
 
         Assert.Equal([at], trace);
-        Assert.Equal(before with { Level = 3, LastVisitAt = at, LastLevelUpAt = at }, VisitReplay.Apply(before, trace!, Rules));
+        Assert.Equal(before with { Level = 3, LastVisitAt = at, LastLevelUpAt = at, TouchedAt = at }, VisitReplay.Apply(before, trace!, Rules));
     }
 
     [Fact]
@@ -123,7 +124,7 @@ public sealed class VisitReplayTests
         var trace = VisitReplay.Trace(cracked, current, Rules);
 
         Assert.Equal([T0], trace);
-        Assert.Equal(before with { Level = 3, LastVisitAt = T0, LastLevelUpAt = T0 }, VisitReplay.Apply(before, trace!, Rules));
+        Assert.Equal(before with { Level = 3, LastVisitAt = T0, LastLevelUpAt = T0, TouchedAt = T0 }, VisitReplay.Apply(before, trace!, Rules));
     }
 
     [Fact]
@@ -176,7 +177,7 @@ public sealed class VisitReplayTests
     {
         // Порядок важен: раньше — повышение, позже — только освежение. В обратном порядке повышение пришлось бы на позднее время.
         var before = Land(1, T0, T0.AddHours(-21));
-        var expected = before with { Level = 2, LastLevelUpAt = T0.AddMinutes(5), LastVisitAt = T0.AddMinutes(15) };
+        var expected = before with { Level = 2, LastLevelUpAt = T0.AddMinutes(5), LastVisitAt = T0.AddMinutes(15), TouchedAt = T0.AddMinutes(15) };
 
         Assert.Equal(expected, VisitReplay.Apply(before, [T0.AddMinutes(15), T0.AddMinutes(5)], Rules));
         Assert.Equal(expected, VisitReplay.Apply(before, [T0.AddMinutes(5), T0.AddMinutes(15)], Rules));

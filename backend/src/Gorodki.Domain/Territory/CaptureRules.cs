@@ -28,6 +28,14 @@ public sealed record ParcelState
 
     /// <summary>Кто уже снял с куска уровень в текущем окне: каждый — не больше одного, все вместе — не больше двух.</summary>
     public AttackerSet LossAttackers { get; init; }
+
+    /// <summary>
+    /// Когда владелец последний раз взял кусок или освежил его <b>своим</b> забегом (захват, повторная петля, визит) — время
+    /// петли или визита. По нему удержание решает, «касались ли участка в этом сезоне» (PLAN.md, §3.4): касание — не раньше
+    /// начала сезона. Освежение соклановцем, сдвиг «последнего визита» при смене сезона (<see cref="SeasonReset"/>) и
+    /// будущая поправка угасания при откате его не меняют — поэтому это отдельное поле, а не <see cref="LastVisitAt"/>.
+    /// </summary>
+    public DateTimeOffset TouchedAt { get; init; }
 }
 
 /// <summary>Кто и когда захватывает.</summary>
@@ -153,6 +161,7 @@ public static class CaptureRules
 
         if (context.ClanMates.Contains(current.OwnerId))
         {
+            // Освежение соклановцем угасание сбрасывает, но «касанием в этом сезоне» не считается (§3.4): TouchedAt прежний.
             var visited = current with { LastVisitAt = Max(current.LastVisitAt, now), Level = effective };
             return (visited, PieceOutcome.RefreshedForClanMate);
         }
@@ -225,6 +234,7 @@ public static class CaptureRules
             LastVisitAt = Max(current.LastVisitAt, at),
             Level = canLevelUp ? effective + 1 : effective,
             LastLevelUpAt = canLevelUp ? at : current.LastLevelUpAt,
+            TouchedAt = Max(current.TouchedAt, at),
         };
     }
 
@@ -236,5 +246,6 @@ public static class CaptureRules
         Level = 1,
         LastVisitAt = now,
         LastLevelUpAt = now,
+        TouchedAt = now,
     };
 }

@@ -195,6 +195,10 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
             .ToList();
     }
 
+    /// <summary>Площадь всей видимой зрителю земли игрока (без фильтра касания) — см. перегрузку с <c>touchedSince</c>.</summary>
+    public Task<double> VisibleOwnedAreaAsync(Guid userId, League league, TerritoryViewer viewer, CancellationToken cancellationToken) =>
+        VisibleOwnedAreaAsync(userId, league, viewer, touchedSince: null, cancellationToken);
+
     /// <summary>
     /// Площадь земли игрока в лиге, м², такой, какой её видит <paramref name="viewer"/> на карте (граница публичности,
     /// §3.16): скрытый от зрителя чужой захват земли игрока не вычтен. Угасшая земля («призрак») не считается. Посчитанные
@@ -206,7 +210,13 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
     /// свои свежие захваты он видит сразу, как на своей карте. Посторонний (<c>new TerritoryViewer(null, false)</c>) — для
     /// всего, что видят другие (рейтинги, лента, карточка недели): свежий захват игрока прибавится через те же 20–25 минут.
     /// </param>
-    public async Task<double> VisibleOwnedAreaAsync(Guid userId, League league, TerritoryViewer viewer, CancellationToken cancellationToken)
+    /// <param name="touchedSince">
+    /// Только куски, которых владелец касался (взял или освежил своим забегом, <see cref="ParcelState.TouchedAt"/>) не
+    /// раньше этого момента. Для удержания (срез E7, §3.4: «очки дают только участки, которых касались в этом сезоне») —
+    /// начало сезона. <c>null</c> — все куски.
+    /// </param>
+    public async Task<double> VisibleOwnedAreaAsync(
+        Guid userId, League league, TerritoryViewer viewer, DateTimeOffset? touchedSince, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         var config = (await configs.GetCurrentAsync(cancellationToken)).Rules;
@@ -247,7 +257,8 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
         {
             var pending = hidden.Where(h => h.TileX == tile.X && h.TileY == tile.Y).ToList();
             area += (await VisiblePiecesAsync(tile, parcels, pending, rules, cancellationToken))
-                .Where(p => p.State.OwnerId == userId && Decay.EffectiveLevel(p.State, now, rules) > 0)
+                .Where(p => p.State.OwnerId == userId && Decay.EffectiveLevel(p.State, now, rules) > 0
+                    && (touchedSince is not { } since || p.State.TouchedAt >= since))
                 .Sum(p => p.Geometry.Area);
         }
 

@@ -1,6 +1,7 @@
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Scoring;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
@@ -23,6 +24,10 @@ namespace Gorodki.Api.Features.Me;
 /// <param name="Fog">Туман «Исследования» по слоям, сезонам и тайлам: биты открытых клеток, как в <c>GET /fog</c>.</param>
 /// <param name="PrivacyZones">Приватные зоны.</param>
 /// <param name="Rankings">Свои места в ежедневных срезах рейтингов (хранятся неделю).</param>
+/// <param name="Scores">
+/// Начисления очков сезона (§3.5) — те, что уже видны: очки за захват — с границы публичности его применения, как и
+/// разбивка итога захвата (иначе бонусы выдали бы ещё скрытый чужой захват).
+/// </param>
 public sealed record AccountExportResponse(
     long ExportedAtMs,
     ExportProfile Profile,
@@ -32,7 +37,16 @@ public sealed record AccountExportResponse(
     IReadOnlyList<ExportParcel> Land,
     IReadOnlyList<ExportFogTile> Fog,
     IReadOnlyList<PrivacyZoneResponse> PrivacyZones,
-    IReadOnlyList<ExportRanking> Rankings);
+    IReadOnlyList<ExportRanking> Rankings,
+    IReadOnlyList<ExportScore> Scores);
+
+/// <param name="Season">Номер сезона; <c>null</c> — вне сезонов (предсезонье).</param>
+/// <param name="Day">Игровые сутки по Минску, <c>yyyy-MM-dd</c>.</param>
+/// <param name="Kind"><c>capture</c> — захват, <c>distance</c> — дистанция забега.</param>
+/// <param name="CaptureId">Захват, за который начислено (у захвата).</param>
+/// <param name="RunId">Забег (у захвата — его забег).</param>
+public sealed record ExportScore(
+    League League, int? Season, string Day, string Kind, int Points, Guid? CaptureId, Guid? RunId, long EffectiveAtMs);
 
 /// <param name="Day">Игровые сутки среза, <c>yyyy-MM-dd</c>.</param>
 /// <param name="Board">Рейтинг: <c>exploration</c> — «кто открыл больше».</param>
@@ -228,6 +242,21 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
                 s.Rank))
             .ToList();
 
+        var scores = (await ScoreBook.Visible(db, time.GetUtcNow())
+                .Where(e => e.UserId == userId)
+                .OrderBy(e => e.EffectiveAt).ThenBy(e => e.Id)
+                .ToListAsync(cancellationToken))
+            .Select(e => new ExportScore(
+                e.League,
+                e.Season,
+                e.GameDay.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                e.Kind.ToString().ToLowerInvariant(),
+                e.Points,
+                e.CaptureId,
+                e.RunId,
+                e.EffectiveAt.ToUnixTimeMilliseconds()))
+            .ToList();
+
         return new AccountExportResponse(
             time.GetUtcNow().ToUnixTimeMilliseconds(),
             new ExportProfile(
@@ -248,6 +277,7 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
             land,
             fog,
             zones,
-            rankings);
+            rankings,
+            scores);
     }
 }

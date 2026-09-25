@@ -2,10 +2,14 @@ using System.Text.Json;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Scoring;
+using Gorodki.Api.Features.Seasons;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Runs;
+using Gorodki.Domain.Scoring;
 using Gorodki.Domain.Territory;
 using Gorodki.Domain.Time;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +28,8 @@ public sealed class CaptureProcessor(
     GameConfigStore configs,
     RunJudgements judgements,
     RealtimeHints hints,
+    SeasonStore seasons,
+    TerritoryReader territory,
     TimeProvider time,
     ILogger<CaptureProcessor> logger)
 {
@@ -390,6 +396,21 @@ public sealed class CaptureProcessor(
         var zoneOnlyTiles = result.Contested.Select(z => z.Tile).Distinct().Where(t => !changedTiles.Contains(t)).ToList();
         changedTiles.AddRange(zoneOnlyTiles);
 
+        // Очки за захват (§3.5) — тоже в этой транзакции и под блокировкой игрока (ступени суток — по сумме за сутки). Сезон и
+        // сутки — по времени петли (§3.4), видимость другим — с границы публичности применения, как у карты (§3.16).
+        var season = (await seasons.CalendarAsync(cancellationToken)).At(effectiveAt)?.Number;
+        await ScoreBook.AddCaptureAsync(
+            db,
+            claim,
+            result.AreaByOutcome,
+            LandValue.Factor(area, current.Rules.Scoring.LandValue),
+            effectiveAt,
+            await territory.VisibleAtAsync(claim.UserId, now, cancellationToken),
+            season,
+            current.Rules.Scoring,
+            now,
+            cancellationToken);
+
         // Журнал — в той же транзакции: земля без записи для отката (или запись без земли) не сохраняется никогда.
         // Только тайлы, версия которых выросла: публичная проекция считает скрытые захваты по журналу и вычитает их
         // из версии тайла — запись без роста версии дала бы зрителю «провал» версии.
@@ -572,6 +593,7 @@ public sealed class CaptureProcessor(
             SiegeUntil = p.SiegeUntil,
             LossWindowSince = p.LossWindowSince,
             LossAttackers = AttackerSet.Of(p.LossAttackers),
+            TouchedAt = p.TouchedAt,
         });
 
     internal static ParcelEntity ToEntity(Parcel p, Gorodki.Domain.Leagues.League league) => new()
@@ -587,6 +609,7 @@ public sealed class CaptureProcessor(
         SiegeUntil = p.State.SiegeUntil,
         LossWindowSince = p.State.LossWindowSince,
         LossAttackers = [.. p.State.LossAttackers.Ids],
+        TouchedAt = p.State.TouchedAt,
         Geometry = p.Geometry,
     };
 }

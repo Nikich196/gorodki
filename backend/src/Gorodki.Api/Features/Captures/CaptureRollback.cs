@@ -289,6 +289,10 @@ public sealed class CaptureRollback(
         await db.ContestedZones.Where(z => z.CaptureId == captureId).ExecuteDeleteAsync(cancellationToken);
         changedTiles.AddRange(zoneTiles.Where(t => !changedTiles.Contains(t)));
 
+        // Очки за захват (§3.5) уходят вместе с ним — в той же транзакции: откаченный захват очков не даёт. Рейтинги считают
+        // сумму начислений, поэтому следующий срез уже без них.
+        await db.ScoreEvents.Where(e => e.CaptureId == captureId).ExecuteDeleteAsync(cancellationToken);
+
         await db.SaveChangesAsync(cancellationToken);
         foreach (var tile in changedTiles)
         {
