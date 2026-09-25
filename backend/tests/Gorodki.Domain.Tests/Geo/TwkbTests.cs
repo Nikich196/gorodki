@@ -98,4 +98,69 @@ public sealed class TwkbTests
 
         Assert.Throws<FormatException>(() => Twkb.Read(bytes[..^3]));
     }
+
+    /// <summary>
+    /// Испорченные записи журнала, которые разбираются как TWKB, но многоугольника из них не собрать: NTS бросает
+    /// ArgumentException, а публичная проекция ловила только FormatException — и отвечала 500 каждому, кто смотрит тайл.
+    /// </summary>
+    public static TheoryData<string, byte[]> Unbuildable => new()
+    {
+        // Кольцо из одной точки: оно уже «замкнуто», а NTS нужно хотя бы три.
+        { "one-point ring", Encode(PolygonHeader, 1, 1, Z(100), Z(100)) },
+        // Две одинаковые точки: тоже замкнуто, и тоже мало.
+        { "ring of two equal points", Encode(PolygonHeader, 1, 2, Z(100), Z(100), Z(0), Z(0)) },
+        // Дыра без оболочки: оболочка пустая, дыра — квадрат.
+        { "hole without a shell", Encode(PolygonHeader, 2, 0, 5, Z(0), Z(0), Z(10), Z(0), Z(0), Z(10), Z(-10), Z(0), Z(0), Z(-10)) },
+    };
+
+    [Theory]
+    [MemberData(nameof(Unbuildable))]
+    public void Readable_bytes_that_make_no_polygon_are_refused_as_damaged_data(string damage, byte[] data)
+    {
+        var error = Assert.Throws<FormatException>(() => Twkb.Read(data));
+
+        Assert.True(error.InnerException is ArgumentException, $"{damage}: причина от NTS остаётся внутри — для журнала сервера");
+    }
+
+    [Theory]
+    [InlineData(10_000_000UL)] // вершин в кольце: список на 10 млн вершин — 80 МБ ещё до первой вершины
+    [InlineData(1UL << 40)] // больше int: раньше OverflowException вместо FormatException
+    public void Counts_beyond_the_data_are_refused_before_anything_is_allocated(ulong count)
+    {
+        var ring = Encode(PolygonHeader, 1, count, Z(0), Z(0));
+        var rings = Encode(PolygonHeader, count, 4, Z(0), Z(0), Z(10), Z(0), Z(0), Z(10), Z(-10), Z(-10)); // оболочка цела
+        var polygons = Encode(MultiPolygonHeader, count, 1);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<FormatException>(() => Twkb.Read(ring));
+        Assert.Throws<FormatException>(() => Twkb.Read(rings));
+        Assert.Throws<FormatException>(() => Twkb.Read(polygons));
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 1_000_000, "испорченное число вершин не должно выделять память");
+    }
+
+    private const byte PolygonHeader = 0x23; // тип 3, точность 1 в зигзаге — в старших битах
+
+    private const byte MultiPolygonHeader = 0x26; // тип 6
+
+    /// <summary>TWKB без рамки и размера из готовых чисел переменной длины: число колец, вершин, разности координат.</summary>
+    private static byte[] Encode(byte header, params ulong[] values)
+    {
+        var bytes = new List<byte> { header, 0x00 };
+        foreach (var value in values)
+        {
+            var rest = value;
+            while (rest >= 0x80)
+            {
+                bytes.Add((byte)(rest | 0x80));
+                rest >>= 7;
+            }
+
+            bytes.Add((byte)rest);
+        }
+
+        return [.. bytes];
+    }
+
+    /// <summary>Разность координат в зигзаг-кодировке (в единицах 0,1 м).</summary>
+    private static ulong Z(long delta) => (ulong)((delta << 1) ^ (delta >> 63));
 }

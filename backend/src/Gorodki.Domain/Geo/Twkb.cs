@@ -89,8 +89,26 @@ public static class Twkb
     }
 
     /// <summary>Читает (мульти)многоугольник в систему координат сервера (UTM 34N, сетка 0,1 м).</summary>
-    /// <exception cref="FormatException">Не TWKB многоугольника или обрезанные данные.</exception>
+    /// <exception cref="FormatException">
+    /// Не TWKB многоугольника, обрезанные данные или многоугольник из них не собрать. Других исключений нет: запись журнала
+    /// может быть испорчена как угодно (ручная правка базы), а вызывающим — публичной проекции и откату — нужен один признак
+    /// «запись испорчена», иначе испорченная запись роняет чтение карты (docs/architecture/territory-map.md).
+    /// </exception>
     public static Geometry Read(byte[] data)
+    {
+        try
+        {
+            return ReadGeometry(data);
+        }
+        catch (ArgumentException e)
+        {
+            // Байты разобрались, а многоугольник из них не собрать: кольцо короче трёх точек после замыкания, дыры без
+            // оболочки — NTS бросает ArgumentException. Для вызывающих это та же испорченная запись.
+            throw new FormatException($"TWKB: из данных не собрать многоугольник ({e.Message})", e);
+        }
+    }
+
+    private static Geometry ReadGeometry(byte[] data)
     {
         var position = 0;
         byte ReadByte() => position < data.Length ? data[position++] : throw new FormatException("TWKB обрезан.");
@@ -109,6 +127,15 @@ public static class Twkb
             }
 
             throw new FormatException("TWKB: слишком длинное число.");
+        }
+
+        // Число колец, вершин или многоугольников — не больше, чем их уместится в оставшихся байтах (у каждого хотя бы
+        // bytesEach байт). В испорченной записи оно может быть любым: список на миллиард вершин выделялся бы раньше, чем
+        // кончатся данные, а число больше int — OverflowException вместо FormatException.
+        int ReadCount(int bytesEach)
+        {
+            var count = ReadVarint();
+            return count <= (ulong)((data.Length - position) / bytesEach) ? (int)count : throw new FormatException("TWKB обрезан.");
         }
 
         var header = ReadByte();
@@ -148,7 +175,7 @@ public static class Twkb
 
         LinearRing ReadRing()
         {
-            var count = checked((int)ReadVarint());
+            var count = ReadCount(bytesEach: 2); // вершина — две разности, в каждой хотя бы байт
             var coordinates = new List<Coordinate>(count + 1);
             for (var i = 0; i < count; i++)
             {
@@ -167,7 +194,7 @@ public static class Twkb
 
         Polygon ReadPolygon()
         {
-            var rings = checked((int)ReadVarint());
+            var rings = ReadCount(bytesEach: 1); // у кольца хотя бы число вершин
             if (rings == 0)
             {
                 return GeoOps.EmptyPolygon();
@@ -188,7 +215,7 @@ public static class Twkb
             return ReadPolygon();
         }
 
-        var polygons = new Polygon[checked((int)ReadVarint())];
+        var polygons = new Polygon[ReadCount(bytesEach: 1)]; // у многоугольника хотя бы число колец
         if ((metadata & IdListFlag) != 0)
         {
             for (var i = 0; i < polygons.Length; i++)
