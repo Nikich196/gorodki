@@ -70,7 +70,8 @@ struct ProbeRunView: View {
                 } footer: {
                     Text(
                         "В сводке только числа, без координат и маршрута. Отметка датчиков обычно отстаёт на 10–15 с; "
-                            + "больше — таймер трекера вставал."
+                            + "больше — таймер трекера вставал. Закрытие приложения даёт один разрыв GPS: время "
+                            + "до нового запуска и до минуты точек перед закрытием, ещё не записанных в очередь."
                     )
                 }
             }
@@ -79,7 +80,8 @@ struct ProbeRunView: View {
                 Button("Удалить пробные забеги", systemImage: "trash", role: .destructive) {
                     confirmingRemoval = true
                 }
-                .disabled(probe.isRunning || probe.busy || probe.storedRuns == 0)
+                // Сводка остаётся и после стирания всей очереди (выход из аккаунта) — её тоже убирает эта кнопка.
+                .disabled(probe.isRunning || probe.busy || (probe.storedRuns == 0 && probe.record == nil))
             } footer: {
                 Text("Пробных забегов в очереди: \(probe.storedRuns). Забеги игрока не трогаются.")
             }
