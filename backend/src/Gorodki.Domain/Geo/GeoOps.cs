@@ -186,12 +186,21 @@ public static class GeoOps
         return snapped;
     }
 
+    /// <summary>Фабрика без сетки — только для сжатия в <see cref="IsNarrowerThan"/>.</summary>
+    private static readonly GeometryFactory Floating = new(new PrecisionModel(), Utm34.Srid);
+
     /// <summary>
     /// «Уже, чем 2·<paramref name="halfWidth"/> везде»: после сжатия внутрь на halfWidth ничего не остаётся.
     /// Соединения «митра» сохраняют углы, поэтому проверка не зависит от скруглений.
     /// </summary>
+    /// <remarks>
+    /// Сжимается копия без сетки. Буфер NTS берёт точность у геометрии: на сетке 0,1 м он округляет точки пересечения
+    /// контура до сетки без snap-rounding и изредка молча выдаёт пустой результат — петля в 56 000 м² оказалась «уже
+    /// 1,5 м», движок принял её за осколок, и захват пропал (issue #113). Без сетки NTS узлует точно, а если не сходится,
+    /// сам переходит на snap-rounding.
+    /// </remarks>
     public static bool IsNarrowerThan(Geometry area, double halfWidth) =>
-        BufferOp.Buffer(area, -halfWidth, new BufferParameters
+        BufferOp.Buffer(Floating.CreateGeometry(area), -halfWidth, new BufferParameters
         {
             JoinStyle = JoinStyle.Mitre,
             MitreLimit = 2.0,
