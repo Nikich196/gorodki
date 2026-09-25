@@ -123,6 +123,9 @@
       "publicEventDelayMinutes": 20,
       "zoneRadiusMeters": 400,
       "maxZones": 3
+    },
+    "osm": {
+      "setVersion": null
     }
   }
 }

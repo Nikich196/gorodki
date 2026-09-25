@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Osm;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -23,6 +24,7 @@ public sealed class CaptureProcessor(
     AppDbContext db,
     GameConfigStore configs,
     RunJudgements judgements,
+    IMaskStore maskStore,
     RealtimeHints hints,
     TimeProvider time,
     ILogger<CaptureProcessor> logger)
@@ -251,8 +253,13 @@ public sealed class CaptureProcessor(
             return await FinishAsync(claim.Id, token, CaptureStatus.Stale, "stale", cancellationToken, timing: timing);
         }
 
-        // Шаг A — вне транзакций: контур P (маски — когда появится osm-pipeline).
-        var shape = CaptureShapeBuilder.Build(ring.Ring, ring.ClosingTolerance, masks: null, rules.Capture.Shape);
+        // Шаг A — вне транзакций: контур P минус маски набора OSM, с которым начат забег (osm-pipeline.md, «Маски в
+        // обработке захвата»). Набора в конфиге нет — масок нет, как до конвейера. Все грани P лежат в рамке кольца,
+        // поэтому хватает масок тайлов, которые она задевает.
+        var masks = rules.Osm.SetVersion is { } set
+            ? await maskStore.CoveringAsync(EnvelopeOf(ring.Ring), set, cancellationToken)
+            : null;
+        var shape = CaptureShapeBuilder.Build(ring.Ring, ring.ClosingTolerance, masks, rules.Capture.Shape);
         if (!shape.IsAccepted)
         {
             return await FinishAsync(claim.Id, token, CaptureStatus.Rejected, LoopRing.Code(shape.Rejection), cancellationToken, timing: timing);
@@ -260,6 +267,17 @@ public sealed class CaptureProcessor(
 
         var canRemoveLevels = await CanRemoveLevelsAsync(run, claim, rules, judgement, effectiveAt, cancellationToken);
         return await ApplyAsync(claim, run.DeviceId, shape.Area, effectiveAt, evidenceAt, canRemoveLevels, token, cancellationToken);
+    }
+
+    private static Envelope EnvelopeOf(IReadOnlyList<Coordinate> ring)
+    {
+        var envelope = new Envelope();
+        foreach (var point in ring)
+        {
+            envelope.ExpandToInclude(point);
+        }
+
+        return envelope;
     }
 
     /// <summary>

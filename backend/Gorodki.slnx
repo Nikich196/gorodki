@@ -8,6 +8,7 @@
     <Project Path="tests/Gorodki.Calibration.Tests/Gorodki.Calibration.Tests.csproj" />
     <Project Path="tests/Gorodki.Domain.Tests/Gorodki.Domain.Tests.csproj" />
     <Project Path="tests/Gorodki.IntegrationTests/Gorodki.IntegrationTests.csproj" />
+    <Project Path="tests/Gorodki.OsmPipeline.Tests/Gorodki.OsmPipeline.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Gorodki.Calibration/Gorodki.Calibration.csproj" />

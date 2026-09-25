@@ -85,9 +85,8 @@ public static class OsmCodes
     };
 
     public static MaskKind MaskKindOf(string code) =>
-        Enum.GetValues<MaskKind>().FirstOrDefault(k => Of(k) == code) is var kind && Of(kind) == code
-            ? kind
-            : throw new FormatException($"Неизвестный вид маски: {code}.");
+        Enum.GetValues<MaskKind>().Where(k => Of(k) == code).Cast<MaskKind?>().SingleOrDefault()
+            ?? throw new FormatException($"Неизвестный вид маски: {code}.");
 
     public static string Of(DistrictKind kind) => kind switch
     {
@@ -99,9 +98,8 @@ public static class OsmCodes
     };
 
     public static DistrictKind DistrictKindOf(string code) =>
-        Enum.GetValues<DistrictKind>().FirstOrDefault(k => Of(k) == code) is var kind && Of(kind) == code
-            ? kind
-            : throw new FormatException($"Неизвестный вид района: {code}.");
+        Enum.GetValues<DistrictKind>().Where(k => Of(k) == code).Cast<DistrictKind?>().SingleOrDefault()
+            ?? throw new FormatException($"Неизвестный вид района: {code}.");
 
     public static string Of(PlayZone zone) => zone switch
     {
@@ -112,7 +110,6 @@ public static class OsmCodes
     };
 
     public static PlayZone PlayZoneOf(string code) =>
-        Enum.GetValues<PlayZone>().FirstOrDefault(k => Of(k) == code) is var zone && Of(zone) == code
-            ? zone
-            : throw new FormatException($"Неизвестная зона игры: {code}.");
+        Enum.GetValues<PlayZone>().Where(k => Of(k) == code).Cast<PlayZone?>().SingleOrDefault()
+            ?? throw new FormatException($"Неизвестная зона игры: {code}.");
 }

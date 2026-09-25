@@ -2001,7 +2001,8 @@
           "territory",
           "leagues",
           "exploration",
-          "privacy"
+          "privacy",
+          "osm"
         ],
         "type": "object",
         "properties": {
@@ -2019,6 +2020,9 @@
           },
           "privacy": {
             "$ref": "#/components/schemas/PrivacyConfig"
+          },
+          "osm": {
+            "$ref": "#/components/schemas/OsmConfig"
           }
         }
       },
@@ -2368,6 +2372,18 @@
             "format": "double"
           },
           "explorationRank": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "OsmConfig": {
+        "type": "object",
+        "properties": {
+          "setVersion": {
             "type": [
               "null",
               "integer"
