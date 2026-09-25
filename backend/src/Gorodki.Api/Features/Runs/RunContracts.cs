@@ -66,7 +66,10 @@ public sealed record ChunkReceipt(int FirstSeq, int LastSeq, bool Duplicate);
 /// Первый забег новичка: весь забег судится с порогом точности <c>capture.newcomerMaxAccuracyMeters</c> из конфига (35 м)
 /// вместо порога лиги — так же должен судить и телефон.
 /// </param>
-/// <param name="FogNewCells">Сколько новых клеток тумана открыл забег («+N га» в итоге); null — ещё не открывал.</param>
+/// <param name="FogNewCells">
+/// Сколько новых клеток тумана открыл забег («+N га» в итоге); null — ещё не открывал. 0 — и когда очистка истории
+/// исследований (FogHistory) пометила забег: fog_new_cells = 0, туман он уже не откроет.
+/// </param>
 public sealed record RunResponse(
     Guid Id,
     League League,
