@@ -107,6 +107,18 @@ targets:
       # Манифест приватности (PLAN.md, §7.2) — в ресурсы бандла явно: без него App Store Connect не примет сборку.
       - path: App/PrivacyInfo.xcprivacy
         buildPhase: resources
+      # Соглашение, политика и согласие — сами файлы docs/legal: онбординг показывает их как есть, второй копии нет.
+      - path: ../docs/legal/terms-v1.md
+        buildPhase: resources
+      - path: ../docs/legal/privacy-v1.md
+        buildPhase: resources
+      - path: ../docs/legal/consent-v1.md
+        buildPhase: resources
+      # Образцы ответов сервера — данные режима фикстур для снимков (-GorodkiFixture, App/Fixtures). Папкой, чтобы
+      # в бандле лежали в samples/; в Release их исключает EXCLUDED_SOURCE_FILE_NAMES ниже.
+      - path: ../contracts/samples
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: GorodkiWidgets
       - package: GameCore
@@ -137,10 +149,12 @@ targets:
           CODE_SIGN_ENTITLEMENTS: App/Gorodki-Free.entitlements
         Release-Free:
           CODE_SIGN_ENTITLEMENTS: App/Gorodki-Free.entitlements
+          EXCLUDED_SOURCE_FILE_NAMES: samples
         Debug-Paid:
           CODE_SIGN_ENTITLEMENTS: App/Gorodki-Paid.entitlements
         Release-Paid:
           CODE_SIGN_ENTITLEMENTS: App/Gorodki-Paid.entitlements
+          EXCLUDED_SOURCE_FILE_NAMES: samples
 
   # Расширение: Live Activity (экран блокировки, Dynamic Island) и виджеты.
   # Приложение обязано работать и без него: на бесплатной подписи расширение может не запуститься.
