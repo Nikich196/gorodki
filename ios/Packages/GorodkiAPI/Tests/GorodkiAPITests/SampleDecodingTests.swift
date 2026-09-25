@@ -73,7 +73,7 @@ struct SampleDecodingTests {
         #expect(!tile.bits.data.isEmpty)
         #expect(summary.layers.first?.areaSquareMeters == 42_580.5 && summary.layers.first?.season == nil)
         #expect(summary.layers.last?.season == 0)  // сезонный слой; nil — за всё время
-        #expect(run.fogNewCells == 1_234)
+        #expect(run.fogNewCells == 1_234 && run.visitedParcels == 3)
     }
 
     @Test("Ошибки: код для приложения и дополнительные поля (problems, overlaps)")

@@ -25,5 +25,6 @@
     }
   ],
   "newcomer": false,
-  "fogNewCells": 1234
+  "fogNewCells": 1234,
+  "visitedParcels": 3
 }

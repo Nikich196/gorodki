@@ -2680,6 +2680,13 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "visitedParcels": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },
