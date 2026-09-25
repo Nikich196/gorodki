@@ -54,6 +54,47 @@ packages:
     path: Packages/GorodkiNetwork
   GorodkiPersistence:
     path: Packages/GorodkiPersistence
+  # Внешние зависимости пакетов выше — точными версиями из их Package.resolved. Пакеты просят диапазон («from:»),
+  # а своего Package.resolved у сгенерированного проекта нет: без этих строк Xcode брал бы новейшие версии, и приложение
+  # собиралось бы не с тем, что проверили тесты пакетов в ios-core. Цели на них не ссылаются — строки только сужают
+  # выбор версий. Обновил Package.resolved пакета — обнови и версию здесь: расхождение ловит
+  # ios/scripts/check-spm-pins.py (шаг ios-build). Адреса — как в Package.resolved.
+  OpenAPIKit:
+    url: https://github.com/mattpolzin/OpenAPIKit
+    exactVersion: 6.4.0
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 7.11.1
+  SignalRClient:
+    url: https://github.com/dotnet/signalr-client-swift
+    exactVersion: 1.0.0
+  swift-algorithms:
+    url: https://github.com/apple/swift-algorithms
+    exactVersion: 1.2.1
+  swift-argument-parser:
+    url: https://github.com/apple/swift-argument-parser
+    exactVersion: 1.8.2
+  swift-collections:
+    url: https://github.com/apple/swift-collections
+    exactVersion: 1.7.0
+  swift-http-types:
+    url: https://github.com/apple/swift-http-types
+    exactVersion: 1.8.0
+  swift-numerics:
+    url: https://github.com/apple/swift-numerics.git
+    exactVersion: 1.1.1
+  swift-openapi-generator:
+    url: https://github.com/apple/swift-openapi-generator
+    exactVersion: 1.13.1
+  swift-openapi-runtime:
+    url: https://github.com/apple/swift-openapi-runtime
+    exactVersion: 1.12.1
+  swift-openapi-urlsession:
+    url: https://github.com/apple/swift-openapi-urlsession
+    exactVersion: 1.3.1
+  Yams:
+    url: https://github.com/jpsim/Yams
+    exactVersion: 6.2.2
 
 targets:
   Gorodki:
@@ -144,6 +185,20 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
+  # UI-тесты: снимки экранов, доступных без сервера (ios/UITests). Информационные — только в своей схеме
+  # «Gorodki Snapshots» и в ios-snapshots.yml, а не в «Gorodki Free»: иначе ios-build гонял бы их как обязательные.
+  # TEST_TARGET_NAME XcodeGen ставит сам по зависимости от приложения.
+  GorodkiUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Gorodki
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Gorodki Free:
     build:
@@ -178,3 +233,15 @@ schemes:
       config: Debug-Paid
     archive:
       config: Release-Paid
+
+  # Снимки экранов (ios-snapshots.yml): сборка Free, как у пробной установки через Sideloadly.
+  Gorodki Snapshots:
+    build:
+      targets:
+        Gorodki: all
+    run:
+      config: Debug-Free
+    test:
+      config: Debug-Free
+      targets:
+        - GorodkiUITests

@@ -1,0 +1,126 @@
+# Необязательные для слияния проверки iOS. Обязательные остаются прежними: backend, ios-core, ios-build.
+#  snapshots  — UI-тесты GorodkiUITests (ios/UITests) на симуляторе iPhone снимают экраны, которые открываются без
+#               сервера: стартовый с «Проверкой установки» и «Лабораторию» (прогулка, стенд карты, сервер). PNG — в
+#               артефакте запуска на 14 дней: так приложение можно посмотреть без Mac. Информационные по плану
+#               (PLAN.md, §8: «Информационные: снимки…»; §13: «снимки и UI-тесты — информационно»). Демо-повтор забега
+#               («UI-тесты повтора») не снимается: ему нужны роль demo и сервер — позже;
+#  sf-symbols — каждое имя SF Symbols из кода есть в системе поколения 26 (ios/scripts/check-sf-symbols.swift).
+#               План ставит её в автоматические проверки PR рядом со сборкой и локализацией (§13: «iOS: сборка Debug
+#               и Release, локализация, SF Symbols»), в обязательных (§8) её нет. Здесь она автоматическая, но
+#               слияние не держит, пока не покажет себя на нескольких запусках (docs/plan-deviations.md, п. 7).
+# Запуск — в PR с изменениями ios/ и кнопкой (Actions → ios-snapshots → Run workflow), на main — нет: снимки смотрят
+# до слияния, а упавшая проверка коммита main могла бы отменить деплой сервера (Render выкатывает, только если все
+# проверки коммита зелёные). Поэтому кнопкой на main задачи пропускаются (if у задач), а пропуск проверку не красит.
+# Фильтр путей — у самого события: PR не трогает ios/ — проверки просто нет, и ждать её некому, она не обязательная.
+# У обязательной ios-build так нельзя (без запуска она ждала бы вечно), поэтому в ios.yml фильтр — отдельная задача
+# changes.
+name: ios-snapshots
+
+on:
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-snapshots.yml"
+  workflow_dispatch:
+
+# Новый коммит в PR отменяет прогон прежнего; запуски кнопкой не отменяют друг друга.
+concurrency:
+  group: ios-snapshots-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  XCODEGEN_VERSION: "2.46.0"
+
+jobs:
+  snapshots:
+    if: github.ref != 'refs/heads/main'
+    runs-on: xcode-27
+    timeout-minutes: 40
+    env:
+      # Адрес сервера для сборки снимков — зарезервированный домен .invalid (RFC 2606): никогда не разрешается, запросы
+      # сразу получают ошибку, настоящий сервер снимкам не нужен. С адресом экран сервера показывает, что видит игрок
+      # до входа («Вход: не выполнен»), а не «адрес не задан». Этим снимки отличаются от пробной установки Никиты
+      # (ipa.yml): у той адреса нет вовсе, в строке «Адрес» — «не задан», а на снимке — gorodki.invalid.
+      SNAPSHOT_SERVER_URL: https://gorodki.invalid
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Версия Xcode
+        run: xcodebuild -version
+
+      - name: Установка XcodeGen ${{ env.XCODEGEN_VERSION }}
+        run: ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$RUNNER_TEMP/xcodegen"
+
+      - name: Генерация Gorodki.xcodeproj
+        run: '"$RUNNER_TEMP/xcodegen/bin/xcodegen" generate --spec ios/project.yml'
+
+      - name: Симулятор iPhone
+        id: simulator
+        timeout-minutes: 10
+        run: bash ios/scripts/boot-simulator.sh >> "$GITHUB_OUTPUT"
+
+      # Строка состояния как на рекламных снимках: время 9:41, полная батарея и связь. Только внешний вид — не вышло,
+      # снимки всё равно нужны.
+      - name: Строка состояния 9:41
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          xcrun simctl status_bar "$UDID" override --time 9:41 --dataNetwork wifi --wifiBars 3 \
+            --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100 \
+            || echo "::warning::simctl status_bar не сработал — на снимках будет обычная строка состояния"
+
+      # Схема «Gorodki Snapshots»: приложение Debug-Free и цель GorodkiUITests. Без параллельного запуска: он клонирует
+      # симулятор, а тестов немного — клон дольше самих тестов. Снимки — вложения XCTest в пакете результатов.
+      - name: UI-тесты — снимки экранов
+        timeout-minutes: 25
+        env:
+          UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          xcodebuild test \
+            -project ios/Gorodki.xcodeproj -scheme "Gorodki Snapshots" -configuration Debug-Free \
+            -destination "id=$UDID" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -resultBundlePath "$RUNNER_TEMP/snapshots.xcresult" \
+            -parallel-testing-enabled NO \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            GORODKI_SERVER_URL="$SNAPSHOT_SERVER_URL"
+
+      # И после упавших тестов: снимки, снятые до падения, и снимок XCTest в момент падения тоже нужны.
+      - name: PNG из пакета результатов
+        if: ${{ !cancelled() }}
+        run: python3 ios/scripts/export-screenshots.py "$RUNNER_TEMP/snapshots.xcresult" "$RUNNER_TEMP/screenshots"
+
+      # В имени и номер попытки: «Re-run failed jobs» повторяет запуск с тем же номером, а имя артефакта в запуске
+      # должно быть новым, иначе повтор упадёт на выгрузке, даже если тесты прошли.
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: gorodki-screenshots-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/screenshots/
+          retention-days: 14
+          # Снимков нет — об этом уже сказал шаг выше.
+          if-no-files-found: warn
+
+      # Пакет результатов целиком (журналы, дерево элементов) — только при падении: открывается в Xcode на Mac.
+      - uses: actions/upload-artifact@v7
+        if: ${{ failure() }}
+        with:
+          name: gorodki-snapshots-xcresult-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/snapshots.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
+
+  sf-symbols:
+    if: github.ref != 'refs/heads/main'
+    # Раннер 26-го поколения, как минимальная iOS приложения (26.0): символов новее этой системы в NSImage нет.
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Имена SF Symbols в коде есть в системе
+        run: swift ios/scripts/check-sf-symbols.swift ios

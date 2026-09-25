@@ -24,8 +24,10 @@ flowchart LR
 ```
 
 Клиент API генерирует плагин при сборке ([ADR 0004](../adr/0004-openapi-swift.md)). Поэтому `xcodebuild` из командной
-строки запускается с `-skipPackagePluginValidation` (`ios.yml`, `ipa.yml`). В Xcode при первой сборке нужно один раз
-нажать «Trust & Enable» у плагина.
+строки запускается с `-skipPackagePluginValidation` (`ios.yml`, `ipa.yml`, `ios-snapshots.yml`). В Xcode при первой
+сборке нужно один раз нажать «Trust & Enable» у плагина. Внешние зависимости пакетов (генератор, SignalR, GRDB и их
+зависимости) повторены в `ios/project.yml` точными версиями из `Package.resolved` пакетов: у сгенерированного проекта
+своего `Package.resolved` нет, и без этого приложение собиралось бы с новейшими версиями, а не с проверенными.
 
 ## `AppDependencies`
 

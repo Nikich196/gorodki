@@ -3,6 +3,7 @@
 #                      затем дымовой запуск и тесты приложения на симуляторе;
 #  ios-build-xcode26 — раз в неделю резервная сборка на Xcode 26 (раннер macos-26),
 #                      чтобы не зависеть только от preview-раннера.
+# Снимки экранов, UI-тесты и SF Symbols — в ios-snapshots.yml, слияние не держат.
 # -skipPackagePluginValidation: клиент API (пакет GorodkiAPI) генерируется плагином при сборке, а xcodebuild
 # из командной строки без этого флага требует вручную подтвердить доверие плагину (docs/adr/0004-openapi-swift.md).
 name: ios
@@ -35,6 +36,7 @@ jobs:
   changes:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       ios: ${{ steps.filter.outputs.ios }}
     steps:
@@ -49,8 +51,13 @@ jobs:
 
   ios-build:
     needs: changes
-    # always(): задача оценивается, даже когда changes пропущена (запуск кнопкой).
-    if: always() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.ios == 'true')
+    # Сборка идёт, если менялся iOS-код, при запуске кнопкой (changes пропущена) и если changes не отработала: упала,
+    # вышла по времени. Иначе сбой фильтра путей молча пропускал бы в main непроверенный iOS-код — пропущенную
+    # ios-build GitHub считает пройденной. !cancelled(), а не always(): отменённый прогон (новый коммит в PR) не должен
+    # занимать Mac-раннер сборкой. По расписанию ios-build не нужна — там резервная сборка ниже.
+    if: >-
+      ${{ !cancelled() && github.event_name != 'schedule' &&
+      (needs.changes.result != 'success' || needs.changes.outputs.ios == 'true') }}
     runs-on: xcode-27
     timeout-minutes: 45
     steps:
@@ -59,11 +66,15 @@ jobs:
       - name: Версия Xcode
         run: xcodebuild -version
 
+      # Первым, до долгой сборки: версии внешних пакетов в project.yml — те же, что в Package.resolved пакетов.
+      - name: Версии пакетов приложения (ios/scripts/check-spm-pins.py)
+        run: python3 -B ios/scripts/check-spm-pins.py
+
       - name: Установка XcodeGen ${{ env.XCODEGEN_VERSION }}
         run: ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$RUNNER_TEMP/xcodegen"
 
       - name: Генерация Gorodki.xcodeproj
-        run: "$RUNNER_TEMP/xcodegen/bin/xcodegen generate --spec ios/project.yml"
+        run: '"$RUNNER_TEMP/xcodegen/bin/xcodegen" generate --spec ios/project.yml'
 
       - name: Debug-Free для симулятора
         run: |
@@ -92,25 +103,14 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet
 
-      # Имена симуляторов меняются от Xcode к Xcode, поэтому не зашиты: iPhone новейшей из установленных iOS.
+      # iPhone новейшей из установленных iOS (ios/scripts/boot-simulator.sh — общий со снимками экранов).
       # Сбой симулятора на preview-раннере красит ios-build, а с ним не слить PR и не выкатить сервер (Render,
       # checksPass). Начнёт сбоить — повтор после simctl shutdown и erase, но не continue-on-error: тот спрячет и
       # настоящее падение.
       - name: Симулятор iPhone
         id: simulator
         timeout-minutes: 10
-        run: |
-          udid=$(xcrun simctl list devices available --json | python3 -c '
-          import json, sys
-          runtimes = json.load(sys.stdin)["devices"]
-          ios = [key for key, devices in runtimes.items() if ".SimRuntime.iOS-" in key and any(d["name"].startswith("iPhone") for d in devices)]
-          if not ios: sys.exit("На раннере нет симулятора iPhone. Среды: " + ", ".join(runtimes))
-          newest = max(ios, key=lambda key: [int(part) for part in key.rsplit("iOS-", 1)[1].split("-")])
-          print(next(d["udid"] for d in runtimes[newest] if d["name"].startswith("iPhone")))
-          ')
-          xcrun simctl list devices | grep "$udid"
-          xcrun simctl bootstatus "$udid" -b
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+        run: bash ios/scripts/boot-simulator.sh >> "$GITHUB_OUTPUT"
 
       # Дымовой запуск. Код приложения ещё ни разу не исполнялся (Mac нет, S2 впереди): ошибки запуска — Info.plist,
       # регистрация фоновых задач, ловушки изоляции Swift 6 — иначе впервые проявились бы на iPhone. Приложение —
@@ -228,7 +228,7 @@ jobs:
         run: ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$RUNNER_TEMP/xcodegen"
 
       - name: Генерация Gorodki.xcodeproj
-        run: "$RUNNER_TEMP/xcodegen/bin/xcodegen generate --spec ios/project.yml"
+        run: '"$RUNNER_TEMP/xcodegen/bin/xcodegen" generate --spec ios/project.yml'
 
       - name: Debug-Free для симулятора на Xcode 26
         run: |

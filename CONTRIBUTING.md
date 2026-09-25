@@ -26,8 +26,12 @@ gorodki/
 
 - В `main` напрямую не пишем: каждая правка идёт через ветку и Pull Request. `main` защищена: только через PR
   с тремя обязательными проверками — `backend`, `ios-core`, `ios-build`.
+- Необязательные проверки слияние не держат, но их красный цвет — повод разобраться: `ios-snapshots` (снимки экранов
+  и SF Symbols, в PR с изменениями `ios/`) и ночная `geo-nightly` (геодвижок на 10 000 историях).
 - Ветка называется латиницей: `тип/коротко`, например `feat/health-endpoint`, `fix/loop-detector`, `docs/journal`.
-- PR сливается, когда CI зелёный. Одобрение не обязательно, но PR друга сливает Никита после комментариев Claude.
+- PR сливается, когда зелёные обязательные проверки. Ждать их из терминала — `gh pr checks <PR> --required --watch`:
+  без `--required` команда ждёт и необязательные и завершается ошибкой, если красная хоть одна. Одобрение
+  не обязательно, но PR друга сливает Никита после комментариев Claude.
 - Один PR — одна задача. Большое лучше разбить.
 
 ## Коммиты
@@ -60,12 +64,21 @@ docs: журнал за 23.09
 - Тесты: `dotnet test --solution Gorodki.slnx`.
 - Оформление проверяет CI (`backend`, шаг «Оформление кода»: `dotnet format Gorodki.slnx --verify-no-changes`);
   исправить у себя — `dotnet format Gorodki.slnx`.
+- Ночная `geo-nightly` упала — в журнале шага строка `Set seed: "…"` и имя теста. Повторить у себя: переменные
+  окружения `CsCheck_Seed` (этот seed) и `GORODKI_GEO_ITERATIONS=10000`, затем
+  `dotnet test --project tests/Gorodki.Domain.Tests --filter-method "<полное имя теста>"`.
 
 ### iOS (Swift)
 
 - Swift 6, минимальная iOS 26.0. Возможности iOS 27 — только за `if #available(iOS 27, *)`.
 - Оформление проверяет `swift format lint` (настройки в `ios/.swift-format`).
 - Логика без UIKit и SwiftUI — в пакет `GameCore`: её можно тестировать на Windows через WSL (`swift test`).
+- Внешние Swift-пакеты приложения закреплены в `ios/project.yml` (`packages:`) точными версиями из `Package.resolved`
+  пакетов. Обновил `Package.resolved` — обнови и `exactVersion` там; расхождение ловит первый шаг `ios-build`
+  (`python3 ios/scripts/check-spm-pins.py`).
+- Снимки экранов без Mac: в PR с изменениями `ios/` — проверка `ios-snapshots`, на странице её запуска внизу
+  артефакт `gorodki-screenshots-…` (PNG, 14 дней). UI-тесты — `ios/UITests`, схема «Gorodki Snapshots»; сервер им
+  не нужен.
 
 ## Задачи
 
