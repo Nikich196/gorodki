@@ -131,6 +131,55 @@ public sealed class FogTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Listed_tiles_are_looked_up_as_exact_pairs_in_the_players_own_layer()
+    {
+        // Спрошены (9000, 5400) и (9001, 5401), а рядом лежат и «перекрёстные» (9000, 5401), (9001, 5400) — их в ответе нет.
+        // Тайл (9002, 5402) есть у другого игрока, у самого игрока — в слое «вело» и в сезонном: для «пешком за всё время» он
+        // пуст.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (client, userId) = await api.CreatePlayerClientAsync();
+        var (_, strangerId) = await api.CreatePlayerClientAsync();
+        var now = api.Time.GetUtcNow();
+        await using (var db = database.CreateContext())
+        {
+            db.FogTiles.AddRange(
+                Tile(userId, FogLayerKind.Foot, SeasonCalendar.AllTime, 9_000, 5_400, 1, now),
+                Tile(userId, FogLayerKind.Foot, SeasonCalendar.AllTime, 9_001, 5_401, 2, now),
+                Tile(userId, FogLayerKind.Foot, SeasonCalendar.AllTime, 9_000, 5_401, 3, now),
+                Tile(userId, FogLayerKind.Foot, SeasonCalendar.AllTime, 9_001, 5_400, 4, now),
+                Tile(strangerId, FogLayerKind.Foot, SeasonCalendar.AllTime, 9_002, 5_402, 5, now),
+                Tile(userId, FogLayerKind.Bike, SeasonCalendar.AllTime, 9_002, 5_402, 6, now),
+                Tile(userId, FogLayerKind.Foot, 0, 9_002, 5_402, 7, now));
+            await db.SaveChangesAsync(Cancel);
+        }
+
+        var fog = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot&tiles=9000:5400@0,9001:5401@0,9002:5402@0", Json, Cancel);
+
+        Assert.Equal([(9_000, 5_400, 1L), (9_001, 5_401, 2L)], fog!.Tiles.Select(t => (t.X, t.Y, t.Version)).Order());
+        var empty = Assert.Single(fog.Unchanged);
+        Assert.Equal((9_002, 5_402), (empty.X, empty.Y));
+
+        static FogTileEntity Tile(Guid owner, FogLayerKind layer, int season, int x, int y, long version, DateTimeOffset now)
+        {
+            var bits = new FogTileBits();
+            bits.Set(0);
+            return new FogTileEntity
+            {
+                UserId = owner,
+                Layer = layer,
+                Season = season,
+                TileX = x,
+                TileY = y,
+                Bits = FogTileCodec.Compress(bits),
+                CellCount = 1,
+                Version = version,
+                UpdatedAt = now,
+            };
+        }
+    }
+
+    [Fact]
     public async Task Broken_query_is_refused()
     {
         database.RequireDatabase();
