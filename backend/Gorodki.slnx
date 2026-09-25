@@ -12,5 +12,6 @@
   <Folder Name="/tools/">
     <Project Path="tools/Gorodki.Calibration/Gorodki.Calibration.csproj" />
     <Project Path="tools/Gorodki.GeoBench/Gorodki.GeoBench.csproj" />
+    <Project Path="tools/Gorodki.OsmPipeline/Gorodki.OsmPipeline.csproj" />
   </Folder>
 </Solution>

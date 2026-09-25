@@ -1,0 +1,55 @@
+// Параметры конвейера OSM v1 (docs/architecture/osm-pipeline.md). Числа и теги — из решений 25.09
+// (docs/decisions/osm-questions.md) и PLAN.md §3.3, §3.6, §3.10; id объектов проверены на выгрузке Geofabrik от 24.09.2026.
+// Чего в решениях нет, остаётся пустым: погранполоса, мемориалы, пути «тротуар есть, а тега нет».
+{
+  // Рамка вырезки: город (23.5654–23.8544 в. д., 52.0238–52.1510 с. ш.) с запасом ~1 км.
+  "frame": { "west": 23.54, "south": 52.01, "east": 23.88, "north": 52.165 },
+
+  // boundary=administrative: Брэст (admin_level=6), Беларусь (admin_level=2), районы Ленінскі и Маскоўскі (admin_level=9).
+  "cityRelationId": 72615,
+  "countryRelationId": 59065,
+  "districtRelationIds": [3626404, 3626405],
+
+  // Вопрос 2, вариант Б; cycleway и service — в списке (решено 25.09). Буфер = радиус открытия тумана, 25 м.
+  "pedestrian": {
+    "highways": ["footway", "path", "pedestrian", "steps", "living_street", "residential", "service", "unclassified",
+      "tertiary", "secondary", "primary", "track", "cycleway"],
+    "highwaysWithAccess": ["trunk", "trunk_link"],
+    "bufferMeters": 25
+  },
+
+  // Вопрос 1.2, вариант А, 12 м. sidewalkWayIds — пути, где тротуар есть, а тега нет: решает Никита по карте.
+  "majorRoads": {
+    "always": ["motorway", "motorway_link"],
+    "withoutPedestrianAccess": ["trunk", "trunk_link"],
+    "halfWidthMeters": 12,
+    "sidewalkWayIds": []
+  },
+
+  // Вопрос 1.1, вариант А, 10 м.
+  "rail": { "railways": ["rail", "light_rail", "narrow_gauge"], "halfWidthMeters": 10 },
+
+  "areas": {
+    "water": ["natural=water", "waterway=riverbank", "landuse=reservoir", "landuse=basin"],
+    "railAreas": ["landuse=railway"],
+    "military": ["landuse=military", "military=*"],
+    "cemetery": ["landuse=cemetery", "amenity=grave_yard"],
+    "pedestrianAreas": ["highway=pedestrian", "place=square"],
+    // Вопрос 6.8 (в v1): стартовый список — теги из текста вопроса; окончательный утверждает Никита.
+    "lowValueLand": ["landuse=farmland", "landuse=forest", "landuse=industrial", "natural=wood"]
+  },
+
+  // Вопрос 1.3: ширина — из официальных правил пограничного режима; пока её нет — слоя нет.
+  "borderStripMeters": null,
+
+  // Вопрос 6.6: список утверждает Никита по карте-артефакту (кандидаты — там); точечный памятник — круг 50 м.
+  "memorials": { "objects": [], "pointRadiusMeters": 50 },
+
+  // Вопрос 6.4: А (весь Брест) — если к 04.11 закрыта погранполоса; иначе Б (только Арена). Граница города доходит до
+  // госграницы (проверено на данных), ширины полосы и временной линии Никиты пока нет — решает ведущий при включении набора.
+  "playZone": "city",
+
+  "quadrantSegments": 8,
+  "maskSimplifyMeters": 0,
+  "knownBrokenRelations": []
+}
