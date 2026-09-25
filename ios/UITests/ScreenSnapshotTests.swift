@@ -159,14 +159,32 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen("profile", fixture: "player", expecting: "Бегун-1234", name: "20-tab-profile")
     }
 
-    /// Экран режима фикстур днём и ночью: по запуску на тему, снимок — до проверки текста, как и у остальных.
-    /// `pages` — сколько снимков с прокруткой между ними.
+    /// Вход через Google настроен: кнопка активна, пояснения «появится после настройки» нет.
+    @MainActor
+    func test21SignInGoogleReady() {
+        snapshotScreen(
+            "sign-in", fixture: "google-ready", expecting: "Войти через Google", name: "21-onboarding-sign-in-ready")
+    }
+
+    /// Остальные ошибки входа — та же карточка, что у «нет связи» (16), с другим текстом: только днём.
+    @MainActor
+    func test22SignInErrors() {
+        snapshotScreen(
+            "sign-in", fixture: "google-rejected", expecting: "Google не подтвердил вход",
+            name: "22-onboarding-sign-in-google-rejected", themes: ["day"])
+        snapshotScreen(
+            "sign-in", fixture: "account-deleting", expecting: "Этот аккаунт удаляется",
+            name: "23-onboarding-sign-in-account-deleting", themes: ["day"])
+    }
+
+    /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у
+    /// остальных. `pages` — сколько снимков с прокруткой между ними.
     @MainActor
     private func snapshotScreen(
         _ screen: String, fixture: String? = nil, expecting fragment: String, name: String,
-        settle: TimeInterval = 1, pages: Int = 1
+        settle: TimeInterval = 1, pages: Int = 1, themes: [String] = ["day", "night"]
     ) {
-        for theme in ["day", "night"] {
+        for theme in themes {
             var arguments = ["-GorodkiScreen", screen, "-GorodkiTheme", theme]
             if let fixture {
                 arguments += ["-GorodkiFixture", fixture]
