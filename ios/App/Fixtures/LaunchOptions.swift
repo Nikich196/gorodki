@@ -55,7 +55,7 @@ struct LaunchOptions: Equatable {
 /// Экраны, которые режим фикстур открывает сразу (`-GorodkiScreen`).
 enum FixtureScreen: String, CaseIterable, Sendable {
     // Онбординг.
-    case intro, invite, age, consent, signIn = "sign-in"
+    case intro, invite, age, terms, consent, signIn = "sign-in"
     // Вкладки.
     case map, leaderboards, clan, profile
     /// Карта: лист участка по касанию, слой «Исследование», подсказка перед разрешением геопозиции у «Старта».
