@@ -20,8 +20,7 @@ public sealed class ScheduledJobsTests
 
         ScheduledJobs.Register(jobs);
 
-        var (id, job, cron, options) = Assert.Single(jobs.Added);
-        Assert.Equal(ScheduledJobs.RefreshTokensJob, id);
+        var (_, job, cron, options) = Assert.Single(jobs.Added, j => j.Id == ScheduledJobs.RefreshTokensJob);
         Assert.Equal(typeof(RefreshTokenRetention), job.Type);
         Assert.Equal(nameof(RefreshTokenRetention.PurgeExpiredAsync), job.Method.Name);
         Assert.Equal("0 * * * *", cron);
