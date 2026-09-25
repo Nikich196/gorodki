@@ -1,15 +1,18 @@
 import DesignSystem
 import Foundation
+import Networking
 import SwiftUI
 
 /// Соглашение, политика и согласие (docs/legal) — ресурсы приложения (`project.yml`): приложение показывает сами
-/// файлы, как есть, с отметками черновика — второй копии текста, которая разошлась бы с документом, нет. Номер версии
-/// в имени файла меняется вместе с `SignInService.consentVersion` (docs/legal/README.md, «Как выпустить версию 2»).
+/// файлы, как есть, с отметками черновика — второй копии текста, которая разошлась бы с документом, нет: и подпись
+/// отметки согласия берётся из самого документа (`checkbox`). Номер версии в имени файла — `SignInService.consentVersion`
+/// (docs/legal/README.md, «Как выпустить версию 2»): выйдет версия 2 — в сборку нужно положить файлы `*-v2.md`.
 struct LegalDocument: Equatable {
     enum Name: String, CaseIterable, Identifiable, Sendable {
-        case terms = "terms-v1"
-        case privacy = "privacy-v1"
-        case consent = "consent-v1"
+        case terms, privacy, consent
+
+        /// Имя файла в ресурсах: `consent-v1` и т. п.
+        var fileName: String { "\(rawValue)-v\(SignInService.consentVersion)" }
 
         var id: String { rawValue }
 
@@ -23,9 +26,10 @@ struct LegalDocument: Equatable {
 
         /// Ссылка между документами: «[политики](privacy-v1.md)». Остальные ссылки (README, PLAN) — не для игрока.
         init?(link: URL) {
-            let file = link.lastPathComponent
-            guard file.hasSuffix(".md") else { return nil }
-            self.init(rawValue: String(file.dropLast(".md".count)))
+            guard let name = Self.allCases.first(where: { link.lastPathComponent == $0.fileName + ".md" }) else {
+                return nil
+            }
+            self = name
         }
     }
 
@@ -42,17 +46,20 @@ struct LegalDocument: Equatable {
     }
 
     var blocks: [Block]
+    /// Подпись отметки из раздела `stopAt` — строка «☐ …» (у согласия — «## Отметка»); `nil` — такой строки нет.
+    var checkbox: String? = nil
 
     /// Документ из ресурсов приложения; `nil` — файла нет в сборке.
     static func load(_ name: Name, bundle: Bundle = .main) -> LegalDocument? {
-        guard let url = bundle.url(forResource: name.rawValue, withExtension: "md"),
+        guard let url = bundle.url(forResource: name.fileName, withExtension: "md"),
             let text = try? String(contentsOf: url, encoding: .utf8)
         else { return nil }
-        // Отметку согласия экран рисует сам — флажком под текстом.
+        // Отметку согласия экран рисует сам — флажком под текстом, с подписью из документа.
         return parse(text, stopAt: name == .consent ? "## Отметка" : nil)
     }
 
-    /// Разбор Markdown документов docs/legal. `stopAt` — строка, с которой текст дальше не нужен.
+    /// Разбор Markdown документов docs/legal. `stopAt` — строка, с которой начинается раздел отметки: он не текст
+    /// документа, из него берётся только подпись отметки (`checkbox`).
     static func parse(_ markdown: String, stopAt: String? = nil) -> LegalDocument {
         var blocks: [Block] = []
         var paragraph: [String] = []
@@ -70,9 +77,16 @@ struct LegalDocument: Equatable {
             }
         }
 
-        for rawLine in markdown.components(separatedBy: .newlines) {
+        let lines = markdown.components(separatedBy: .newlines)
+        var checkbox: String?
+        for (index, rawLine) in lines.enumerated() {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if let stopAt, line == stopAt { break }
+            if let stopAt, line == stopAt {
+                checkbox = lines[(index + 1)...].lazy.map { $0.trimmingCharacters(in: .whitespaces) }
+                    .first { $0.hasPrefix("☐") }
+                    .map { $0.dropFirst().trimmingCharacters(in: .whitespaces) }
+                break
+            }
             if line.isEmpty {
                 flush()
                 header = nil
@@ -123,7 +137,7 @@ struct LegalDocument: Equatable {
             }
         }
         flush()
-        return LegalDocument(blocks: blocks)
+        return LegalDocument(blocks: blocks, checkbox: checkbox)
     }
 
     /// «1. «Мне 16 лет или больше»» — пункт нумерованного списка.

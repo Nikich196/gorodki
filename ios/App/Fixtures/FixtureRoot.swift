@@ -21,7 +21,7 @@
         var body: some View {
             switch screen {
             case .intro, .invite, .age, .consent, .signIn:
-                OnboardingView(model: onboarding, browseWithoutSignIn: {})
+                OnboardingView(model: onboarding, browseWithoutSignIn: { @MainActor in })
             case .map, .leaderboards, .clan, .profile:
                 AppShell(model: shell)
             case .debug:
@@ -60,7 +60,9 @@
             model.ageConfirmed = screen == .consent || screen == .signIn
             model.termsAccepted = screen == .signIn
             model.consentGiven = screen == .signIn
-            model.errorMessage = fixture.flatMap(failure(named:))?.message
+            if let failure = fixture.flatMap(failure(named:)) {
+                model.error = OnboardingModel.StepError(step: model.path.last ?? .intro, message: failure.message)
+            }
             return model
         }
 

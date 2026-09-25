@@ -7,7 +7,7 @@ import SwiftUI
 struct OnboardingView: View {
     @Bindable var model: OnboardingModel
     /// Посмотреть вкладки без входа — только в сборках команды (`DebugAccess.buildAllows`).
-    var browseWithoutSignIn: (@MainActor () -> Void)?
+    var browseWithoutSignIn: (@MainActor @Sendable () -> Void)?
     @State private var debugMenuShown = false
 
     var body: some View {
@@ -99,7 +99,7 @@ private struct InviteStep: View {
         StepScaffold(
             title: "Код приглашения",
             text: "Пока в игру попадают по приглашениям. Код даёт тот, кто позвал тебя играть.",
-            error: model.errorMessage
+            error: model.errorMessage(on: .invite)
         ) {
             TextField("ABCD-2345", text: $model.inviteCode)
                 .font(.title2.monospaced().weight(.semibold))
@@ -131,7 +131,7 @@ private struct AgeStep: View {
         StepScaffold(
             title: "Тебе есть 16?",
             text: "Играть можно с 16 лет — так требует закон о защите персональных данных.",
-            error: nil
+            error: model.errorMessage(on: .age)
         ) {
             Toggle("Мне 16 лет или больше", isOn: $model.ageConfirmed)
                 .toggleStyle(CheckmarkToggleStyle())
@@ -153,7 +153,7 @@ private struct ConsentStep: View {
         StepScaffold(
             title: "Правила и согласие",
             text: "Две отдельные отметки: принять соглашение и дать согласие на обработку данных.",
-            error: nil
+            error: model.errorMessage(on: .consent)
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("Принимаю пользовательское соглашение", isOn: $model.termsAccepted)
@@ -169,18 +169,16 @@ private struct ConsentStep: View {
             .contentCard()
 
             VStack(alignment: .leading, spacing: 16) {
-                if let consent {
+                // Подпись отметки — из раздела «Отметка» самого документа: без текста согласия отметки нет.
+                if let consent, let checkbox = consent.checkbox {
                     LegalDocumentView(document: consent)
+                    Divider()
+                    Toggle(checkbox, isOn: $model.consentGiven)
+                        .toggleStyle(CheckmarkToggleStyle())
                 } else {
                     Text("Текста согласия нет в этой сборке.")
                         .foregroundStyle(Palette.uiInk2.color)
                 }
-                Divider()
-                Toggle(
-                    "Даю согласие на обработку моих персональных данных в целях, объёме и на срок, указанных выше.",
-                    isOn: $model.consentGiven
-                )
-                .toggleStyle(CheckmarkToggleStyle())
             }
             .contentCard()
         } footer: {
@@ -196,7 +194,7 @@ private struct ConsentStep: View {
 
 private struct SignInStep: View {
     @Bindable var model: OnboardingModel
-    var browseWithoutSignIn: (@MainActor () -> Void)?
+    var browseWithoutSignIn: (@MainActor @Sendable () -> Void)?
 
     var body: some View {
         StepScaffold(
@@ -204,7 +202,7 @@ private struct SignInStep: View {
             text: model.returningPlayer
                 ? "Войди тем же аккаунтом Google, что и раньше."
                 : "Вход через Google. Ник и цвет назначатся сами — поменять ник можно потом в профиле.",
-            error: model.errorMessage
+            error: model.errorMessage(on: .signIn)
         ) {
             if !model.signInAvailable {
                 Label("Вход через Google появится после настройки", systemImage: "clock")

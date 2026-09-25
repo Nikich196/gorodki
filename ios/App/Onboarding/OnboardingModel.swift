@@ -36,11 +36,20 @@ final class OnboardingModel {
     /// Игрок пришёл по «Уже играю — войти»: вход без регистрации.
     var returningPlayer = false
     var isSigningIn = false
-    /// Текст ошибки входа для игрока (`SignInFailure.message`).
-    var errorMessage: String? = nil
+    /// Ошибка входа для игрока (`SignInFailure.message`) и шаг, на котором её показать.
+    var error: StepError? = nil
+
+    /// Ошибка и шаг, к которому она относится: вернулся игрок назад — чужая ошибка на другом шаге не видна.
+    struct StepError: Equatable {
+        var step: OnboardingStep
+        var message: String
+    }
 
     private let signIn: SignIn?
     private let googleToken: GoogleToken?
+    /// ID-токен Google из входа, после которого сервер попросил регистрацию (`registrationNeeded`): после кода, 16+ и
+    /// согласия вход повторяется с ним же, без второго окна Google (токен живёт час; истёк — `googleRejected`).
+    private var pendingIdToken: String?
 
     init(signIn: SignIn?, googleToken: GoogleToken?) {
         self.signIn = signIn
@@ -77,23 +86,29 @@ final class OnboardingModel {
             inviteCode: InviteCode.normalized(inviteCode), ageConfirmed: ageConfirmed, consentAccepted: consentReady)
     }
 
+    /// Текст ошибки для шага `step`; `nil` — на этом шаге ошибки нет.
+    func errorMessage(on step: OnboardingStep) -> String? {
+        error?.step == step ? error?.message : nil
+    }
+
     // MARK: - Переходы
 
     func startRegistration() {
         returningPlayer = false
-        errorMessage = nil
+        error = nil
         path = [.invite]
     }
 
     func startReturning() {
         returningPlayer = true
-        errorMessage = nil
+        error = nil
+        pendingIdToken = nil  // «Уже играю» — можно выбрать другой аккаунт Google
         path = [.signIn]
     }
 
     /// Следующий шаг после `step`; поле кода — сразу в том виде, в каком уйдёт на сервер.
     func advance(from step: OnboardingStep) {
-        errorMessage = nil
+        error = nil
         switch step {
         case .intro: startRegistration()
         case .invite:
@@ -109,32 +124,51 @@ final class OnboardingModel {
     func signInWithGoogle() async {
         guard let signIn, let googleToken, !isSigningIn else { return }
         isSigningIn = true
-        errorMessage = nil
+        error = nil
         defer { isSigningIn = false }
         let idToken: String
-        do {
-            idToken = try await googleToken()
-        } catch {
-            // Игрок закрыл окно Google или оно не открылось — не ошибка игры.
-            return
+        if let pendingIdToken {
+            idToken = pendingIdToken
+        } else {
+            do {
+                idToken = try await googleToken()
+            } catch {
+                // Игрок закрыл окно Google или оно не открылось — не ошибка игры.
+                return
+            }
         }
-        apply(await signIn(idToken, registration))
+        apply(await signIn(idToken, registration), idToken: idToken)
     }
 
-    func apply(_ outcome: SignInOutcome) {
+    /// Итог входа: куда вернуть игрока и какую ошибку показать. `idToken` — с каким токеном входили.
+    func apply(_ outcome: SignInOutcome, idToken: String? = nil) {
         switch outcome {
         case .signedIn:
-            errorMessage = nil
+            error = nil
+            pendingIdToken = nil
         case .registrationNeeded:
-            // «Уже играю», а аккаунта нет — регистрация с начала: код, 16+, согласие.
+            // «Уже играю», а аккаунта нет — регистрация с начала: код, 16+, согласие; вход потом — с тем же токеном.
+            pendingIdToken = idToken
             returningPlayer = false
             path = [.invite]
-            errorMessage = "Аккаунта ещё нет — введи код приглашения."
+            error = StepError(step: .invite, message: "Аккаунта ещё нет — введи код приглашения.")
         case .failed(let failure):
-            errorMessage = failure.message
-            if failure == .inviteInvalid || failure == .inviteRequired {
-                path = [.invite]
+            if failure == .googleRejected || failure == .accountDeleting {
+                // Токен истёк или этим аккаунтом не войти — следующий вход откроет окно Google заново.
+                pendingIdToken = nil
             }
+            let steps: [OnboardingStep] = [.invite, .age, .consent, .signIn]
+            let step: OnboardingStep =
+                switch failure {
+                case .inviteInvalid, .inviteRequired: .invite
+                case .ageNotConfirmed: .age
+                case .consentRequired: .consent
+                default: .signIn
+                }
+            if step != .signIn {
+                path = Array(steps.prefix(through: steps.firstIndex(of: step) ?? 0))
+            }
+            error = StepError(step: step, message: failure.message)
         }
     }
 }
