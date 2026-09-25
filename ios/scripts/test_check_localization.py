@@ -62,11 +62,40 @@ class CheckLocalizationTests(unittest.TestCase):
         self.assertIn("Widgets/Widget.swift:1:", output)
 
     def test_every_float_specifier_fails(self):
-        for specifier in ("%f", "%.0f", "%5.1f", "%.3lf", "%e", "%g"):
+        for specifier in ("%f", "%.0f", "%5.1f", "%.3lf", "%e", "%g", "%1$.2f", "%2$5.1f", "%.2Lf", "%.*f",
+                          "%*.*f", "%1$*2$.*3$f"):
             with self.subTest(specifier=specifier):
                 self.swift("Run.swift", f'let s = String(format: "{specifier} км", x)\n')
                 code, _ = self.run_check()
                 self.assertEqual(code, 1)
+
+    def test_raw_and_multiline_literals_are_read(self):
+        # Дробь — после кавычки внутри строки: литерал, закрытый раньше времени, её бы не увидел.
+        literals = {
+            "сырая строка": 'String(format: #"%d "из" %.2f км"#, n, x)',
+            "сырая с ##": 'String(format: ##"%d "#из" %1$.2f км"##, n, x)',
+            "многострочная": 'String(format: """\n    "%d" из %.2f км\n    """, n, x)',
+            "сырая многострочная": 'String(format: #"""\n    """ %d """ %.2Lf км\n    """#, n, x)',
+            "обычная с кавычкой внутри": 'String(format: "\\"%d\\" из %.2f км", n, x)',
+        }
+        for name, call in literals.items():
+            with self.subTest(name):
+                self.swift("Run.swift", f"let s = {call}\n")
+                code, output = self.run_check()
+                self.assertEqual(code, 1, output)
+                self.assertIn("ставит точку", output)
+
+    def test_integers_in_raw_and_multiline_literals_pass(self):
+        self.swift("Ok.swift", 'let a = String(format: #"%ld "из" %d"#, n, m)\n'
+                               'let b = String(format: """\n    %lld из %lld · 99 %%\n    """, n, m)\n')
+        code, output = self.run_check()
+        self.assertEqual(code, 0, output)
+
+    def test_format_not_from_literal_fails(self):
+        self.swift("Run.swift", 'let pattern = "%.2f км"\nlet s = String(format: pattern, x)\n')
+        code, output = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("App/Run.swift:2: String(format:) со строкой формата не из литерала", output)
 
     def test_integers_percent_sign_and_other_code_pass(self):
         self.swift("Ok.swift", 'let a = String(format: "%ld из %d · 99 %%", n, m)\n'

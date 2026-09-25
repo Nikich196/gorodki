@@ -2,7 +2,8 @@
 """Проверка текстов приложения по-русски (PLAN.md, §6.10) — шаг ios-core.
 
 1. Дробные числа через String(format:) в App/ и Widgets/ запрещены: "%.2f" всегда ставит точку («1.23 км»), а игра
-   пишет «1,23 км». Числа для игрока — через NumberText (GameCore).
+   пишет «1,23 км». Числа для игрока — через NumberText (GameCore). Строку формата не из литерала (переменная, вызов)
+   не проверить — она тоже нарушение.
 2. У каждой русской формы множественного числа в каталогах строк (*.xcstrings) есть все четыре формы русского:
    one (1, 21 петля), few (2, 22 петли), many (5, 11 петель), other (1,5 петли). Без одной из них iOS молча возьмёт
    запасную форму, и где-то выйдет «5 петли».
@@ -18,27 +19,68 @@ from pathlib import Path
 SOURCE_DIRS = ("App", "Widgets")
 RUSSIAN_PLURAL_FORMS = ("one", "few", "many", "other")
 
-# String(format: "…") — строка формата сразу первым аргументом, в том числе на следующей строке кода.
-FORMAT_CALL = re.compile(r'String\s*\(\s*format:\s*"((?:[^"\\\n]|\\.)*)"')
-# Дробное число в строке формата: %f, %.2f, %5.1f, %e, %g… (%% — знак процента, его убирают до поиска).
-FLOAT_SPECIFIER = re.compile(r"%[-+ #0']*\d*(?:\.\d+)?l?[fFeEgGaA]")
+# String(format: …) — строка формата первым аргументом, в том числе на следующей строке кода.
+FORMAT_CALL = re.compile(r"String\s*\(\s*format:\s*")
+# Начало строкового литерала Swift: обычный "…", многострочный """…""" и «сырые» #"…"#, ##"""…"""##.
+LITERAL_OPENER = re.compile(r'(#*)("""|")')
+# Дробное число в строке формата (%% — знак процента, его убирают до поиска).
+FLOAT_SPECIFIER = re.compile(
+    r"%(?:\d+\$)?"  # номер аргумента: %1$.2f — так пишут в переводах
+    r"[-+ #0']*"  # флаги
+    r"(?:\d+|\*(?:\d+\$)?)?"  # ширина: %5.1f, %*f
+    r"(?:\.(?:\d+|\*(?:\d+\$)?))?"  # точность: %.2f, %.*f
+    r"(?:ll|l|L)?[fFeEgGaA]"  # длина и вид: %f, %.3lf, %.2Lf, %e, %g
+)
 
 
 def float_formats(ios_root: Path) -> list[str]:
-    """Вызовы String(format:) с дробными числами: «файл:строка: формат»."""
+    """Вызовы String(format:) с дробными числами или со строкой формата не из литерала: «файл:строка: что не так»."""
     problems = []
     for directory in SOURCE_DIRS:
         for path in sorted((ios_root / directory).rglob("*.swift")):
             text = path.read_text(encoding="utf-8")
+            relative = path.relative_to(ios_root).as_posix()
             for match in FORMAT_CALL.finditer(text):
-                if FLOAT_SPECIFIER.search(match.group(1).replace("%%", "")):
-                    line = text.count("\n", 0, match.start()) + 1
-                    relative = path.relative_to(ios_root).as_posix()
+                # «String(format:)» без аргумента — имя инициализатора в комментарии, а не вызов.
+                if text.startswith(")", match.end()):
+                    continue
+                line = text.count("\n", 0, match.start()) + 1
+                literal = format_literal(text, match.end())
+                if literal is None:
+                    # Строку формата из переменной или вызова не проверить, а дробь в ней снова дала бы «1.23 км».
                     problems.append(
-                        f'{relative}:{line}: String(format: "{match.group(1)}") ставит точку в дробях — '
+                        f"{relative}:{line}: String(format:) со строкой формата не из литерала — её не проверить; "
+                        "числа для игрока — через NumberText (GameCore)"
+                    )
+                elif FLOAT_SPECIFIER.search(literal.replace("%%", "")):
+                    shown = literal.replace("\n", "\\n")
+                    problems.append(
+                        f'{relative}:{line}: String(format: "{shown}") ставит точку в дробях — '
                         "нужен NumberText (GameCore)"
                     )
     return problems
+
+
+def format_literal(text: str, start: int) -> str | None:
+    """Содержимое строкового литерала Swift, который начинается с text[start], или None, если там не литерал."""
+    opener = LITERAL_OPENER.match(text, start)
+    if opener is None:
+        return None
+    hashes, quotes = opener.groups()
+    closer = quotes + hashes
+    # Экранирование в «сырой» строке — «\#», в обычной — «\»: экранированная кавычка строку не закрывает.
+    escape = "\\" + hashes
+    position = opener.end()
+    while position < len(text):
+        if text.startswith(escape, position):
+            position += len(escape) + 1
+        elif text.startswith(closer, position):
+            return text[opener.end() : position]
+        elif quotes == '"' and text[position] == "\n":
+            return None  # однострочный литерал не переносится: это не литерал
+        else:
+            position += 1
+    return None
 
 
 def incomplete_plurals(ios_root: Path) -> list[str]:
