@@ -35,6 +35,9 @@
   <false/>
   <key>LSRequiresIPhoneOS</key>
   <true/>
+  <!-- Папка приложения видна в «Файлах» («На iPhone» → «Городки»): выгрузки GPX и «мои данные» — Documents/Exports. -->
+  <key>LSSupportsOpeningDocumentsInPlace</key>
+  <true/>
   <key>NSSupportsLiveActivities</key>
   <true/>
   <key>NSLocationWhenInUseUsageDescription</key>
@@ -57,6 +60,8 @@
     <key>UIApplicationSupportsMultipleScenes</key>
     <false/>
   </dict>
+  <key>UIFileSharingEnabled</key>
+  <true/>
   <key>UILaunchScreen</key>
   <dict/>
   <key>UISupportedInterfaceOrientations</key>

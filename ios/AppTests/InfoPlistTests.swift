@@ -21,4 +21,10 @@ struct InfoPlistTests {
         let modes = try #require(Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String])
         #expect(Set(modes).isSuperset(of: ["location", "fetch", "processing"]), "режимы: \(modes)")
     }
+
+    @Test("Выгрузки видны в «Файлах»: общий доступ к Documents и открытие на месте")
+    func filesAppAccess() {
+        #expect(Bundle.main.object(forInfoDictionaryKey: "UIFileSharingEnabled") as? Bool == true)
+        #expect(Bundle.main.object(forInfoDictionaryKey: "LSSupportsOpeningDocumentsInPlace") as? Bool == true)
+    }
 }
