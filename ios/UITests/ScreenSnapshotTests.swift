@@ -119,10 +119,16 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen("age", expecting: "Тебе есть 16?", name: "13-onboarding-age")
     }
 
-    /// Согласие длинное — снимок сверху и после прокрутки.
+    /// Соглашение и политика — свой шаг перед согласием.
+    @MainActor
+    func test13bTerms() {
+        snapshotScreen("terms", expecting: "Правила игры", name: "13b-onboarding-terms")
+    }
+
+    /// Согласие длинное — снимок сверху и после прокрутки; на экране только его текст и одна отметка.
     @MainActor
     func test14Consent() {
-        snapshotScreen("consent", expecting: "Правила и согласие", name: "14-onboarding-consent", pages: 3)
+        snapshotScreen("consent", expecting: "Согласие на обработку данных", name: "14-onboarding-consent", pages: 3)
     }
 
     /// Без Client ID Google кнопка входа выключена и объясняет почему.

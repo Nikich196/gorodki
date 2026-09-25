@@ -20,7 +20,7 @@
 
         var body: some View {
             switch screen {
-            case .intro, .invite, .age, .consent, .signIn:
+            case .intro, .invite, .age, .terms, .consent, .signIn:
                 OnboardingView(model: onboarding, browseWithoutSignIn: { @MainActor in })
             case .map, .leaderboards, .clan, .profile:
                 AppShell(model: shell)
@@ -46,19 +46,20 @@
                 googleToken = { "fixture" }
             }
             let model = OnboardingModel(signIn: signIn, googleToken: googleToken)
-            let steps: [OnboardingStep] = [.invite, .age, .consent, .signIn]
+            let steps: [OnboardingStep] = [.invite, .age, .terms, .consent, .signIn]
             switch screen {
             case .invite: model.path = Array(steps.prefix(1))
             case .age: model.path = Array(steps.prefix(2))
-            case .consent: model.path = Array(steps.prefix(3))
+            case .terms: model.path = Array(steps.prefix(3))
+            case .consent: model.path = Array(steps.prefix(4))
             case .signIn: model.path = steps
             default: break
             }
             if screen != .invite || fixture != nil {
                 model.inviteCode = "ABCD-2345"
             }
-            model.ageConfirmed = screen == .consent || screen == .signIn
-            model.termsAccepted = screen == .signIn
+            model.ageConfirmed = [.terms, .consent, .signIn].contains(screen)
+            model.termsAccepted = screen == .consent || screen == .signIn
             model.consentGiven = screen == .signIn
             if let failure = fixture.flatMap(failure(named:)) {
                 model.error = OnboardingModel.StepError(step: model.path.last ?? .intro, message: failure.message)

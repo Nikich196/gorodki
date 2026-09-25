@@ -28,11 +28,13 @@ struct OnboardingTests {
         #expect(model.inviteCode == "ABCD-2345")
         model.ageConfirmed = true
         model.advance(from: .age)
+        #expect(model.path == [.invite, .age, .terms], "Соглашение — свой шаг, согласие — следующий")
         model.termsAccepted = true
+        model.advance(from: .terms)
         #expect(!model.consentReady, "Соглашение без согласия — ещё не всё")
         model.consentGiven = true
         model.advance(from: .consent)
-        #expect(model.path == [.invite, .age, .consent, .signIn])
+        #expect(model.path == [.invite, .age, .terms, .consent, .signIn])
         #expect(
             model.registration == Registration(inviteCode: "ABCD-2345", ageConfirmed: true, consentAccepted: true))
         #expect(!model.signInAvailable, "Без Client ID и сервера кнопка Google выключена")
@@ -61,6 +63,7 @@ struct OnboardingTests {
         model.ageConfirmed = true
         model.advance(from: .age)
         model.termsAccepted = true
+        model.advance(from: .terms)
         model.consentGiven = true
         model.advance(from: .consent)
         await model.signInWithGoogle()
@@ -71,7 +74,7 @@ struct OnboardingTests {
     @Test("Ошибка входа — текстом SignInService и на своём шаге: код, 16+ и согласие возвращают к своим шагам")
     func failures() {
         let model = OnboardingModel(signIn: nil, googleToken: nil)
-        let all: [OnboardingStep] = [.invite, .age, .consent, .signIn]
+        let all: [OnboardingStep] = [.invite, .age, .terms, .consent, .signIn]
         model.path = all
         model.apply(.failed(.offline))
         #expect(model.errorMessage(on: .signIn) == SignInFailure.offline.message)
@@ -79,7 +82,7 @@ struct OnboardingTests {
         model.apply(.failed(.consentOutdated))
         #expect(model.path == all, "Устарело соглашение — нужно обновить приложение, а не отметку")
         model.apply(.failed(.consentRequired))
-        #expect(model.path == [.invite, .age, .consent])
+        #expect(model.path == [.invite, .age, .terms, .consent])
         #expect(model.errorMessage(on: .consent) == SignInFailure.consentRequired.message)
         model.path = all
         model.apply(.failed(.ageNotConfirmed))
