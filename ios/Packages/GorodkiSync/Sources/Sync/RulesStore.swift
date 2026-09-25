@@ -25,6 +25,8 @@ public struct RulesVersion: Hashable, Sendable {
 public protocol RulesStorage: Sendable {
     func load() throws -> Data?
     func save(_ data: Data) throws
+    /// Стереть сохранённое (выход из аккаунта и его удаление); нечего стирать — не ошибка.
+    func remove() throws
 }
 
 public final class InMemoryRulesStorage: RulesStorage, @unchecked Sendable {
@@ -36,6 +38,8 @@ public final class InMemoryRulesStorage: RulesStorage, @unchecked Sendable {
     public func load() -> Data? { lock.withLock { data } }
 
     public func save(_ data: Data) { lock.withLock { self.data = data } }
+
+    public func remove() { lock.withLock { data = nil } }
 }
 
 /// Файл в каталоге приложения: конфиг переживает перезапуск, и забег без сети начинается с последней известной версией.
@@ -51,6 +55,11 @@ public struct FileRulesStorage: RulesStorage {
     public func save(_ data: Data) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
+    }
+
+    public func remove() throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try FileManager.default.removeItem(at: url)
     }
 }
 
@@ -101,6 +110,13 @@ public actor RulesStore {
         let versions = (try? storage.load()).map(Self.unpack) ?? [:]
         known = versions
         return versions
+    }
+
+    /// Забыть полученные версии — в памяти и в файле (выход из аккаунта и его удаление): дальше действует версия, с которой
+    /// собрано приложение, пока не придёт свежая.
+    public func removeLocal() throws {
+        known = [:]
+        try storage.remove()
     }
 
     /// Запросить действующую версию у сервера и запомнить.

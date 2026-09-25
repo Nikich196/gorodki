@@ -216,12 +216,8 @@ final class RunController {
         replay?.cancel()
     }
 
-    private static var demoRecordingURL: URL? {
-        try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        )
-        .appendingPathComponent("demo-recording.json")
-    }
+    /// Где лежит запись: её стирает и выход из аккаунта (`AppDependencies.wipeLocalData`).
+    private static var demoRecordingURL: URL? { AppDependencies.shared.demoRecordingURL }
 
     /// Запись для повтора — одна, последняя; только на телефоне (настоящий маршрут в репозиторий не попадает).
     private static func loadDemoRecording() -> RunRecording? {
@@ -231,20 +227,25 @@ final class RunController {
 
     private func saveDemoRecording(_ recording: RunRecording) {
         guard let url = Self.demoRecordingURL, let data = try? JSONEncoder().encode(recording) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Не `completeFileProtection`: забег может закончиться на заблокированном телефоне (предел длины в кармане),
         // и запись молча не сохранилась бы.
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         hasDemoRecording = true
     }
 
-    /// Выход из аккаунта: сначала завершить забег (он принадлежит этому игроку), потом стереть вход. Событие о смене
-    /// входа приходит уже после стирания — поэтому завершать надо здесь, в самом действии выхода.
-    /// - Throws: ошибку «Финиша» — тогда вход остаётся: иначе забег остался бы без хозяина до следующего входа.
+    /// Выход из аккаунта: сначала завершить забег (он принадлежит этому игроку), потом отозвать вход на сервере и стереть
+    /// всё, что телефон хранит об игроке (`AppDependencies.wipeLocalData`). Событие о смене входа приходит уже после
+    /// стирания — поэтому завершать надо здесь, в самом действии выхода.
+    /// - Throws: ошибку «Финиша» — тогда вход остаётся: иначе забег остался бы без хозяина до следующего входа; или
+    ///   ошибку стирания — вход к этому времени уже стёрт.
     func signOut() async throws {
         if await tracker.state.isRunning {
             try await finish()
         }
         await AppDependencies.shared.signIn?.signOut()
+        defer { hasDemoRecording = Self.loadDemoRecording() != nil }
+        try await AppDependencies.shared.wipeLocalData()
     }
 
     // MARK: - Перезапуск
@@ -268,6 +269,8 @@ final class RunController {
         let session = try? await RunTracker.recover(
             store: dependencies.syncStore, deviceId: deviceId, signedIn: playerId,
             now: Date.now.timeIntervalSince1970, rules: { await rules.rules(version: $0)?.rules })
+        // Прерванные забеги только что закрыты, а сохранение прошлого «Финиша» могло не успеть до выгрузки.
+        try? await dependencies.archiveFinishedRuns()
         guard let session else {
             // Продолжать нечего (прерванные забеги закрыты): накопленное геопозицией выбросить, Live Activity
             // прежнего процесса — закрыть.
@@ -341,6 +344,8 @@ final class RunController {
                 saveDemoRecording(recording)
             }
         }
+        // В историю — сразу: очередь сотрёт точки, как только сервер подтвердит забег, а GPX выгружается из истории.
+        Task { try? await AppDependencies.shared.archiveFinishedRuns() }
         stopSources()
         UserDefaults.standard.set(false, forKey: Self.hintKey)
         if let activityID {

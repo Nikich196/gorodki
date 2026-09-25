@@ -33,6 +33,16 @@ final class AppDependencies: Sendable {
     /// Свой туман «Пешком» за всё время (docs/architecture/fog.md): карта (этап 2) берёт тайлы отсюда. `nil`, пока адрес
     /// сервера не задан.
     let fog: FogCache?
+    /// Где земля и туман лежат на диске (`Caches/gorodki-tiles`); `nil` — тайлы только в памяти.
+    let tileLocation: TileCacheLocation?
+    /// Зоны приватности, удаление аккаунта, «мои данные»; `nil`, пока адрес сервера не задан.
+    let account: AccountService?
+    /// История законченных забегов — точки для GPX после того, как очередь их стёрла; `nil` — база не открылась.
+    let history: RunHistory?
+    /// Выгрузки для приложения «Файлы» (`Documents/Exports`).
+    let exports: ExportFolder
+    /// Запись для демо-повтора (`RunController`): одна, последняя, только на телефоне.
+    let demoRecordingURL: URL?
     /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). В приложении — в базе
     /// GRDB (`GRDBSyncStore`): неотправленные забеги переживают выгрузку приложения и перезапуск телефона.
     let syncStore: any SyncStore
@@ -49,7 +59,8 @@ final class AppDependencies: Sendable {
     init(
         serverURL: URL?, tokenStorage: any TokenStorage, syncStore: any SyncStore = InMemorySyncStore(),
         rulesStorage: any RulesStorage = InMemoryRulesStorage(),
-        installationStorage: any TokenStorage = InMemoryTokenStorage(),
+        installationStorage: any TokenStorage = InMemoryTokenStorage(), tileLocation: TileCacheLocation? = nil,
+        history: RunHistory? = nil, exports: ExportFolder = .live(), demoRecordingURL: URL? = nil,
         now: @escaping @Sendable () -> Double = { Date.now.timeIntervalSince1970 }
     ) {
         let tokens = TokenStore(storage: tokenStorage)
@@ -59,8 +70,17 @@ final class AppDependencies: Sendable {
         let api = serverURL.map { ClientFactory.make(serverURL: $0, tokens: tokens, transport: transport) }
         self.api = api
         self.signIn = api.map { SignInService(api: $0, tokens: tokens) }
-        self.territory = api.map { TerritoryCache(api: $0, league: .run) }
-        self.fog = api.map { FogCache(api: $0, layer: .foot) }
+        self.account = api.map { AccountService(api: $0) }
+        // Файлы тайлов у каждого игрока свои: кэш сам сверяется, кто вошёл, перед каждым чтением с диска.
+        let disk = tileLocation.map { location in
+            TileCacheDisk(location: location, owner: { await tokens.sessionOwner() })
+        }
+        self.tileLocation = tileLocation
+        self.territory = api.map { TerritoryCache(api: $0, league: .run, disk: disk) }
+        self.fog = api.map { FogCache(api: $0, layer: .foot, disk: disk) }
+        self.history = history
+        self.exports = exports
+        self.demoRecordingURL = demoRecordingURL
         self.realtime = serverURL.map { url in
             RealtimeClient(
                 connector: SignalRConnector(
@@ -76,30 +96,22 @@ final class AppDependencies: Sendable {
 
     /// Для запуска приложения: адрес — из Info.plist (`GorodkiServerURL`), токены — в Keychain под bundle ID.
     static func live(bundle: Bundle = .main) -> AppDependencies {
-        AppDependencies(
+        // Очередь и история — в базе приложения (Application Support). Если базу не открыть (например, нет места),
+        // очередь — в памяти: приложение не падает, но забег, не доставленный до выгрузки приложения, пропадёт —
+        // `queueSurvivesRestart` скажет об этом экрану забега (этап 2); истории забегов тогда нет.
+        let database = try? AppDatabase.live()
+        // Конфиг и запись демо-повтора — рядом с базой (Application Support).
+        let support = URL.applicationSupportDirectory
+        return AppDependencies(
             serverURL: ServerURL.parse(bundle.object(forInfoDictionaryKey: ServerURL.infoPlistKey) as? String),
             // Bundle ID у приложения есть всегда; запасное имя — только чтобы не падать.
             tokenStorage: KeychainTokenStorage(bundleIdentifier: bundle.bundleIdentifier ?? "gorodki"),
-            syncStore: liveSyncStore(),
-            rulesStorage: FileRulesStorage(url: liveRulesURL()),
+            syncStore: database.map { GRDBSyncStore($0) } ?? InMemorySyncStore(),
+            rulesStorage: FileRulesStorage(url: support.appendingPathComponent("rules.json")),
             installationStorage: KeychainTokenStorage(
-                service: (bundle.bundleIdentifier ?? "gorodki") + ".install", account: "id"))
-    }
-
-    /// Последний полученный конфиг — рядом с базой приложения (Application Support).
-    private static func liveRulesURL() -> URL {
-        URL.applicationSupportDirectory.appendingPathComponent("rules.json")
-    }
-
-    /// Очередь в базе приложения (Application Support). Если базу не открыть (например, нет места), — в памяти:
-    /// приложение не падает, но забег, не доставленный до выгрузки приложения, пропадёт — `queueSurvivesRestart`
-    /// скажет об этом экрану забега (этап 2).
-    private static func liveSyncStore() -> any SyncStore {
-        do {
-            return GRDBSyncStore(try AppDatabase.live())
-        } catch {
-            return InMemorySyncStore()
-        }
+                service: (bundle.bundleIdentifier ?? "gorodki") + ".install", account: "id"),
+            tileLocation: .live(), history: database.map { RunHistory($0) }, exports: .live(),
+            demoRecordingURL: support.appendingPathComponent("demo-recording.json"))
     }
 
     /// Начать забег (экран забега — этап 2): правила последней известной версии конфига, идентификатор установки,
@@ -121,6 +133,75 @@ final class AppDependencies: Sendable {
         let session = try await RunSession.start(run, store: syncStore, rules: rules.rules, newcomer: newcomer)
         Task { await syncScheduler()?.trigger(.recorded) }
         return session
+    }
+
+    // MARK: - Данные на телефоне
+
+    /// Стереть всё, что телефон хранит об игроке (выход из аккаунта и его удаление, docs/architecture/ios-app.md): вход,
+    /// очередь синхронизации (с недоставленными забегами), землю и туман в памяти и на диске, правила, запись
+    /// демо-повтора, историю забегов. Каждая часть стирается, даже если предыдущая не стёрлась. Выгрузки в «Файлах»
+    /// (`Documents/Exports`) остаются: их игрок сохранил сам.
+    /// - Throws: первую ошибку стирания — остальные части к этому времени уже стёрты.
+    func wipeLocalData() async throws {
+        if await tokens.current() != nil {
+            await tokens.signOut()  // выход через `SignInService` уже стёр вход — второе событие «вышел» не нужно
+        }
+        let scheduler = engine.withLock { cached in
+            defer { cached = nil }
+            return cached?.scheduler
+        }
+        await scheduler?.stop()
+        var failures: [any Error] = []
+        do { try await syncStore.removeAll() } catch { failures.append(error) }
+        await territory?.reset()
+        await fog?.reset()
+        tileLocation?.removeAll()  // и без адреса сервера: файлы могли остаться от сборки, где он был
+        do { try await rules.removeLocal() } catch { failures.append(error) }
+        if let demoRecordingURL, FileManager.default.fileExists(atPath: demoRecordingURL.path) {
+            do { try FileManager.default.removeItem(at: demoRecordingURL) } catch { failures.append(error) }
+        }
+        do { try await history?.removeAll() } catch { failures.append(error) }
+        if let first = failures.first { throw first }
+    }
+
+    /// Удалить аккаунт (`DELETE /me`), затем стереть всё на телефоне. Аккаунта на сервере уже нет (404) — тоже стереть.
+    /// - Returns: когда сервер сотрёт данные; `nil` — адрес сервера не задан (ничего не сделано) или аккаунта уже нет.
+    /// - Throws: ошибку сети или сервера — тогда на телефоне ничего не стёрто: аккаунт ещё есть.
+    @discardableResult
+    func deleteAccount() async throws -> AccountService.Deletion? {
+        guard let account else { return nil }
+        let deletion: AccountService.Deletion?
+        do {
+            deletion = try await account.deleteAccount()
+        } catch AccountServiceError.notFound {
+            deletion = nil
+        }
+        try await wipeLocalData()
+        return deletion
+    }
+
+    /// «Мои данные» (`GET /me/export`) — файлом в `Exports/` (заменяет прежний).
+    /// - Returns: где лежит файл; `nil` — адрес сервера не задан.
+    func exportMyData() async throws -> URL? {
+        guard let account else { return nil }
+        return try exports.write(try await account.exportData(), named: "gorodki-my-data.json")
+    }
+
+    /// Сохранить законченные забеги в историю (после «Финиша» и при запуске): очередь сотрёт их точки, как только сервер
+    /// подтвердит забег, а GPX выгружается из истории.
+    func archiveFinishedRuns() async throws {
+        _ = try await history?.archiveEnded(from: syncStore)
+    }
+
+    /// След забега из истории — файлом GPX в `Exports/`.
+    /// - Returns: где лежит файл; `nil` — забега в истории нет.
+    func exportRunGPX(_ id: UUID) async throws -> URL? {
+        guard let history, let entry = try await history.entries().first(where: { $0.id == id }),
+            let points = try await history.points(of: id)
+        else { return nil }
+        let name = GPX.fileName(startedAt: Double(entry.startedAtMs) / 1_000, league: entry.league)
+        let document = GPX.document(name: String(name.dropLast(".gpx".count)), points: points)
+        return try exports.write(Data(document.utf8), named: name)
     }
 
     /// Версия сборки для сервера: «0.1.0 (1)».

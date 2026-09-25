@@ -50,6 +50,21 @@ struct TokenStoreTests {
         #expect(await store.current() == Self.tokens)
     }
 
+    @Test("Кто вошёл — для кэша тайлов: «вышел» только по прочитанному хранилищу, недоступное — «неизвестно»")
+    func sessionOwner() async throws {
+        let storage = FlakyStorage()
+        storage.setAvailable(false)
+        let store = TokenStore(storage: storage)
+        #expect(await store.sessionOwner() == .unknown)  // Keychain до первой разблокировки: файлы не стирать
+
+        storage.setAvailable(true)
+        #expect(await store.sessionOwner() == .signedOut)
+        await store.signIn(AuthTokens(accessToken: "x.eyJzdWIiOiJwLTEifQ.c2ln", refreshToken: "R1"))
+        #expect(await store.sessionOwner() == .signedIn(playerId: "p-1"))
+        await store.signIn(Self.tokens)  // токен без игрока — вход есть, чей — неизвестно
+        #expect(await store.sessionOwner() == .unknown)
+    }
+
     @Test("Запись не удалась — вход работает по копии в памяти и дописывается, когда хранилище доступно")
     func saveRetried() async throws {
         let storage = FlakyStorage()

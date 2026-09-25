@@ -168,7 +168,7 @@ struct AppDatabaseTests {
                 db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'sync%' ORDER BY name")
         }
 
-        #expect(applied == ["v1: очередь синхронизации"])
+        #expect(applied == ["v1: очередь синхронизации", "v2: история забегов"])
         #expect(tables == ["syncChunk", "syncClaim", "syncRun"])
     }
 

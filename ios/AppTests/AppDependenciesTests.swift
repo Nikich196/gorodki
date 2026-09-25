@@ -1,5 +1,7 @@
 import Foundation
+import GameCore
 import Networking
+import Persistence
 import Sync
 import Testing
 
@@ -63,6 +65,43 @@ struct AppDependenciesTests {
         await offline.tokens.signIn(Self.tokens(player: "player-1"))
         #expect(await offline.syncEngine() == nil)
         #expect(await offline.syncScheduler() == nil)
+    }
+
+    @Test("Выход стирает всё на телефоне: вход, очередь, правила, тайлы на диске, запись повтора, историю")
+    func wipeLocalData() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let database = try AppDatabase.inMemory()
+        let queue = GRDBSyncStore(database)
+        let rules = InMemoryRulesStorage(Data("{}".utf8))
+        let tiles = TileCacheLocation(root: folder.appendingPathComponent("tiles"))
+        let demo = folder.appendingPathComponent("demo-recording.json")
+        let dependencies = AppDependencies(
+            serverURL: try #require(Self.serverURL), tokenStorage: InMemoryTokenStorage(), syncStore: queue,
+            rulesStorage: rules, tileLocation: tiles, history: RunHistory(database),
+            exports: ExportFolder(url: folder.appendingPathComponent("Exports")), demoRecordingURL: demo)
+        await dependencies.tokens.signIn(Self.tokens(player: "player-1"))
+        _ = try #require(await dependencies.syncEngine())
+        var run = LocalRun(
+            id: UUID(), ownerId: "player-1", league: GameCore.League.run, configVersion: 1, startedAtMs: 1_000,
+            deviceId: UUID(), appVersion: "test", motionAuthorized: false)
+        run.endedAtMs = 2_000
+        try await queue.insert(run)
+        try await dependencies.archiveFinishedRuns()
+        #expect(try await dependencies.history?.entries().count == 1)
+        try FileManager.default.createDirectory(at: tiles.root, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: tiles.root.appendingPathComponent("tile"))
+        try Data("{}".utf8).write(to: demo)
+
+        try await dependencies.wipeLocalData()
+
+        #expect(await dependencies.tokens.current() == nil)
+        #expect(await dependencies.syncEngine() == nil)
+        #expect(try await queue.runs().isEmpty)
+        #expect(rules.load() == nil)
+        #expect(!FileManager.default.fileExists(atPath: tiles.root.path))
+        #expect(!FileManager.default.fileExists(atPath: demo.path))
+        #expect(try await dependencies.history?.entries().isEmpty == true)
     }
 
     /// Вошедший игрок — claim `sub` access-токена; подпись телефон не проверяет (docs/architecture/auth.md).

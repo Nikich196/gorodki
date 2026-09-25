@@ -55,6 +55,15 @@ public struct AppDatabase: Sendable {
                 t.primaryKey(["runId", "claimNo"])
             }
         }
+        migrator.registerMigration("v2: история забегов") { db in
+            // Итог и точки — JSON (`RunHistory`): по ним не ищут, только выгружают целиком.
+            try db.create(table: "runHistory") { t in
+                t.primaryKey("id", .text)
+                t.column("startedAtMs", .integer).notNull().indexed()
+                t.column("summary", .blob).notNull()
+                t.column("points", .blob).notNull()
+            }
+        }
         return migrator
     }
 }

@@ -1,6 +1,7 @@
 // swift-tools-version: 6.2
 // Постоянное хранилище приложения на GRDB (PLAN.md, D5: «GRDB 7, SQLite, WAL, в Application Support»). Первым здесь —
-// очередь синхронизации: забеги, куски и заявки переживают выгрузку приложения и перезапуск телефона.
+// очередь синхронизации: забеги, куски и заявки переживают выгрузку приложения и перезапуск телефона; рядом — история
+// законченных забегов (точки для выгрузки в GPX) и папка выгрузок `Documents/Exports`.
 // Без UIKit и SwiftUI — тестируется на Linux (нужен libsqlite3-dev, в CI ставится шагом ios-core).
 
 import PackageDescription
@@ -21,6 +22,7 @@ let package = Package(
             name: "Persistence",
             dependencies: [
                 .product(name: "Sync", package: "GorodkiSync"),
+                .product(name: "GameCore", package: "GameCore"),
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),

@@ -13,6 +13,10 @@ import OpenAPIRuntime
 /// Угасание сервер считает при чтении, и версия тайла его не отражает: уровень падает без смены версии. Поэтому тайл
 /// старше `maxAge` перезапрашивается целиком, без версии. Версии у каждого зрителя свои (скрытые чужие захваты), поэтому
 /// при смене аккаунта кэш очищается (`reset`).
+///
+/// С `disk` тайлы переживают перезапуск: каждый принятый тайл пишется в файл, а недостающие в памяти читаются с диска
+/// (`restore`) — карта рисуется без сети. Восстановленный тайл один раз перепроверяется у сервера, а время его загрузки
+/// берётся из файла: угасание после перезапуска всё так же перезапрашивается целиком (docs/architecture/ios-app.md).
 public actor TerritoryCache {
     /// Не больше стольких тайлов за запрос — предел сервера.
     public static let maxTilesPerRequest = 25
@@ -45,14 +49,22 @@ public actor TerritoryCache {
     private var lastWanted: [TileKey: Double] = [:]
     /// Номер «поколения»: `reset` его меняет, и ответ, начатый до смены аккаунта, выбрасывается.
     private var generation = 0
+    private var disk: TileDiskBinding?
+    /// Файлы, отброшенные при чтении как испорченные (они стёрты, тайл запрашивается заново).
+    public private(set) var corruptedFiles = 0
+    /// Тайлы, не записанные на диск: кэш в памяти от этого не страдает, после перезапуска их просто запросят.
+    public private(set) var diskWriteFailures = 0
 
-    /// - Parameter now: часы в секундах — подменяются в проверках.
+    /// - Parameters:
+    ///   - disk: где хранить тайлы между запусками; `nil` — только в памяти.
+    ///   - now: часы в секундах — подменяются в проверках.
     public init(
-        api: any APIProtocol, league: League,
+        api: any APIProtocol, league: League, disk: TileCacheDisk? = nil,
         now: @escaping @Sendable () -> Double = { Date().timeIntervalSince1970 }
     ) {
         self.api = api
         self.league = league
+        self.disk = disk.map { TileDiskBinding(disk: $0, cache: "territory-\(league.rawValue)") }
         self.now = now
     }
 
@@ -68,19 +80,84 @@ public actor TerritoryCache {
         }
     }
 
-    /// Смена аккаунта: версии прежнего зрителя новому не подходят.
+    /// Смена аккаунта: версии прежнего зрителя новому не подходят. Файлы стираются все — и других игроков.
     public func reset() {
+        resetMemory()
+        disk?.forget()
+    }
+
+    private func resetMemory() {
         tiles = [:]
         changed = [:]
         lastWanted = [:]
         generation += 1
     }
 
+    /// Показать тайлы с диска без сети (авиарежим, сразу после запуска). Тайлы, уже бывшие в памяти, не трогаются.
+    /// - Returns: восстановленные тайлы — их нужно нарисовать.
+    @discardableResult
+    public func restore(visible: Set<TileKey>) async -> Set<TileKey> {
+        await bindCurrentOwner()
+        return restoreMissing(visible)
+    }
+
+    /// Сначала — кто вошёл: без этого после смены аккаунта (до `reset` от приложения) на карту попали бы файлы прежнего.
+    private func bindCurrentOwner() async {
+        guard let owner = await disk?.disk.owner() else { return }
+        if disk?.bind(owner, capacity: Self.capacity) == true {
+            resetMemory()
+        }
+    }
+
+    private func restoreMissing(_ keys: Set<TileKey>) -> Set<TileKey> {
+        guard let store = disk?.store else { return [] }
+        let time = now()
+        var restored: Set<TileKey> = []
+        for key in keys where tiles[key] == nil {
+            switch store.read(x: key.x, y: key.y) {
+            case .missing:
+                continue
+            case .corrupted:
+                corruptedFiles += 1
+            case .ok(let file):
+                guard let parcels = try? JSONDecoder().decode([Components.Schemas.ParcelView].self, from: file.payload)
+                else {
+                    store.delete(x: key.x, y: key.y)
+                    corruptedFiles += 1
+                    continue
+                }
+                // Загружен «в будущем» — часы телефона перевели назад: такой тайл считался бы свежим, пока часы его
+                // не догонят, и угасание не перезапрашивалось бы целиком. Считать его старым.
+                let loadedAt = Double(file.loadedAtMs) / 1_000
+                tiles[key] = Tile(
+                    key: key, version: file.version, parcels: parcels, loadedAt: loadedAt <= time ? loadedAt : 0,
+                    checkedAt: 0)  // перепроверить один раз: подсказки, пока приложение было выгружено, потеряны
+                restored.insert(key)
+            }
+        }
+        return restored
+    }
+
+    private func persist(_ tile: Tile) {
+        guard let store = disk?.store else { return }
+        do {
+            try store.write(
+                TileFile(
+                    x: tile.key.x, y: tile.key.y, version: tile.version,
+                    loadedAtMs: TileFile.milliseconds(tile.loadedAt), savedAtMs: TileFile.milliseconds(now()),
+                    cellCount: nil, payload: try JSONEncoder().encode(tile.parcels)))
+        } catch {
+            diskWriteFailures += 1
+        }
+    }
+
     /// Обновить тайлы, которые показывает карта. Запросы — по 25 тайлов.
-    /// - Returns: тайлы, пришедшие с сервера с новыми данными, — их нужно перерисовать.
+    /// - Returns: тайлы, пришедшие с сервера с новыми данными или восстановленные с диска, — их нужно перерисовать.
     /// - Throws: ошибку сети или сервера; уже обновлённые до ошибки тайлы остаются в кэше.
     @discardableResult
     public func refresh(visible: Set<TileKey>) async throws -> Set<TileKey> {
+        await bindCurrentOwner()
+        let restored = restoreMissing(visible)
         let time = now()
         for key in visible {
             lastWanted[key] = time
@@ -90,12 +167,12 @@ public actor TerritoryCache {
             return changed[key] != nil || time - tile.checkedAt >= Self.pollInterval
         }
         .sorted()
-        var updated: Set<TileKey> = []
+        var updated = restored
         for start in stride(from: 0, to: due.count, by: Self.maxTilesPerRequest) {
             let batch = Array(due[start..<min(start + Self.maxTilesPerRequest, due.count)])
             updated.formUnion(try await fetch(batch, at: time))
         }
-        evict()
+        evict()  // файлы остаются: диск — второй уровень кэша, обрезается при привязке к игроку
         return updated
     }
 
@@ -137,7 +214,9 @@ public actor TerritoryCache {
             {
                 continue
             }
-            tiles[key] = Tile(key: key, version: tile.version, parcels: tile.parcels, loadedAt: time, checkedAt: time)
+            let accepted = Tile(key: key, version: tile.version, parcels: tile.parcels, loadedAt: time, checkedAt: time)
+            tiles[key] = accepted
+            persist(accepted)
             updated.insert(key)
         }
         for ref in response.unchanged {

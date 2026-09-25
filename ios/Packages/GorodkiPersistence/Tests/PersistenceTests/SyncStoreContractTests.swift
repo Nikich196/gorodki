@@ -186,6 +186,22 @@ struct SyncStoreContractTests {
         #expect(try await store.runs().map(\.recordedThroughSeq) == [2])
     }
 
+    @Test("Стирание очереди убирает забеги, куски и заявки", arguments: StoreKind.allCases)
+    func removeAllWipes(kind: StoreKind) async throws {
+        let store = try kind.make()
+        let run = Sample.run()
+        try await store.insert(run)
+        try await store.save(Sample.chunk(run.id, firstSeq: 0))
+        try await store.save(Sample.claim(run.id, 0))
+
+        try await store.removeAll()
+
+        #expect(try await store.runs().isEmpty)
+        #expect(try await store.chunks(of: run.id).isEmpty)
+        #expect(try await store.claims(of: run.id).isEmpty)
+        #expect(try await store.lastClaimNo(of: run.id) == nil)
+    }
+
     @Test("Заявки — по номеру; тот же номер заменяет", arguments: StoreKind.allCases)
     func claimsAreOrderedAndKeyed(kind: StoreKind) async throws {
         let store = try kind.make()
