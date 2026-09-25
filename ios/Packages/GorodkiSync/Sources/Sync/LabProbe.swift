@@ -43,9 +43,10 @@ public struct QueuedRunSummary: Equatable, Sendable {
     public var longestGapSeconds = 0.0
     /// От старта до последней записанной точки, секунды.
     public var recordedSeconds = 0.0
-    /// На сколько отметка «все датчики до этого момента получены» последнего куска отстаёт от его последней точки,
-    /// секунды. Трекер ставит её «сейчас − `RunTracker.sensorLagSeconds`» раз в `RunTracker.tickInterval`, поэтому обычно
-    /// это 10–15 с; больше — таймер трекера вставал (например, в фоне). `nil` — ни одного куска ещё нет.
+    /// На сколько отметка «все датчики до этого момента получены» отстаёт от последней записанной точки, секунды, —
+    /// столько заявка петли с концом в этой точке ждала бы датчиков. Трекер ставит отметку «сейчас −
+    /// `RunTracker.sensorLagSeconds`» раз в `RunTracker.tickInterval`, поэтому обычно это 10–15 с; больше — таймер трекера
+    /// вставал (например, в фоне); 0 — GPS молчал, а отметка ушла дальше последней точки. `nil` — кусков ещё нет.
     public var sensorLagSeconds: Double?
 
     public init() {}
@@ -69,7 +70,7 @@ public struct QueuedRunSummary: Equatable, Sendable {
         if let lastPointMs = run.lastPointMs {
             summary.recordedSeconds = Double(max(0, lastPointMs - run.startedAtMs)) / 1_000
             if let markMs = run.sealedSensorsMarkMs {
-                summary.sensorLagSeconds = Double(lastPointMs - markMs) / 1_000
+                summary.sensorLagSeconds = Double(max(0, lastPointMs - markMs)) / 1_000
             }
         }
         return summary

@@ -55,6 +55,19 @@ struct LabProbeTests {
         #expect(try await QueuedRunSummary.of(UUID(), in: store) == nil)
     }
 
+    @Test("GPS молчит, а таймер идёт: отметка датчиков дальше последней точки — отставание 0, а не меньше")
+    func sensorLagIsNeverNegative() async throws {
+        let run = Fixture.run()
+        let recorder = try await RunRecorder.begin(run, store: store)
+        try await recorder.record(Fixture.point(0))
+        await recorder.sensorsComplete(through: Fixture.start + 50)
+        try await recorder.finish(endedAt: Fixture.start + 60)
+
+        let summary = try #require(try await QueuedRunSummary.of(run.id, in: store))
+
+        #expect(summary.sensorLagSeconds == 0)
+    }
+
     @Test("Забег без записанных кусков: точек нет, отметки датчиков ещё нет")
     func queuedSummaryBeforeFirstChunk() async throws {
         let run = Fixture.run()
