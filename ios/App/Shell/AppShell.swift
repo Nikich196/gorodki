@@ -14,7 +14,7 @@ struct AppShell: View {
     var body: some View {
         TabView(selection: $model.tab) {
             Tab("Карта", systemImage: "map", value: AppTab.map) {
-                MapTab(player: model.profile.playerColor)
+                MapScreen(model: model.map)
             }
             Tab("Рейтинги", systemImage: "trophy", value: AppTab.leaderboards) {
                 LeaderboardsTab()
@@ -30,15 +30,24 @@ struct AppShell: View {
     }
 }
 
-/// Состояние оболочки: выбранная вкладка и профиль (из него же цвет «Старта»).
+/// Состояние оболочки: выбранная вкладка, профиль (из него же цвет «Старта» и свой номер для карты) и карта.
 @MainActor
 @Observable
 final class ShellModel {
     var tab: AppTab
     let profile: ProfileModel
+    let map: MapModel
 
-    init(tab: AppTab = .map, profile: ProfileModel) {
+    /// - Parameter map: `nil` — карта без данных (экраны без сервера).
+    init(tab: AppTab = .map, profile: ProfileModel, map: MapModel? = nil) {
         self.tab = tab
         self.profile = profile
+        self.map = map ?? MapModel(profile: profile)
+    }
+
+    /// Оболочка приложения: карта берёт землю и туман из кэшей `AppDependencies`.
+    static func live() -> ShellModel {
+        let profile = ProfileModel()
+        return ShellModel(profile: profile, map: .live(profile: profile))
     }
 }

@@ -2,8 +2,8 @@ import XCTest
 
 /// Снимки экранов, которые открываются без сервера (PLAN.md, §8 и §13: «снимки и UI-тесты — информационно»):
 /// отладочное меню с «Проверкой установки» и «Лаборатория» — прогулка (S1), стенд карты (S4), сервер (S7), пробный
-/// забег, дизайн в обеих темах; онбординг и вкладки — в режиме фикстур (`-GorodkiScreen`, `-GorodkiFixture`,
-/// `-GorodkiTheme`; App/Fixtures), каждый экран днём и ночью. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest, workflow
+/// забег, дизайн в обеих темах; онбординг, вкладки и карта (земля, лист участка, туман, подсказка разрешения) —
+/// в режиме фикстур (`-GorodkiScreen`, `-GorodkiFixture`, `-GorodkiTheme`; App/Fixtures), каждый экран днём и ночью. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest, workflow
 /// выгружает их из пакета результатов в PNG (артефакт запуска): так приложение можно посмотреть без Mac.
 ///
 /// Каждый тест запускает приложение заново — сорвавшийся переход не утянет за собой остальные снимки. Снимок делается
@@ -175,6 +175,49 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen(
             "sign-in", fixture: "account-deleting", expecting: "Этот аккаунт удаляется",
             name: "23-onboarding-sign-in-account-deleting", themes: ["day"])
+    }
+
+    // MARK: - Карта (MapFixture: образцы territory.json и fog.json и земля вокруг)
+
+    /// «Захват»: земли по отношению и уровню, кромки, муравьи на спорном, «Старт». Тайлы Apple Maps дорисовываются
+    /// уже после открытия экрана.
+    @MainActor
+    func test23MapCapture() {
+        snapshotScreen("map", fixture: "player-map", expecting: "Отношения", name: "24-map-capture", settle: 6)
+    }
+
+    /// Лист участка по касанию: свой кусок образца, щит и живая зона «спорная».
+    @MainActor
+    func test24MapParcel() {
+        snapshotScreen("map-parcel", expecting: "Твоя земля", name: "25-map-parcel", settle: 6)
+    }
+
+    /// «Исследование»: туман с кромкой открытого, земли скрыты, сводка тумана.
+    @MainActor
+    func test25MapExplore() {
+        snapshotScreen("map-explore", expecting: "Открыто", name: "26-map-explore", settle: 6)
+    }
+
+    /// «Старт» без разрешений — подсказка перед системным запросом геопозиции (системного окна нет: фикстура).
+    @MainActor
+    func test26MapStartPrimer() {
+        snapshotScreen(
+            "map-start", expecting: "Геопозиция — на время забега", name: "27-map-start-location", settle: 2,
+            themes: ["day"])
+    }
+
+    /// Режим «Отношения»: моё — своим цветом, соперники — красным. Переключатель — нажатием, только днём.
+    @MainActor
+    func test27MapRelations() {
+        let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
+        let segment = app.buttons["Отношения"].firstMatch
+        let shown = segment.waitForExistence(timeout: Self.launchTimeout)
+        if shown {
+            segment.tap()
+        }
+        pause(6)
+        snapshot("28-map-relations-day")
+        XCTAssertTrue(shown, "На карте нет переключателя «Отношения»")
     }
 
     /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у

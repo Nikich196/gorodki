@@ -58,6 +58,15 @@ enum FixtureScreen: String, CaseIterable, Sendable {
     case intro, invite, age, consent, signIn = "sign-in"
     // Вкладки.
     case map, leaderboards, clan, profile
+    /// Карта: лист участка по касанию, слой «Исследование», подсказка перед разрешением геопозиции у «Старта».
+    case mapParcel = "map-parcel", mapExplore = "map-explore", mapStart = "map-start"
     /// Отладочное меню: «Проверка установки» и «Лаборатория».
     case debug
+}
+
+extension FixtureScreen {
+    /// Экран карты с данными фикстуры (`MapFixture`).
+    var isMap: Bool {
+        self == .mapParcel || self == .mapExplore || self == .mapStart
+    }
 }

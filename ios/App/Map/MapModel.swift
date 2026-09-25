@@ -199,14 +199,8 @@ final class MapModel {
     /// Раз в столько секунд карта скрывает истёкшие зоны и спрашивает кэши (они сами решают, что перезапросить).
     static let tickInterval: TimeInterval = 60
 
-    var layer: MapLayer = .capture {
-        didSet {
-            if layer != oldValue {
-                selection = nil
-                scheduleLoad()
-            }
-        }
-    }
+    /// Слой; сменился — `layerChanged()`: лист закрывается, туман подгружается.
+    var layer: MapLayer = .capture
     var coloring: LandColoring = .players
     private(set) var land = LandMap()
     /// Растёт при каждом изменении земли — по нему карта перестраивает слои.
@@ -273,6 +267,12 @@ final class MapModel {
     /// Карта сдвинулась (конец жеста): подгрузить видимые тайлы.
     func show(_ window: MapWindow) {
         self.window = window
+        scheduleLoad()
+    }
+
+    /// Слой сменился (переключатель на карте): на «Исследовании» участки не выбираются, а туман нужен сейчас.
+    func layerChanged() {
+        selection = nil
         scheduleLoad()
     }
 

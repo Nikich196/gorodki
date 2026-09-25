@@ -16,7 +16,12 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
         var tiles: [FogTileKey: FogTileBits] = [:]
         var haze = FogStyle.haze.day
         var edge = FogStyle.edge.day
-        var masks: [FogTileKey: CGImage] = [:]
+        var masks: [FogTileKey: Mask] = [:]
+    }
+
+    /// Маска тайла: `CGImage` неизменяем, его можно отдавать потокам отрисовки MapKit.
+    private struct Mask: @unchecked Sendable {
+        let image: CGImage
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -104,15 +109,16 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
 
     private func mask(for key: FogTileKey, in snapshot: State) -> CGImage? {
         if let cached = snapshot.masks[key] {
-            return cached
+            return cached.image
         }
-        guard let bits = snapshot.tiles[key], bits.count > 0, let mask = Self.mask(from: bits) else { return nil }
+        guard let bits = snapshot.tiles[key], bits.count > 0, let image = Self.mask(from: bits) else { return nil }
+        let mask = Mask(image: image)
         state.withLock { state in
             if state.tiles[key] == bits {
                 state.masks[key] = mask
             }
         }
-        return mask
+        return image
     }
 
     /// Маска тайла 256 × 256 в оттенках серого без альфы — такую принимает `clip(to:mask:)`: белое — открыто.

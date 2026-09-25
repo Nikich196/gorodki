@@ -55,8 +55,9 @@ struct CachedMapData: MapDataSource {
                 cached.append(tile)
             }
         }
+        let tiles = cached
         return await Task.detached(priority: .userInitiated) {
-            cached.map { tile in
+            tiles.map { tile in
                 LandTile(
                     key: LandTileKey(x: tile.key.x, y: tile.key.y), parcels: tile.parcels,
                     zones: tile.contestedZones)

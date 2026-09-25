@@ -44,7 +44,7 @@ struct GameMapView: UIViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate {
         let model: MapModel
         let ants = ContestedAntsView()
-        private let fogOverlay = FogOverlay()
+        private let fogOverlay: FogOverlay
         private let fogRenderer: MapFogRenderer
         private var landOverlays: [any MKOverlay] = []
         /// Стиль каждого слоя земли: заливка или кромка.
@@ -78,7 +78,9 @@ struct GameMapView: UIViewRepresentable {
 
         init(model: MapModel) {
             self.model = model
-            fogRenderer = MapFogRenderer(overlay: fogOverlay)
+            let overlay = FogOverlay()
+            fogOverlay = overlay
+            fogRenderer = MapFogRenderer(overlay: overlay)
         }
 
         static func region(_ window: MapWindow) -> MKCoordinateRegion {
@@ -131,33 +133,36 @@ struct GameMapView: UIViewRepresentable {
                 let style = model.style(of: parcel)
                 fills[style, default: []].append(Self.polygon(parcel.shape))
                 for line in parcel.borders {
-                    var coordinates = line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+                    var coordinates = line.map {
+                        CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                    }
                     edges[style.edgeStyle, default: []]
                         .append(MKPolyline(coordinates: &coordinates, count: coordinates.count))
                 }
             }
-            // Порядок — от призраков к своей: куски не перекрываются, но кромка своей должна быть сверху.
-            let order: [TerritoryRelation] = [.lost, .noMansLand, .rival, .clan, .contested, .mine]
-            func sorted(_ keys: Dictionary<LandStyle, some Any>.Keys) -> [LandStyle] {
-                keys.sorted {
-                    let a = order.firstIndex(of: $0.relation) ?? 0
-                    let b = order.firstIndex(of: $1.relation) ?? 0
-                    return (a, $0.color.rawValue, $0.level?.rawValue ?? 0) < (b, $1.color.rawValue, $1.level?.rawValue ?? 0)
-                }
-            }
-            for style in sorted(fills.keys) {
+            for style in Self.ordered(fills.keys) {
                 guard let polygons = fills[style] else { continue }
                 let multi = MKMultiPolygon(polygons)
                 styles[ObjectIdentifier(multi)] = (style, false)
                 landOverlays.append(multi)
             }
-            for style in sorted(edges.keys) {
+            for style in Self.ordered(edges.keys) {
                 guard let lines = edges[style] else { continue }
                 let multi = MKMultiPolyline(lines)
                 styles[ObjectIdentifier(multi)] = (style, true)
                 landOverlays.append(multi)
             }
             map.addOverlays(landOverlays, level: .aboveRoads)
+        }
+
+        /// Порядок слоёв — от призраков к своей: куски не перекрываются, но кромка своей должна быть сверху.
+        /// При равном отношении — по цвету и уровню: одинаковые данные дают одинаковую карту.
+        private static func ordered(_ styles: some Sequence<LandStyle>) -> [LandStyle] {
+            let order: [TerritoryRelation] = [.lost, .noMansLand, .rival, .clan, .contested, .mine]
+            func rank(_ style: LandStyle) -> (Int, String, Int) {
+                (order.firstIndex(of: style.relation) ?? 0, style.color.rawValue, style.level?.rawValue ?? 0)
+            }
+            return styles.sorted { rank($0) < rank($1) }
         }
 
         private static func polygon(_ shape: ParcelShape) -> MKPolygon {
@@ -178,9 +183,11 @@ struct GameMapView: UIViewRepresentable {
             if overlay === fogOverlay {
                 return fogRenderer
             }
-            guard let (style, isEdge) = styles[ObjectIdentifier(overlay)] else {
+            guard let entry = styles[ObjectIdentifier(overlay)] else {
                 return MKOverlayRenderer(overlay: overlay)
             }
+            let style = entry.style
+            let isEdge = entry.isEdge
             if !isEdge, let multi = overlay as? MKMultiPolygon {
                 let renderer = MKMultiPolygonRenderer(multiPolygon: multi)
                 renderer.fillColor = style.fill(theme).uiColor
@@ -235,7 +242,7 @@ struct GameMapView: UIViewRepresentable {
 
 /// Кромка земли: толщина и пунктир — у `MKOverlayPathRenderer` в экранных pt, свечение своей ночью — тенью того же
 /// цвета (`TerritoryRelation.glowRadius`, 3 pt).
-final class LandEdgeRenderer: MKMultiPolylineRenderer {
+final class LandEdgeRenderer: MKMultiPolylineRenderer, @unchecked Sendable {
     private let glow: Double
 
     init(multiPolyline: MKMultiPolyline, glow: Double) {
