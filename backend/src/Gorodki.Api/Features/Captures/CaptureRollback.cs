@@ -279,6 +279,16 @@ public sealed class CaptureRollback(
             db.Parcels.AddRange(diff.Added.Select(p => CaptureProcessor.ToEntity(p, league)));
         }
 
+        // Зоны «спорная» захвата уходят вместе с ним. Их тайлы получают новую версию, даже если земля в них не менялась:
+        // иначе телефон с прежней версией так и рисовал бы зону.
+        var zoneTiles = (await db.ContestedZones.Where(z => z.CaptureId == captureId)
+                .Select(z => new { z.TileX, z.TileY })
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .Select(z => new TileKey(z.TileX, z.TileY));
+        await db.ContestedZones.Where(z => z.CaptureId == captureId).ExecuteDeleteAsync(cancellationToken);
+        changedTiles.AddRange(zoneTiles.Where(t => !changedTiles.Contains(t)));
+
         await db.SaveChangesAsync(cancellationToken);
         foreach (var tile in changedTiles)
         {

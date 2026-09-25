@@ -16,5 +16,6 @@
   ],
   "missing": [],
   "newcomer": true,
-  "fogNewCells": null
+  "fogNewCells": null,
+  "visitedParcels": null
 }

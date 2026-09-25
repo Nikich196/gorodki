@@ -124,13 +124,10 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
         var tiles = new List<(TileKey Tile, long Version, List<(ParcelState State, Polygon Geometry)> Pieces)>();
         foreach (var (tile, version, pending) in changed)
         {
-            var stored = parcels.Where(p => p.TileX == tile.X && p.TileY == tile.Y).ToList();
-            var pieces = pending.Count == 0
-                ? stored.Select(p => (CaptureProcessor.ToParcel(p).State, p.Geometry)).ToList()
-                : await ProjectAsync(tile, stored, pending, rules, cancellationToken);
-            tiles.Add((tile, version, pieces));
+            tiles.Add((tile, version, await VisiblePiecesAsync(tile, parcels, pending, rules, cancellationToken)));
         }
 
+        var zones = await VisibleZonesAsync(league, viewer, now, horizon, minX, maxX, minY, maxY, cancellationToken);
         var owners = tiles.SelectMany(t => t.Pieces.Select(p => p.State.OwnerId)).Distinct().ToList();
         var colors = await db.Users.AsNoTracking()
             .Where(u => owners.Contains(u.Id))
@@ -147,16 +144,152 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
                     .Select(p => ToView(t.Tile, p.State, p.Geometry, colors[p.State.OwnerId], viewer, rules, now))
                     .OfType<ParcelView>()
                     .OrderBy(p => p.Id)
+                    .ToList(),
+                zones
+                    .Where(z => z.TileX == t.Tile.X && z.TileY == t.Tile.Y)
+                    .Select(z => new ContestedZoneView(
+                        viewer.Immediate ? z.Until.ToUnixTimeMilliseconds() : CeilTo(z.Until.ToUnixTimeMilliseconds(), 600_000)!.Value,
+                        LatLon(z.Geometry.ExteriorRing),
+                        [.. z.Geometry.InteriorRings.Select(LatLon)]))
                     .ToList()))
             .ToList();
         return new TerritoryResponse(league, result, unchanged);
     }
 
+    private sealed record VisibleZone(int TileX, int TileY, Polygon Geometry, DateTimeOffset Until);
+
+    /// <summary>
+    /// Зоны «спорная» в этих тайлах, которые видит зритель (§3.3, §3.16): ещё не истекли, а захват — свой, демо-аккаунта
+    /// или уже публичный (то же правило, что <see cref="HiddenJournal"/>); администратор видит все.
+    /// </summary>
+    private async Task<List<VisibleZone>> VisibleZonesAsync(
+        League league,
+        TerritoryViewer viewer,
+        DateTimeOffset now,
+        DateTimeOffset horizon,
+        int minX,
+        int maxX,
+        int minY,
+        int maxY,
+        CancellationToken cancellationToken)
+    {
+        var rows = await db.ContestedZones.AsNoTracking()
+            .Where(z => z.League == league && z.TileX >= minX && z.TileX <= maxX && z.TileY >= minY && z.TileY <= maxY
+                && z.ContestedUntil > now)
+            .Join(
+                db.Captures,
+                z => z.CaptureId,
+                c => c.Id,
+                (z, c) => new
+                {
+                    Zone = z,
+                    c.UserId,
+                    c.AppliedAt,
+                    Demo = db.Users.Any(u => u.Id == c.UserId && u.Role == UserRole.Demo),
+                })
+            .OrderBy(r => r.Zone.Id)
+            .ToListAsync(cancellationToken);
+        return rows
+            .Where(r => viewer.Immediate || r.UserId == viewer.UserId || r.Demo || r.AppliedAt <= horizon)
+            .Select(r => new VisibleZone(r.Zone.TileX, r.Zone.TileY, r.Zone.Geometry, r.Zone.ContestedUntil))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Площадь земли игрока в лиге, м², такой, какой её видит <paramref name="viewer"/> на карте (граница публичности,
+    /// §3.16): скрытый от зрителя чужой захват земли игрока не вычтен. Угасшая земля («призрак») не считается. Посчитанные
+    /// по настоящим кускам (<c>db.Parcels</c>), такие числа выдали бы жертве скрытый чужой захват раньше карты
+    /// (docs/guides/egor-server.md, раздел 4).
+    /// </summary>
+    /// <param name="viewer">
+    /// Сам игрок (<c>new TerritoryViewer(userId, false)</c>) — для его собственных экранов («Статистика» #116, «Мои данные»):
+    /// свои свежие захваты он видит сразу, как на своей карте. Посторонний (<c>new TerritoryViewer(null, false)</c>) — для
+    /// всего, что видят другие (рейтинги, лента, карточка недели): свежий захват игрока прибавится через те же 20–25 минут.
+    /// </param>
+    public async Task<double> VisibleOwnedAreaAsync(Guid userId, League league, TerritoryViewer viewer, CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        var config = (await configs.GetCurrentAsync(cancellationToken)).Rules;
+        var rules = config.Territory.ToRules();
+        var horizon = PublicHorizon(now, TimeSpan.FromMinutes(config.Privacy.PublicEventDelayMinutes));
+
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
+
+        // Тайлы — где у игрока земля сейчас и где её взяли ещё скрытые захваты (как в «Моих данных»).
+        var owned = await db.Parcels.AsNoTracking()
+            .Where(p => p.League == league && p.OwnerId == userId)
+            .Select(p => new { p.TileX, p.TileY })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var takenRecently = await db.CaptureJournalPieces.AsNoTracking()
+            .Where(p => p.OwnerId == userId && !p.After)
+            .Join(
+                HiddenJournal(db, league, horizon),
+                p => new { p.CaptureId, p.TileX, p.TileY },
+                j => new { j.CaptureId, j.TileX, j.TileY },
+                (p, j) => new { j.TileX, j.TileY })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var tiles = owned.Concat(takenRecently).Select(t => new TileKey(t.TileX, t.TileY)).Distinct().ToList();
+        if (tiles.Count == 0)
+        {
+            return 0;
+        }
+
+        int minX = tiles.Min(t => t.X), maxX = tiles.Max(t => t.X), minY = tiles.Min(t => t.Y), maxY = tiles.Max(t => t.Y);
+        var hidden = viewer.Immediate ? [] : await HiddenCapturesAsync(league, viewer.UserId, horizon, minX, maxX, minY, maxY, cancellationToken);
+        var parcels = await db.Parcels.AsNoTracking()
+            .Where(p => p.League == league && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
+            .ToListAsync(cancellationToken);
+
+        var area = 0.0;
+        foreach (var tile in tiles)
+        {
+            var pending = hidden.Where(h => h.TileX == tile.X && h.TileY == tile.Y).ToList();
+            area += (await VisiblePiecesAsync(tile, parcels, pending, rules, cancellationToken))
+                .Where(p => p.State.OwnerId == userId && Decay.EffectiveLevel(p.State, now, rules) > 0)
+                .Sum(p => p.Geometry.Area);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return area;
+    }
+
+    /// <summary>
+    /// Когда событие о захвате игрока (взял землю, треснул чужой участок, пометил «спорной»…) можно показать другим — в
+    /// ленте, «Входящих», уведомлениях (<c>visible_at</c>, §3.16): тот же момент, когда захват покажет карта
+    /// (<see cref="PublicAt"/>). <paramref name="appliedAt"/> — время <b>применения</b> захвата к карте
+    /// (<c>captures.applied_at</c>), а не петли: петля из офлайна применяется позже, и по времени петли событие показалось
+    /// бы раньше карты. У демо-аккаунта — сразу, как на карте. Визитам помощник не нужен: они записываются уже после
+    /// границы публичности и видны всем сразу (<c>runs.visits_processed_at</c>).
+    /// </summary>
+    public async Task<DateTimeOffset> VisibleAtAsync(Guid actorId, DateTimeOffset appliedAt, CancellationToken cancellationToken)
+    {
+        if (await db.Users.AsNoTracking().AnyAsync(u => u.Id == actorId && u.Role == UserRole.Demo, cancellationToken))
+        {
+            return appliedAt;
+        }
+
+        var delay = TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
+        return PublicAt(appliedAt, delay);
+    }
+
     private sealed record HiddenCapture(Guid CaptureId, int TileX, int TileY, long AppliedSeq);
+
+    /// <summary>Куски тайла, какими их видит зритель: без скрытых от него захватов — как есть, иначе — проекция.</summary>
+    private async Task<List<(ParcelState State, Polygon Geometry)>> VisiblePiecesAsync(
+        TileKey tile, List<ParcelEntity> parcels, List<HiddenCapture> pending, TerritoryRules rules, CancellationToken cancellationToken)
+    {
+        var stored = parcels.Where(p => p.TileX == tile.X && p.TileY == tile.Y).ToList();
+        return pending.Count == 0
+            ? stored.Select(p => (CaptureProcessor.ToParcel(p).State, p.Geometry)).ToList()
+            : await ProjectAsync(tile, stored, pending, rules, cancellationToken);
+    }
 
     /// <summary>
     /// Чужие захваты в этих тайлах, ещё не публичные (<see cref="HiddenJournal"/>: применены позже
-    /// <paramref name="horizon"/>, не откачены, не демо-аккаунта). Свои зритель видит сразу.
+    /// <paramref name="horizon"/>, не откачены, не демо-аккаунта). Свои зритель видит сразу; без зрителя
+    /// (<paramref name="viewerId"/> — <c>null</c>) — все скрытые.
     /// </summary>
     private async Task<List<HiddenCapture>> HiddenCapturesAsync(
         League league, Guid? viewerId, DateTimeOffset horizon, int minX, int maxX, int minY, int maxY, CancellationToken cancellationToken)
@@ -168,7 +301,7 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
                 j => j.CaptureId,
                 c => c.Id,
                 (j, c) => new { j.CaptureId, j.TileX, j.TileY, c.UserId, c.AppliedSeq })
-            .Where(r => r.UserId != viewerId)
+            .Where(r => viewerId == null || r.UserId != viewerId)
             .ToListAsync(cancellationToken);
         return rows.Select(r => new HiddenCapture(r.CaptureId, r.TileX, r.TileY, r.AppliedSeq ?? 0)).ToList();
     }

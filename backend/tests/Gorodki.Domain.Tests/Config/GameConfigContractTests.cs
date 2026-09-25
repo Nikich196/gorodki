@@ -73,6 +73,8 @@ public sealed class GameConfigContractTests
         Assert.Equal(20, config.Territory.LevelUpIntervalHours);
         Assert.Equal((20.0, 2), (config.Territory.LevelLossWindowHours, config.Territory.MaxLevelsLostPerWindow));
         Assert.Equal((6.0, 3.0), (config.Territory.DecayDaysPerLevel, config.Territory.GhostDays));
+        Assert.Equal((500_000.0, 2_000_000.0), (config.Territory.BigLoopSquareMeters.Run, config.Territory.BigLoopSquareMeters.Bike));
+        Assert.Equal(24, config.Territory.ContestedHours);
         Assert.Equal(25, config.Exploration.RevealRadiusMeters);
         Assert.Equal(2, config.Exploration.RadarMultiplier);
 
@@ -84,6 +86,20 @@ public sealed class GameConfigContractTests
     public void Territory_numbers_in_config_are_the_engine_defaults()
     {
         Assert.Equal(new TerritoryRules(), new TerritoryConfig().ToRules());
+    }
+
+    [Fact]
+    public void Big_loop_is_strictly_above_the_league_threshold()
+    {
+        // §3.3: «если P > 0,5 км² (в вело-лиге — 2 км²)».
+        var territory = GameConfig.Default.Territory;
+
+        Assert.False(territory.IsBigLoop(League.Run, 500_000));
+        Assert.True(territory.IsBigLoop(League.Run, 500_000.1));
+        Assert.False(territory.IsBigLoop(League.Bike, 2_000_000)); // ровно 2 км² — ещё не большая
+        Assert.True(territory.IsBigLoop(League.Bike, 2_000_000.1));
+        Assert.False(territory.IsBigLoop(League.Bike, 1_999_999));
+        Assert.False(territory.IsBigLoop(League.Bike, 600_000)); // большая для «Бега», но не для «Вело»
     }
 
     [Fact]
