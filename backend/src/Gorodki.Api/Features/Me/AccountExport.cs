@@ -26,7 +26,8 @@ namespace Gorodki.Api.Features.Me;
 /// <param name="Rankings">Свои места в ежедневных срезах рейтингов (хранятся неделю).</param>
 /// <param name="Scores">
 /// Начисления очков сезона (§3.5) — те, что уже видны: очки за захват — с границы публичности его применения, как и
-/// разбивка итога захвата (иначе бонусы выдали бы ещё скрытый чужой захват).
+/// разбивка итога захвата (иначе бонусы выдали бы ещё скрытый чужой захват). Сервер присылает всегда; в контракте поле
+/// необязательное — приложение, собранное раньше этого поля (и его тесты), разбирает выгрузку как прежде.
 /// </param>
 public sealed record AccountExportResponse(
     long ExportedAtMs,
@@ -38,7 +39,7 @@ public sealed record AccountExportResponse(
     IReadOnlyList<ExportFogTile> Fog,
     IReadOnlyList<PrivacyZoneResponse> PrivacyZones,
     IReadOnlyList<ExportRanking> Rankings,
-    IReadOnlyList<ExportScore> Scores);
+    IReadOnlyList<ExportScore>? Scores);
 
 /// <param name="Season">Номер сезона; <c>null</c> — вне сезонов (предсезонье).</param>
 /// <param name="Day">Игровые сутки по Минску, <c>yyyy-MM-dd</c>.</param>

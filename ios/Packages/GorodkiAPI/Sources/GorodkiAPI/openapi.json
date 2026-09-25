@@ -1128,8 +1128,7 @@
           "land",
           "fog",
           "privacyZones",
-          "rankings",
-          "scores"
+          "rankings"
         ],
         "type": "object",
         "properties": {
@@ -1183,7 +1182,10 @@
             }
           },
           "scores": {
-            "type": "array",
+            "type": [
+              "null",
+              "array"
+            ],
             "items": {
               "$ref": "#/components/schemas/ExportScore"
             }

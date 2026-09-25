@@ -49,11 +49,11 @@ public sealed class ScoringTests(DatabaseFixture database)
         // Граница — та же, что у карты: за миллисекунду до неё очков Анны в сезоне не видно никому, на ней — видно.
         GoTo(api, publicAt - TimeSpan.FromMilliseconds(1));
         Assert.False((await SeasonTotalsAsync(api)).ContainsKey(annaId));
-        Assert.Empty((await ExportAsync(anna)).Scores); // и самой Анне: очки выдали бы разбивку итога (C1)
+        Assert.Empty((await ExportAsync(anna)).Scores!); // и самой Анне: очки выдали бы разбивку итога (C1)
 
         GoTo(api, publicAt);
         Assert.Equal(score.Points, (await SeasonTotalsAsync(api))[annaId]);
-        var exported = Assert.Single((await ExportAsync(anna)).Scores);
+        var exported = Assert.Single((await ExportAsync(anna)).Scores!);
         Assert.Equal((claim.CaptureId, score.Points, "capture", 1), (exported.CaptureId!.Value, exported.Points, exported.Kind, exported.Season!.Value));
     }
 
