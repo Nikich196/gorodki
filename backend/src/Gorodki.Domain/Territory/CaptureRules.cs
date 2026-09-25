@@ -28,12 +28,6 @@ public sealed record ParcelState
 
     /// <summary>Кто уже снял с куска уровень в текущем окне: каждый — не больше одного, все вместе — не больше двух.</summary>
     public AttackerSet LossAttackers { get; init; }
-
-    /// <summary>
-    /// Пометка «спорная» (§3.3, большая петля): до этого времени на карте видно, что на кусок покушались. Игровой силы нет —
-    /// ни на уровень, ни на щит, ни на осаду, ни на лимиты снятия она не влияет; визит её не снимает.
-    /// </summary>
-    public DateTimeOffset? ContestedUntil { get; init; }
 }
 
 /// <summary>Кто и когда захватывает.</summary>
@@ -46,7 +40,8 @@ public sealed record ParcelState
 /// </param>
 /// <param name="BigLoop">
 /// Большая петля (§3.3, issue #48): площадь P после масок больше порога лиги (<c>territory.bigLoopSquareMeters</c>).
-/// Ничью землю она берёт, свою и соклановцев освежает, а чужую только помечает «спорной».
+/// Ничью землю она берёт, свою и соклановцев освежает, а чужую не трогает вовсе: пометка «спорная» — отдельный слой
+/// карты (<see cref="CaptureResult.Contested"/>), не состояние куска.
 /// </param>
 public sealed record CaptureContext(
     Guid CapturerId, DateTimeOffset At, IReadOnlySet<Guid> ClanMates, bool CanRemoveLevels = true, bool BigLoop = false);
@@ -76,9 +71,6 @@ public sealed record TerritoryRules
 
     /// <summary>Сколько потерянную землю ещё видно «призраком».</summary>
     public TimeSpan GhostDuration { get; init; } = TimeSpan.FromDays(3);
-
-    /// <summary>Сколько держится пометка «спорная» после большой петли.</summary>
-    public TimeSpan ContestedMark { get; init; } = TimeSpan.FromHours(24);
 }
 
 /// <summary>Что захват сделал с куском земли.</summary>
@@ -114,8 +106,8 @@ public enum PieceOutcome
     /// </summary>
     NewAccountLimited,
     /// <summary>
-    /// Чужой кусок внутри большой петли (§3.3, #48): не перешёл и не треснул — без осады и счётчиков снятия уровней, только
-    /// пометка «спорная» на 24 ч.
+    /// Чужой кусок внутри большой петли (§3.3, #48): не тронут вовсе — не перешёл, не треснул, без осады и счётчиков снятия
+    /// уровней. Эта земля попадает в зону «спорная» на 24 ч (<see cref="CaptureResult.Contested"/>) — отдельный слой карты.
     /// </summary>
     Contested,
 }
@@ -181,12 +173,10 @@ public static class CaptureRules
         }
 
         // Большая петля ослаблена (§3.3, решено 25.09 в #48): чужая земля внутри — и L1, и L2/L3 — не переходит и не
-        // трескается, окно и счётчики снятия уровней не трогаются; только пометка «спорная». Петля, пришедшая позже другой
-        // большой петли, пометку не укорачивает.
+        // трескается, окно и счётчики снятия уровней не трогаются. Кусок остаётся прежним; пометка «спорная» — отдельный слой.
         if (context.BigLoop)
         {
-            var until = now + rules.ContestedMark;
-            return (current.ContestedUntil >= until ? current : current with { ContestedUntil = until }, PieceOutcome.Contested);
+            return (current, PieceOutcome.Contested);
         }
 
         // Окно снятия уровней: прошло — считаем заново. Петля «из прошлого» (now раньше начала окна) — в том же окне.

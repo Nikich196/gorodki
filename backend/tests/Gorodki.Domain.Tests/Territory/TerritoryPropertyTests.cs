@@ -90,10 +90,15 @@ public sealed class TerritoryPropertyTests
                     .Where(p => p != capturer)
                     .ToDictionary(p => p, p => GeoOps.Difference(LandOf(map, p), capture).Area);
                 var piecesBefore = map.Tiles.ToDictionary(tile => tile, tile => map.ParcelsIn(tile));
+                var othersStatesBefore = map.Parcels.Where(p => p.State.OwnerId != capturer).Select(p => p.State).ToHashSet();
+                var othersInsideBefore = Players
+                    .Where(p => p != capturer)
+                    .ToDictionary(p => p, p => GeoOps.Intersection(LandOf(map, p), capture).Area);
 
-                // Каждая четвёртая петля — «большая» (§3.3, #48): чужая земля внутри только помечается «спорной». Признак —
-                // из шума, а не из генератора: так истории прежних seed не меняются.
-                var result = map.Apply(capture, new CaptureContext(capturer, time, new HashSet<Guid>(), BigLoop: step.NoiseSeed % 4 == 0));
+                // Каждая четвёртая петля — «большая» (§3.3, #48): чужая земля внутри не трогается, только попадает в зону
+                // «спорная». Признак — из шума, а не из генератора: так истории прежних seed не меняются.
+                var bigLoop = step.NoiseSeed % 4 == 0;
+                var result = map.Apply(capture, new CaptureContext(capturer, time, new HashSet<Guid>(), BigLoop: bigLoop));
 
                 // Snap-rounding сдвигает любую точку не дальше полудиагонали клетки сетки (0,0707 м), поэтому
                 // площадь меняется не больше чем на 0,0707 × длину границы. Это доказуемая граница, не «на глаз».
@@ -112,8 +117,8 @@ public sealed class TerritoryPropertyTests
                     Math.Abs(decided - capture.Area) <= snapTolerance,
                     $"{step}: решено {decided:0.##} из {capture.Area:0.##} м²");
 
-                // I5: не досталось игроку только то, что под щитом, треснуло, упёрлось в лимит снятия уровней, помечено
-                // «спорной» большой петлёй или ушло в осколки.
+                // I5: не досталось игроку только то, что под щитом, треснуло, упёрлось в лимит снятия уровней, осталось
+                // чужим в большой петле («спорная») или ушло в осколки.
                 var notTaken = GeoOps.Difference(capture, LandOf(map, capturer)).Area;
                 var protectedArea = result.Area(PieceOutcome.Shielded) + result.Area(PieceOutcome.Cracked)
                     + result.Area(PieceOutcome.LossLimited) + result.Area(PieceOutcome.Superseded)
@@ -121,6 +126,32 @@ public sealed class TerritoryPropertyTests
                 Assert.True(
                     Math.Abs(notTaken - protectedArea) <= result.SliverArea + snapTolerance,
                     $"{step}: не взято {notTaken:0.##}, защищено {protectedArea:0.##}, осколки {result.SliverArea:0.##} м²");
+
+                // I8: большая петля не снимает уровней и не берёт чужого: ни перехода, ни трещины, ни лимита снятия; у чужих
+                // кусков нет ни одного нового состояния (владелец, уровень, щит, осада, счётчики), площадь чужой земли внутри
+                // петли прежняя; зона «спорная» — ровно земля с исходом Contested.
+                if (bigLoop)
+                {
+                    Assert.Equal(0, result.Area(PieceOutcome.Transferred) + result.Area(PieceOutcome.Cracked) + result.Area(PieceOutcome.LossLimited));
+                    Assert.All(
+                        map.Parcels.Where(p => p.State.OwnerId != capturer),
+                        p => Assert.True(othersStatesBefore.Contains(p.State), $"{step}: у чужого куска новое состояние {p.State}"));
+                    foreach (var (player, before) in othersInsideBefore)
+                    {
+                        var after = GeoOps.Intersection(LandOf(map, player), capture).Area;
+                        Assert.True(
+                            Math.Abs(after - before) <= result.SliverArea + snapTolerance,
+                            $"{step}: чужая земля внутри большой петли изменилась с {before:0.##} на {after:0.##} м²");
+                    }
+
+                    Assert.True(
+                        Math.Abs(result.Contested.Sum(c => c.Area.Area) - result.Area(PieceOutcome.Contested)) <= snapTolerance,
+                        $"{step}: зона {result.Contested.Sum(c => c.Area.Area):0.##}, спорных граней {result.Area(PieceOutcome.Contested):0.##} м²");
+                }
+                else
+                {
+                    Assert.Empty(result.Contested);
+                }
 
                 // I4: чужая земля вне петли не меняется (кроме поглощённых осколков).
                 foreach (var (player, before) in othersOutsideBefore)

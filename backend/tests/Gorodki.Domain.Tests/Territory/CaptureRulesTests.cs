@@ -148,40 +148,28 @@ public sealed class CaptureRulesTests
         CaptureRules.Decide(piece, new CaptureContext(attacker, at, clan.ToHashSet(), BigLoop: true), Rules);
 
     [Fact]
-    public void Big_loop_only_marks_enemy_level_one_contested_for_24_hours()
+    public void Big_loop_leaves_enemy_land_of_any_level_exactly_as_it_was()
     {
-        var land = Land(1);
+        // Пометка «спорная» — отдельный слой карты (зоны), а не состояние куска: сам кусок не меняется ни в чём.
+        foreach (var level in new[] { 1, 2, 3 })
+        {
+            var land = Land(level);
 
-        var (after, outcome) = BigLoop(land, Anna, T0);
+            var (after, outcome) = BigLoop(land, Anna, T0);
 
-        Assert.Equal(PieceOutcome.Contested, outcome);
-        Assert.Equal(land with { ContestedUntil = T0.AddHours(24) }, after);
+            Assert.Equal(PieceOutcome.Contested, outcome);
+            Assert.Same(land, after);
+        }
     }
 
     [Fact]
-    public void Big_loop_leaves_enemy_level_three_without_crack_siege_or_loss_counters()
+    public void Big_loop_touches_no_loss_counters()
     {
-        var land = Land(3);
-
-        var (after, outcome) = BigLoop(land, Anna, T0);
-
-        Assert.Equal(PieceOutcome.Contested, outcome);
-        Assert.Equal(land with { ContestedUntil = T0.AddHours(24) }, after);
-
-        // Счётчики снятия не тронуты: обычная петля того же игрока сразу после — всё ещё «трещина».
+        // Окно и счётчики снятия уровней не тронуты: обычная петля того же игрока сразу после — всё ещё «трещина».
+        var (after, _) = BigLoop(Land(3), Anna, T0);
         var (_, next) = Attack(after, Anna, T0.AddMinutes(10));
+
         Assert.Equal(PieceOutcome.Cracked, next);
-    }
-
-    [Fact]
-    public void Big_loop_mark_is_extended_by_a_later_loop_and_never_shortened_by_an_earlier_one()
-    {
-        var (first, _) = BigLoop(Land(2), Anna, T0);
-        var (extended, _) = BigLoop(first, Boris, T0.AddHours(5));
-        var (late, lateOutcome) = BigLoop(extended, Vera, T0.AddHours(1)); // пришла из офлайна позже
-
-        Assert.Equal(T0.AddHours(29), extended!.ContestedUntil);
-        Assert.Equal((extended, PieceOutcome.Contested), (late, lateOutcome));
     }
 
     [Fact]
@@ -200,11 +188,10 @@ public sealed class CaptureRulesTests
         Assert.Equal((Anna, PieceOutcome.ClaimedNeutral), (fromDecayed!.OwnerId, decayedOutcome));
         Assert.Equal((PieceOutcome.Refreshed, T0), (ownOutcome, refreshed!.LastVisitAt));
         Assert.Equal((PieceOutcome.RefreshedForClanMate, Owner, T0), (mateOutcome, mate!.OwnerId, mate.LastVisitAt));
-        Assert.All(new[] { neutral, fromDecayed, refreshed, mate }, s => Assert.Null(s!.ContestedUntil));
     }
 
     [Fact]
-    public void Big_loop_does_not_mark_shielded_superseded_or_new_account_targets()
+    public void Shielded_superseded_and_new_account_targets_are_not_contested()
     {
         var shielded = Land(1) with { ShieldUntil = T0.AddHours(1) };
         var visitedLater = Land(1, visited: T0.AddHours(1));
@@ -215,19 +202,5 @@ public sealed class CaptureRulesTests
         Assert.Equal(
             (weak, PieceOutcome.NewAccountLimited),
             CaptureRules.Decide(weak, new CaptureContext(Anna, T0, new HashSet<Guid>(), CanRemoveLevels: false, BigLoop: true), Rules));
-    }
-
-    [Fact]
-    public void Contested_mark_has_no_game_power_and_survives_owners_visit()
-    {
-        // Пометка не мешает ни росту уровня, ни обычному захвату — и визит её не снимает (§3.3: «без игровой силы»).
-        var marked = Land(1) with { ContestedUntil = T0.AddHours(24) };
-
-        var visited = CaptureRules.Visit(marked, T0, Rules)!;
-        var (taken, outcome) = Attack(marked, Anna, T0);
-
-        Assert.Equal((2, T0.AddHours(24)), (visited.Level, visited.ContestedUntil));
-        Assert.Equal((PieceOutcome.Transferred, Anna), (outcome, taken!.OwnerId));
-        Assert.Null(taken.ContestedUntil);
     }
 }

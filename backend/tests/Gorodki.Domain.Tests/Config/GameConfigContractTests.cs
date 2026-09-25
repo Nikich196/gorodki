@@ -96,8 +96,10 @@ public sealed class GameConfigContractTests
 
         Assert.False(territory.IsBigLoop(League.Run, 500_000));
         Assert.True(territory.IsBigLoop(League.Run, 500_000.1));
-        Assert.False(territory.IsBigLoop(League.Bike, 1_999_999));
+        Assert.False(territory.IsBigLoop(League.Bike, 2_000_000)); // ровно 2 км² — ещё не большая
         Assert.True(territory.IsBigLoop(League.Bike, 2_000_000.1));
+        Assert.False(territory.IsBigLoop(League.Bike, 1_999_999));
+        Assert.False(territory.IsBigLoop(League.Bike, 600_000)); // большая для «Бега», но не для «Вело»
     }
 
     [Fact]

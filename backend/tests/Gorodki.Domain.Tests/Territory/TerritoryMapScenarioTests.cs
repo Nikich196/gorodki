@@ -229,31 +229,51 @@ public sealed class TerritoryMapScenarioTests
     }
 
     [Fact]
-    public void Big_loop_marks_enemy_land_inside_contested_and_takes_only_neutral_land()
+    public void Big_loop_leaves_enemy_land_untouched_takes_only_neutral_land_and_reports_the_contested_zone()
     {
         var map = AnnasLand();
+        var annaBefore = LandOf(map, Anna).ToList();
         var loop = RectanglePolygon(0, 0, 700, 800); // 0,56 км²
 
         var result = BorisLoop(map, loop);
 
-        Assert.Equal(30_000, map.AreaOf(Anna), 3);
         Assert.Equal(loop.Area - 25_000, map.AreaOf(Boris), 3);
         Assert.Equal(25_000, result.Area(PieceOutcome.Contested), 3);
         Assert.Equal(0, result.Area(PieceOutcome.Transferred) + result.Area(PieceOutcome.Cracked));
 
-        // Пометка — только на части внутри петли; уровни, щиты, осада и счётчики снятия — как были.
-        var marked = LandOf(map, Anna).Where(p => p.State.ContestedUntil is not null).ToList();
-        Assert.Equal(25_000, marked.Sum(p => p.Geometry.Area), 3);
-        Assert.All(marked, p => Assert.Equal(T0.AddHours(46), p.State.ContestedUntil));
-        Assert.Equal([1, 1, 2], marked.Select(p => p.State.Level).Order());
-        Assert.All(LandOf(map, Anna), p => Assert.True(p.State is { SiegeUntil: null, ShieldUntil: null, LossWindowSince: null }));
-        Assert.Equal(5_000, LandOf(map, Anna).Where(p => p.State.ContestedUntil is null).Sum(p => p.Geometry.Area), 3);
+        // Куски Анны — те же объекты: не разрезаны границей петли, состояние (уровень, щит, осада, счётчики) прежнее.
+        var annaAfter = LandOf(map, Anna).ToList();
+        Assert.Equal(annaBefore.Count, annaAfter.Count);
+        Assert.All(annaAfter, piece => Assert.Contains(annaBefore, old => ReferenceEquals(old, piece)));
 
-        // Пометка записана в журнал: откат возвращает землю без неё (так же её прячет публичная проекция).
+        // Зона «спорная» — ровно чужая земля внутри петли, включая половину квадрата у края.
+        var zone = GeoOps.UnionAll(result.Contested.Select(c => c.Area));
+        var expected = GeoOps.Intersection(GeoOps.UnionAll(annaBefore.Select(p => (Geometry)p.Geometry)), loop);
+        Assert.Equal(25_000, zone.Area, 3);
+        Assert.True(GeoOps.Difference(zone, expected).Area + GeoOps.Difference(expected, zone).Area < 0.01);
+        Assert.All(result.Contested, c => Assert.True(c.Tile.ToPolygon().Covers(c.Area)));
+
+        // Откат: земля Бориса уходит, земле Анны возвращать нечего.
         map.Restore(result.Changes);
-        Assert.Equal(30_000, map.AreaOf(Anna), 3);
-        Assert.All(map.Parcels, p => Assert.Null(p.State.ContestedUntil));
         Assert.Equal(0, map.AreaOf(Boris), 3);
+        Assert.All(LandOf(map, Anna), piece => Assert.Contains(annaBefore, old => ReferenceEquals(old, piece)));
+    }
+
+    [Fact]
+    public void Big_loop_over_enemy_land_only_rewrites_nothing_but_still_reports_the_zone()
+    {
+        // Петля целиком по земле Анны: ни один тайл не переписан (версия не растёт, журнала нет), а зона есть —
+        // сервер пишет её отдельно (и запись журнала без следа, чтобы зона раскрылась вместе с версией тайла).
+        var map = new TerritoryMap();
+        Capture(map, Anna, T0, RectanglePolygon(-100, 0, 900, 800));
+        var before = map.StateHash();
+
+        var result = BorisLoop(map, RectanglePolygon(-50, 50, 800, 700)); // 0,56 км², вся — по земле Анны
+
+        Assert.Equal(before, map.StateHash());
+        Assert.Empty(result.ChangedTiles);
+        Assert.Equal(560_000, result.Contested.Sum(c => c.Area.Area), 1);
+        Assert.Equal(2, result.Contested.Count); // по тайлу слева и справа от x = 0
     }
 
     [Fact]
@@ -264,8 +284,8 @@ public sealed class TerritoryMapScenarioTests
         var result = BorisLoop(map, RectanglePolygon(0, 0, 700, 700)); // 0,49 км²
 
         Assert.Equal(0, result.Area(PieceOutcome.Contested));
+        Assert.Empty(result.Contested);
         Assert.Equal(15_000, result.Area(PieceOutcome.Transferred), 3); // L1 и половина L1 у края
         Assert.Equal(10_000, result.Area(PieceOutcome.Cracked), 3);
-        Assert.All(map.Parcels, p => Assert.Null(p.State.ContestedUntil));
     }
 }

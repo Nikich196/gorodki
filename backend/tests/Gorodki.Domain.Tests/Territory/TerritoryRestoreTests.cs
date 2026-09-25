@@ -600,8 +600,8 @@ public sealed class TerritoryRestoreTests
     }
 
     /// <summary>
-    /// Каждая третья петля — «большая» (§3.3, #48): пометка «спорная» тоже откатывается по журналу. Признак — из числа
-    /// лучей, а не из генератора: так истории прежних seed не меняются.
+    /// Каждая третья петля — «большая» (§3.3, #48): чужую землю она не трогает, и откат не должен её задеть. Признак — из
+    /// числа лучей, а не из генератора: так истории прежних seed не меняются.
     /// </summary>
     private static CaptureContext ContextOf(Step step, DateTimeOffset time) =>
         new(Players[step.Player], time, new HashSet<Guid>(), BigLoop: step.Radii.Length % 3 == 0);

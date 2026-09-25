@@ -137,7 +137,6 @@ public sealed class VisitReplayTests
             ("щит", visited with { ShieldUntil = T0.AddHours(12) }),
             ("окно снятия уровней", visited with { LossWindowSince = T0.AddMinutes(10) }),
             ("кто снимал уровни", visited with { LossAttackers = AttackerSet.Empty }),
-            ("пометка «спорная»", visited with { ContestedUntil = T0.AddHours(24) }),
             ("уровень упал без угасания", written with { Level = 1 }),
             ("визит назад во времени", written with { LastVisitAt = T0.AddMinutes(-10) }),
             ("повышение без визита", written with { Level = 3 }),
