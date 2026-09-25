@@ -42,6 +42,9 @@ public struct LocalRun: Codable, Sendable, Hashable, Identifiable {
     /// Забег завершён на телефоне: известны конец и номер последней точки.
     public var endedAtMs: Int64?
     public var lastSeq: Int?
+    /// Сводка для экрана, переживающая перезапуск (`RunSummary`): пишется при каждом запечатывании куска и на «Финише».
+    /// Необязательное — старые записи очереди без неё читаются.
+    public var summary: RunSummary?
 
     // Поля синхронизации (меняет только `SyncEngine`).
 
@@ -54,6 +57,9 @@ public struct LocalRun: Codable, Sendable, Hashable, Identifiable {
     public var confirmedComplete = false
     /// Сколько раз досылались точки или завершение (предел — `SyncEngine.maxResendRounds`).
     public var resendRounds = 0
+    /// «+N га» забега от сервера — новые клетки тумана за всё время (`RunResponse.fogNewCells`); `nil` — сервер ещё
+    /// не открыл туман по забегу или телефон ещё не спросил. Число меняется один раз (fog.md), после него не спрашиваем.
+    public var fogNewCells: Int?
 
     public init(
         id: UUID, ownerId: String, league: League, source: Source = .live, configVersion: Int, startedAtMs: Int64,
@@ -71,6 +77,54 @@ public struct LocalRun: Codable, Sendable, Hashable, Identifiable {
     }
 
     public var isFinishedLocally: Bool { endedAtMs != nil && lastSeq != nil }
+}
+
+/// Сводка забега, которая переживает перезапуск приложения (docs/architecture/run-hud.md, пробел 1): `RunRecorder`
+/// пишет её в забег при каждом запечатывании куска и на «Финише», `RunSession.resume` продолжает с неё. Итог и история
+/// берут её же, без пересчёта. Петли в ней не хранятся: они — в заявках очереди. Незапечатанный хвост (до минуты)
+/// теряется так же, как его точки.
+public struct RunSummary: Codable, Sendable, Hashable {
+    /// Записано точек (и отброшенных судьёй тоже).
+    public var points = 0
+    public var acceptedPoints = 0
+    /// Путь по принятым точкам, м.
+    public var distanceMeters = 0.0
+    /// Разрывы следа по причинам: `TrackIssue.rawValue` → сколько раз.
+    public var breaks: [String: Int] = [:]
+    /// Весь туман забега на телефоне (не только новый). После перезапуска части до и после складываются — «≈».
+    public var fogCells = 0
+    public var fogAreaSquareMeters = 0.0
+    /// Оценка «≈+N га»: новые клетки по сравнению с туманом игрока за всё время, м². Замораживается здесь: после «Финиша»
+    /// сервер откроет туман забега, и пересчёт по кэшу дал бы почти ноль.
+    public var fogNewSquareMeters = 0.0
+    /// Были тайлы, туман за всё время которых неизвестен (нет сети): оценка — нижняя граница, «≥».
+    public var fogNewIsLowerBound = false
+    /// Широта первой принятой точки, округлённая до 0,01°: площадь клетки для «+N га» сервера (`fogNewCells`).
+    public var latitude: Double?
+    /// Забег завершился сам — вышел предел длины.
+    public var endedAtLimit = false
+
+    public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case points, acceptedPoints, distanceMeters, breaks, fogCells, fogAreaSquareMeters, fogNewSquareMeters
+        case fogNewIsLowerBound, latitude, endedAtLimit
+    }
+
+    /// Каждое поле необязательное: сводку, записанную прошлой версией приложения, новое поле не делает нечитаемой.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        points = try c.decodeIfPresent(Int.self, forKey: .points) ?? 0
+        acceptedPoints = try c.decodeIfPresent(Int.self, forKey: .acceptedPoints) ?? 0
+        distanceMeters = try c.decodeIfPresent(Double.self, forKey: .distanceMeters) ?? 0
+        breaks = try c.decodeIfPresent([String: Int].self, forKey: .breaks) ?? [:]
+        fogCells = try c.decodeIfPresent(Int.self, forKey: .fogCells) ?? 0
+        fogAreaSquareMeters = try c.decodeIfPresent(Double.self, forKey: .fogAreaSquareMeters) ?? 0
+        fogNewSquareMeters = try c.decodeIfPresent(Double.self, forKey: .fogNewSquareMeters) ?? 0
+        fogNewIsLowerBound = try c.decodeIfPresent(Bool.self, forKey: .fogNewIsLowerBound) ?? false
+        latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
+        endedAtLimit = try c.decodeIfPresent(Bool.self, forKey: .endedAtLimit) ?? false
+    }
 }
 
 /// Откуда координаты точки: сервер хранит это как признак для доверия (runs.md, поле `flags`).
@@ -122,13 +176,34 @@ public struct ClaimOutcome: Codable, Sendable, Hashable {
     /// Чего ждёт ожидающая: `points`, `sensors`, `previous_claim`, `queue`.
     public var waitingFor: String?
     public var rejectCode: String?
+    /// «Взятое»: ничья земля и перешедшие L1 (`claimedNeutral + transferred`), м² — показывать можно сразу.
     public var areaSquareMeters: Double
+    /// Площадь по видам, м²: ключи — имена `PieceOutcome` в camelCase (`claimedNeutral`, `transferred`, `cracked`,
+    /// `refreshed`…). Словарь строк: незнакомый ключ новой версии сервера разбор не роняет. `nil` — сервер её ещё
+    /// не прислал: она приходит только после границы публичности (captures.md) — до этого в итоге «позже».
+    /// Необязательное — старые записи очереди без неё читаются.
+    public var areaByOutcome: [String: Double]?
+
+    public init(
+        status: String, waitingFor: String? = nil, rejectCode: String? = nil, areaSquareMeters: Double = 0,
+        areaByOutcome: [String: Double]? = nil
+    ) {
+        self.status = status
+        self.waitingFor = waitingFor
+        self.rejectCode = rejectCode
+        self.areaSquareMeters = areaSquareMeters
+        self.areaByOutcome = areaByOutcome
+    }
 
     public var isFinal: Bool { status != "pending" }
 }
 
 /// Заявка петли в очереди.
 public struct PendingClaim: Codable, Sendable, Hashable {
+    /// Код решения заявок забега, отвергнутого сервером (`LocalRun.rejectCode`): их больше не отправят, и итог забега
+    /// не должен ждать их вечно. Код телефона, а не сервера: причина — в забеге.
+    public static let runRejectedCode = "run_rejected"
+
     public var runId: UUID
     public var claimNo: Int
     public var loop: LoopClaim

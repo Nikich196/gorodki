@@ -221,5 +221,8 @@ struct AppDatabaseTests {
         #expect(storedChunk.sent)
         #expect(storedClaim.outcome?.waitingFor == "points")
         #expect(!storedClaim.isSettled)
+        // Поля, добавленные после версии 1 (сводка забега, «+N га», разбивка итога), — пустые, а не ошибка чтения.
+        #expect(stored.summary == nil && stored.fogNewCells == nil)
+        #expect(storedClaim.outcome?.areaByOutcome == nil)
     }
 }

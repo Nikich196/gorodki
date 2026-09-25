@@ -18,6 +18,8 @@ actor FakeServer: APIProtocol {
         var endedAtMs: Int64?
         /// Заявки по концу петли — как `CaptureIds.For(runId, endSeq)` на сервере.
         var captures: [Int: Components.Schemas.CaptureResponse] = [:]
+        /// «+N га» забега (`RunResponse.fogNewCells`): `nil` — туман по забегу ещё не открыт.
+        var fogNewCells: Int?
     }
 
     enum Fault: Sendable {
@@ -84,10 +86,25 @@ actor FakeServer: APIProtocol {
     /// `GET` после завершения всегда называет эти номера недостающими (сервер, который «не видит» дошедшие точки).
     func alwaysReportMissing(_ range: ClosedRange<Int>) { missingAlways = range }
 
-    func settleClaim(of runId: UUID, endSeq: Int, status: Components.Schemas.CaptureStatus) {
+    func settleClaim(
+        of runId: UUID, endSeq: Int, status: Components.Schemas.CaptureStatus, area: Double = 0,
+        rejectCode: String? = nil, byOutcome: [String: Double]? = nil
+    ) {
         runs[SyncEngine.string(runId)]?.captures[endSeq]?.status = status
         runs[SyncEngine.string(runId)]?.captures[endSeq]?.waitingFor = nil
+        runs[SyncEngine.string(runId)]?.captures[endSeq]?.areaSquareMeters = area
+        runs[SyncEngine.string(runId)]?.captures[endSeq]?.rejectCode = rejectCode
+        publishBreakdown(of: runId, endSeq: endSeq, byOutcome)
     }
+
+    /// Граница публичности дошла до применения захвата: сервер отдаёт разбивку по видам (`nil` — ещё нет).
+    func publishBreakdown(of runId: UUID, endSeq: Int, _ byOutcome: [String: Double]?) {
+        runs[SyncEngine.string(runId)]?.captures[endSeq]?.areaByOutcome =
+            byOutcome.map { .init(additionalProperties: $0) }
+    }
+
+    /// Сервер открыл туман по забегу: «+N га» в `GET /runs/{id}`.
+    func openFog(of runId: UUID, newCells: Int) { runs[SyncEngine.string(runId)]?.fogNewCells = newCells }
 
     func run(_ runId: UUID) -> Run? { runs[SyncEngine.string(runId)] }
 
@@ -412,12 +429,14 @@ actor FakeServer: APIProtocol {
         let have = Set(run.chunks.keys.flatMap { Array($0) })
         // Как на сервере: `missing` считается только от известной последней точки, то есть после завершения.
         let missing = run.lastSeq.map { last in last < 0 ? [] : ranges((0...last).filter { !have.contains($0) }) } ?? []
-        return .init(
+        var response = Components.Schemas.RunResponse(
             id: id, league: run.request.league, source: run.request.source, configVersion: run.request.configVersion,
             startedAtMs: run.request.startedAtMs, endedAtMs: run.endedAtMs,
             status: run.lastSeq == nil ? .active : .finished,
             lastSeq: run.lastSeq.map { Int32($0) }, processedSeq: -1, received: ranges(have.sorted()), missing: missing,
             newcomer: false)
+        response.fogNewCells = run.fogNewCells.map { Int32($0) }
+        return response
     }
 
     private static func ranges(_ seqs: [Int]) -> [Components.Schemas.SeqRange] {

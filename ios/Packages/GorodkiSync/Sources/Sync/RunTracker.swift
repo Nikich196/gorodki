@@ -14,6 +14,27 @@ public enum TrackerInput: Sendable {
     case tick(now: Double)
 }
 
+/// Петля, заявленная в этом процессе: первая фаза церемонии играется по номеру заявки (docs/architecture/run-hud.md).
+public struct ClaimedLoop: Equatable, Sendable {
+    public var claimNo: Int
+    public var loop: LoopClaim
+
+    public init(claimNo: Int, loop: LoopClaim) {
+        self.claimNo = claimNo
+        self.loop = loop
+    }
+}
+
+/// Туман игрока за всё время — для «≈+N га» на HUD (docs/architecture/run-hud.md, «+N га тумана»). GorodkiSync не зависит
+/// от сети: приложение реализует поставщика поверх `FogCache.refresh(visible:)` и превращает тайл кэша
+/// в `FogTileBits(words:)` (пустые `words` тайла версии 0 — пустой тайл).
+public protocol AllTimeFogProvider: Sendable {
+    /// Тайл тумана игрока за всё время в слое лиги; `nil` — неизвестен (нет сети, запрос не удался): его клетки
+    /// не считаются, число на HUD — нижняя граница. Трекер спрашивает каждый тайл один раз за забег (в этом процессе),
+    /// поэтому повторять попытки, если нужно, — дело поставщика.
+    func allTimeTile(_ key: FogTileKey, league: League) async -> FogTileBits?
+}
+
 /// Что видно экрану забега.
 public struct TrackerState: Equatable, Sendable {
     /// Идёт ли забег.
@@ -21,6 +42,20 @@ public struct TrackerState: Equatable, Sendable {
     /// Забег — идущий или последний завершённый (для экрана итога).
     public var runId: UUID?
     public var league: League?
+    /// Начало забега, мс (у демо-повтора сдвинуто в прошлое на длину записи).
+    public var startedAtMs: Int64?
+    /// Демо-повтор: время и темп — по времени последней точки, а не по часам (`RunHUD.elapsedSeconds`).
+    public var isReplay = false
+    /// У забега нет разрешения «Движение»: сервер откажет каждой петле (`motion_not_authorized`) — плашка, «до замыкания»
+    /// и сигналы спрятаны (решение 25.09).
+    public var capturesNeedMotion = false
+    /// Подсказка «до замыкания».
+    public var closureHint: ClosureHint = .noTrail
+    /// Петли, заявленные в этом процессе, по порядку. Две заявки между двумя снимками экрана — две церемонии.
+    public var claimedLoops: [ClaimedLoop] = []
+    /// Забег продолжен после перезапуска приложения (подсказка начала заново) — пока подсказка снова не дошла до «можно
+    /// замкнуть».
+    public var resumedAfterRestart = false
     public var stats = RunStats()
     /// Последнее заметное событие — для подсказки на экране: петля заявлена, след порван, точка отброшена.
     public var lastEvent: RunEvent?
@@ -61,14 +96,19 @@ public actor RunTracker {
         case drain(CheckedContinuation<Void, Never>)
         /// Забег подключён: накопленное, пока он начинался, — в него, по порядку.
         case attached(CheckedContinuation<Void, Never>)
+        /// Поставщик ответил тайлом тумана за всё время.
+        case fogTile(runId: UUID, FogTileKey, FogTileBits?)
     }
 
     private let onQueued: @Sendable () -> Void
     private let onChange: @Sendable (TrackerState) -> Void
+    private let fogTiles: (any AllTimeFogProvider)?
     private let commands: AsyncStream<Command>
     private nonisolated let queue: AsyncStream<Command>.Continuation
     private var loop: Task<Void, Never>?
     private var session: RunSession?
+    /// Последний законченный забег — его кольца петель и след ещё нужны экрану (церемония после «Финиша»).
+    private var finishedSession: RunSession?
     private var starting = false
     /// Пока забег начинается или продолжается, поступившее копится здесь, в порядке очереди, и уходит в него после
     /// подключения. Иначе терялись бы первые точки и первая запись CoreMotion о текущем виде движения (с давним
@@ -90,12 +130,15 @@ public actor RunTracker {
     /// - Parameters:
     ///   - onQueued: в очереди синхронизации новое (кусок, заявка, конец забега) — приложение зовёт синхронизацию.
     ///   - onChange: снимок для экрана изменился.
+    ///   - fogTiles: туман игрока за всё время — для «≈+N га»; `nil` — не с чем сравнить: все тайлы неизвестны («≥»).
     public init(
         onQueued: @escaping @Sendable () -> Void = {},
-        onChange: @escaping @Sendable (TrackerState) -> Void = { _ in }
+        onChange: @escaping @Sendable (TrackerState) -> Void = { _ in },
+        fogTiles: (any AllTimeFogProvider)? = nil
     ) {
         self.onQueued = onQueued
         self.onChange = onChange
+        self.fogTiles = fogTiles
         (commands, queue) = AsyncStream.makeStream(of: Command.self)
     }
 
@@ -124,7 +167,7 @@ public actor RunTracker {
         if recording {
             self.recording = RunRecordingBuffer(startedAt: Double(session.startedAtMs) / 1_000, league: session.league)
         }
-        await attach(session, stats: RunStats(), sealed: 0)
+        await attach(session, stats: RunStats(), sealed: 0, resumed: false)
         onQueued()  // забег в очереди: сервер узнает о нём раньше первой петли
     }
 
@@ -140,7 +183,17 @@ public actor RunTracker {
         starting = true
         buffering = true
         defer { starting = false }
-        await attach(session, stats: await session.stats, sealed: await session.sealedChunks)
+        await attach(session, stats: await session.stats, sealed: await session.sealedChunks, resumed: true)
+    }
+
+    /// Кольцо заявленной петли — для первой фазы церемонии; `nil` — петля не из этого процесса.
+    public func ring(claimNo: Int) async -> LoopRing? {
+        await (session ?? finishedSession)?.ring(claimNo: claimNo)
+    }
+
+    /// След идущего (или последнего законченного) забега в этом процессе — для карты, по отрезкам.
+    public func trail() async -> [[Coordinate]] {
+        await (session ?? finishedSession)?.trailSegments() ?? []
     }
 
     /// Дождаться, пока обработано всё поступившее. Без забега оно выбрасывается: так после перезапуска, когда продолжать
@@ -157,13 +210,18 @@ public actor RunTracker {
         try await withCheckedThrowingContinuation { queue.yield(.finish(at: seconds, $0)) }
     }
 
-    private func attach(_ session: RunSession, stats: RunStats, sealed: Int) async {
+    private func attach(_ session: RunSession, stats: RunStats, sealed: Int, resumed: Bool) async {
         self.session = session
+        finishedSession = nil
         self.sealed = sealed
         var fresh = TrackerState()
         fresh.isRunning = true
         fresh.runId = session.runId
         fresh.league = session.league
+        fresh.startedAtMs = session.startedAtMs
+        fresh.isReplay = session.source == .replay
+        fresh.capturesNeedMotion = !session.motionAuthorized
+        fresh.resumedAfterRestart = resumed
         fresh.stats = stats
         state = fresh
         ensureLoop()
@@ -217,6 +275,24 @@ public actor RunTracker {
             done.resume()
         case .drain(let done):
             done.resume()
+        case .fogTile(let runId, let key, let bits):
+            guard let session, session.runId == runId else { return }  // ответ для прежнего забега
+            await session.allTimeFogArrived(key, bits)
+            state.stats = await session.stats
+        }
+    }
+
+    /// Новые тайлы в тумане забега — у поставщика тумана за всё время, каждый один раз; ответ идёт той же очередью.
+    private func requestFogTiles(of session: RunSession) async {
+        guard let fogTiles else { return }
+        let runId = session.runId
+        let league = session.league
+        let queue = self.queue
+        for key in await session.fogTilesToRequest() {
+            Task {
+                let bits = await fogTiles.allTimeTile(key, league: league)
+                queue.yield(.fogTile(runId: runId, key, bits))
+            }
         }
     }
 
@@ -242,11 +318,21 @@ public actor RunTracker {
         if let notable = events.last(where: { $0 != .accepted && $0 != .dropped }) {
             state.lastEvent = notable
         }
+        for event in events {
+            if case .loopClaimed(let claimNo, let loop) = event {
+                state.claimedLoops.append(ClaimedLoop(claimNo: claimNo, loop: loop))
+            }
+        }
         if events.contains(.finishedAtLimit) {
             state.endedAtLimit = true
             await ended(session)
             return
         }
+        state.closureHint = await session.closureHint
+        if case .canClose = state.closureHint {
+            state.resumedAfterRestart = false
+        }
+        await requestFogTiles(of: session)
         state.stats = await session.stats
         let claimed = events.contains { if case .loopClaimed = $0 { true } else { false } }
         let sealedNow = await session.sealedChunks
@@ -263,6 +349,7 @@ public actor RunTracker {
         state.stats = await session.stats
         state.isRunning = false
         self.session = nil
+        finishedSession = session
         onQueued()
     }
 
@@ -301,6 +388,8 @@ public actor RunTracker {
         }
         try await RunRecorder.closeInterrupted(except: chosen?.run.id, store: store) { $0.isLabProbe == labProbe }
         guard let chosen else { return nil }
-        return try await RunSession.resume(runId: chosen.run.id, store: store, rules: chosen.rules, policy: policy)
+        // Пробный забег «Лаборатории» складывает счёт до перезапуска сам (`ProbeCounters`) — сводку ему не продолжаем.
+        return try await RunSession.resume(
+            runId: chosen.run.id, store: store, rules: chosen.rules, policy: policy, continuingSummary: !labProbe)
     }
 }
