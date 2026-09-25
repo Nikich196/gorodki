@@ -8,7 +8,10 @@ namespace Gorodki.Domain.Territory;
 /// </summary>
 public static class TerritoryInvariants
 {
-    /// <summary>Допуск на площадь наложений, м²: snap-rounding даёт ровно ноль, допуск — на представление double.</summary>
+    /// <summary>
+    /// Допуск на площадь наложений, м²: snap-rounding даёт ровно ноль, допуск — на представление double. Ноль — если общая
+    /// граница у соседей записана одинаковыми вершинами, поэтому наложение считает <see cref="GeoOps.OverlapArea"/>.
+    /// </summary>
     public const double OverlapToleranceSquareMeters = 1e-6;
 
     /// <summary>Возвращает список нарушений; пустой список — всё в порядке.</summary>
@@ -66,7 +69,7 @@ public static class TerritoryInvariants
                         continue;
                     }
 
-                    var overlap = GeoOps.Intersection(piece.Geometry, pieces[j].Geometry).Area;
+                    var overlap = GeoOps.OverlapArea(piece.Geometry, pieces[j].Geometry);
                     if (overlap > OverlapToleranceSquareMeters)
                     {
                         errors.Add($"{name} и кусок {j}: наложение {overlap:0.######} м²");

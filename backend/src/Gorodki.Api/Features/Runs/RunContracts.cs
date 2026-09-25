@@ -70,6 +70,11 @@ public sealed record ChunkReceipt(int FirstSeq, int LastSeq, bool Duplicate);
 /// Сколько новых клеток тумана открыл забег («+N га» в итоге); null — ещё не открывал. 0 — и когда очистка истории
 /// исследований (FogHistory) пометила забег: fog_new_cells = 0, туман он уже не откроет.
 /// </param>
+/// <param name="VisitedParcels">
+/// Сколько своих участков освежил забег (визиты, §3.3; только число). null — визиты ещё не посчитаны: не раньше чем через
+/// 20 минут после конца забега (граница публичности, §3.16), а пока в тайлах его пути скрыт захват земли игрока — до
+/// раскрытия этого захвата (docs/architecture/captures.md, «Визиты»).
+/// </param>
 public sealed record RunResponse(
     Guid Id,
     League League,
@@ -83,7 +88,8 @@ public sealed record RunResponse(
     IReadOnlyList<SeqRange> Received,
     IReadOnlyList<SeqRange> Missing,
     bool Newcomer,
-    int? FogNewCells);
+    int? FogNewCells,
+    int? VisitedParcels);
 
 /// <summary>
 /// Лимиты приёма забегов: защищают бесплатную базу (500 МБ; при переполнении она только для чтения — встанет вся игра)

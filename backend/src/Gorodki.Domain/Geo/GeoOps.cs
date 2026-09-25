@@ -186,12 +186,21 @@ public static class GeoOps
         return snapped;
     }
 
+    /// <summary>Фабрика без сетки — только для сжатия в <see cref="IsNarrowerThan"/>.</summary>
+    private static readonly GeometryFactory Floating = new(new PrecisionModel(), Utm34.Srid);
+
     /// <summary>
     /// «Уже, чем 2·<paramref name="halfWidth"/> везде»: после сжатия внутрь на halfWidth ничего не остаётся.
     /// Соединения «митра» сохраняют углы, поэтому проверка не зависит от скруглений.
     /// </summary>
+    /// <remarks>
+    /// Сжимается копия без сетки. Буфер NTS берёт точность у геометрии: на сетке 0,1 м он округляет точки пересечения
+    /// контура до сетки без snap-rounding и изредка молча выдаёт пустой результат — петля в 56 000 м² оказалась «уже
+    /// 1,5 м», движок принял её за осколок, и захват пропал (issue #113). Без сетки NTS узлует точно, а если не сходится,
+    /// сам переходит на snap-rounding.
+    /// </remarks>
     public static bool IsNarrowerThan(Geometry area, double halfWidth) =>
-        BufferOp.Buffer(area, -halfWidth, new BufferParameters
+        BufferOp.Buffer(Floating.CreateGeometry(area), -halfWidth, new BufferParameters
         {
             JoinStyle = JoinStyle.Mitre,
             MitreLimit = 2.0,
@@ -214,6 +223,43 @@ public static class GeoOps
     /// <summary>Длина общей границы двух многоугольников, метры.</summary>
     public static double SharedBoundaryLength(Geometry a, Geometry b) =>
         OverlayNG.Overlay(a.Boundary, b.Boundary, SpatialFunction.Intersection, Grid).Length;
+
+    /// <summary>
+    /// Площадь наложения двух многоугольников на сетке, как их видит движок, — при любом разбиении общей границы на вершины,
+    /// м². Для проверок: куски так не строятся.
+    /// </summary>
+    /// <remarks>
+    /// Угол одного куска может лежать на стороне другого, где у того вершины нет (нетронутый кусок не переписывается, новый
+    /// хранится без вершин на прямых). Snap-rounding находит там точку пересечения не точно, отрезок от неё задевает клетку
+    /// соседней вершины, и сторона уходит к соседу — «наложение» 0,01 м², которого нет (issue #101). Поэтому сначала в
+    /// стороны каждого вставляются вершины другого, которые на них лежат (точно, в дециметрах сетки): общая граница записана
+    /// у обоих одинаково, и snap-rounding сдвигает её у обоих одинаково.
+    /// </remarks>
+    public static double OverlapArea(Geometry a, Geometry b) =>
+        Intersection(WithVerticesOf(a, b), WithVerticesOf(b, a)).Area;
+
+    /// <summary><paramref name="target"/> с вершинами <paramref name="source"/>, которые лежат на его сторонах.</summary>
+    private static Geometry WithVerticesOf(Geometry target, Geometry source)
+    {
+        var vertices = source.Coordinates.Where(c => target.EnvelopeInternal.Contains(c)).Distinct().ToList();
+        return new GeometryEditor(target.Factory).Edit(target, new InsertVertices(vertices));
+    }
+
+    private sealed class InsertVertices(List<Coordinate> vertices) : GeometryEditor.CoordinateOperation
+    {
+        public override Coordinate[] Edit(Coordinate[] coordinates, Geometry geometry)
+        {
+            var result = new List<Coordinate>(coordinates.Length) { coordinates[0] };
+            for (var i = 1; i < coordinates.Length; i++)
+            {
+                var (from, to) = (coordinates[i - 1], coordinates[i]);
+                result.AddRange(vertices.Where(v => IsStraightThrough(from, v, to)).OrderBy(v => v.Distance(from)).Select(v => v.Copy()));
+                result.Add(to);
+            }
+
+            return [.. result];
+        }
+    }
 
     /// <summary>Все вершины лежат на сетке 0,1 м (с допуском на представление чисел double).</summary>
     public static bool IsOnGrid(Geometry geometry) =>

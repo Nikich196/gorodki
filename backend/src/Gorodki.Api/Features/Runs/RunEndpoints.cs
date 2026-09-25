@@ -558,7 +558,8 @@ public static class RunEndpoints
             received,
             run.LastSeq is { } last ? SeqRange.Missing(received, last) : [],
             run.Newcomer,
-            run.FogNewCells);
+            run.FogNewCells,
+            run.VisitedParcels);
     }
 
     private static bool IsSameStart(RunEntity run, StartRunRequest request) =>

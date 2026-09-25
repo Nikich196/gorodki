@@ -1410,6 +1410,37 @@
           }
         }
       },
+      "ContestedZoneView": {
+        "required": [
+          "untilMs",
+          "exterior",
+          "holes"
+        ],
+        "type": "object",
+        "properties": {
+          "untilMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "exterior": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "holes": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          }
+        }
+      },
       "ExplorationConfig": {
         "required": [
           "revealRadiusMeters",
@@ -2673,6 +2704,13 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "visitedParcels": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -2882,7 +2920,9 @@
           "ghostDays",
           "visitMinMeters",
           "newAccountHours",
-          "newAccountMinMeters"
+          "newAccountMinMeters",
+          "bigLoopSquareMeters",
+          "contestedHours"
         ],
         "type": "object",
         "properties": {
@@ -2927,6 +2967,13 @@
             "format": "double"
           },
           "newAccountMinMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "bigLoopSquareMeters": {
+            "$ref": "#/components/schemas/PerLeagueOfdouble"
+          },
+          "contestedHours": {
             "type": "number",
             "format": "double"
           }
@@ -2979,7 +3026,8 @@
           "x",
           "y",
           "version",
-          "parcels"
+          "parcels",
+          "contestedZones"
         ],
         "type": "object",
         "properties": {
@@ -2999,6 +3047,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ParcelView"
+            }
+          },
+          "contestedZones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContestedZoneView"
             }
           }
         }

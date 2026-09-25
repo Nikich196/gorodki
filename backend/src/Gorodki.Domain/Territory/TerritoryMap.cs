@@ -36,6 +36,12 @@ public sealed record JournalPiece(Geometry Geometry, ParcelState State);
 /// <param name="After">Земля внутри следа после захвата.</param>
 public sealed record TileChange(TileKey Tile, Geometry Footprint, IReadOnlyList<JournalPiece> Before, IReadOnlyList<JournalPiece> After);
 
+/// <summary>
+/// Зона «спорная» в одном тайле (§3.3, большая петля): чужая земля внутри петли, которую петля не тронула. Отдельный слой
+/// карты, а не состояние кусков: куски не режутся и не меняются, поэтому скрытые захваты и откат их не задевают.
+/// </summary>
+public sealed record ContestedArea(TileKey Tile, Geometry Area);
+
 /// <summary>Итог применения захвата.</summary>
 /// <param name="AreaByOutcome">Площадь, м², по видам последствий (сколько взято, треснуло, под щитом…).</param>
 /// <param name="ChangedTiles">
@@ -48,12 +54,17 @@ public sealed record TileChange(TileKey Tile, Geometry Footprint, IReadOnlyList<
 /// В скольких тайлах вторая сборка (по линиям журнала) разошлась с первой и записаны куски первой: там нетронутая земля
 /// разрезана границей петли, и проекция скрытого захвата может её выдать. Сервер пишет это в лог — иначе частоту не узнать.
 /// </param>
+/// <param name="Contested">
+/// Зоны «спорная» по тайлам — чужая земля внутри большой петли (<see cref="PieceOutcome.Contested"/>). Есть и в тайлах,
+/// которых нет в <paramref name="ChangedTiles"/>: там петля ничего, кроме чужой земли, не накрыла.
+/// </param>
 public sealed record CaptureResult(
     IReadOnlyDictionary<PieceOutcome, double> AreaByOutcome,
     IReadOnlyList<TileKey> ChangedTiles,
     double SliverArea,
     IReadOnlyList<TileChange> Changes,
-    int ReassemblyFallbacks)
+    int ReassemblyFallbacks,
+    IReadOnlyList<ContestedArea> Contested)
 {
     public double Area(PieceOutcome outcome) => AreaByOutcome.GetValueOrDefault(outcome);
 }
@@ -134,6 +145,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         var areas = new Dictionary<PieceOutcome, double>();
         var rebuilt = new List<(TileKey Tile, List<Parcel> Pieces)>();
         var changes = new List<TileChange>();
+        var contested = new List<ContestedArea>();
         var sliverArea = 0.0;
         var reassemblyFallbacks = 0;
 
@@ -146,7 +158,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
                 continue;
             }
 
-            if (CaptureTile(tile, captureInTile, context, areas, ref sliverArea) is { } captured)
+            if (CaptureTile(tile, captureInTile, context, areas, contested, ref sliverArea) is { } captured)
             {
                 rebuilt.Add((tile, captured.Pieces));
                 changes.Add(captured.Change);
@@ -155,7 +167,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         }
 
         Commit(rebuilt);
-        return new CaptureResult(areas, rebuilt.Select(r => r.Tile).ToList(), sliverArea, changes, reassemblyFallbacks);
+        return new CaptureResult(areas, rebuilt.Select(r => r.Tile).ToList(), sliverArea, changes, reassemblyFallbacks, contested);
     }
 
     /// <summary>
@@ -248,6 +260,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         Geometry captureInTile,
         CaptureContext context,
         Dictionary<PieceOutcome, double> areas,
+        List<ContestedArea> contested,
         ref double sliverArea)
     {
         // 1–2. Узлуем все границы тайла вместе с границей петли и собираем грани.
@@ -257,6 +270,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
         var captureLocator = new IndexedPointInAreaLocator(captureInTile);
         var decidedInTile = 0.0;
         var keptInside = false; // петля прошла по земле, которую не изменила
+        var contestedFaces = new List<Geometry>();
         foreach (var face in faces)
         {
             var (state, outcome) = captureLocator.Locate(face.Point) == Location.Interior
@@ -270,6 +284,17 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
                 decidedInTile += face.Geometry.Area;
                 keptInside |= state == face.Old;
             }
+
+            if (outcome == PieceOutcome.Contested)
+            {
+                contestedFaces.Add(face.Geometry);
+            }
+        }
+
+        // Зона «спорная» — и в тайле, который петля не переписывает (накрыла только чужую землю).
+        if (contestedFaces.Count > 0)
+        {
+            contested.Add(new ContestedArea(tile, GeoOps.UnionAll(contestedFaces)));
         }
 
         // Самопроверка: каждый квадратный метр петли в тайле получил решение. Расхождение допустимо только

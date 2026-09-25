@@ -599,6 +599,13 @@ public sealed class TerritoryRestoreTests
         return shape.IsAccepted ? shape.Area : null;
     }
 
+    /// <summary>
+    /// Каждая третья петля — «большая» (§3.3, #48): чужую землю она не трогает, и откат не должен её задеть. Признак — из
+    /// числа лучей, а не из генератора: так истории прежних seed не меняются.
+    /// </summary>
+    private static CaptureContext ContextOf(Step step, DateTimeOffset time) =>
+        new(Players[step.Player], time, new HashSet<Guid>(), BigLoop: step.Radii.Length % 3 == 0);
+
     private static TerritoryMap Copy(TerritoryMap map)
     {
         var copy = new TerritoryMap(map.Rules, map.Slivers);
@@ -625,7 +632,7 @@ public sealed class TerritoryRestoreTests
                 }
 
                 before = Copy(map);
-                last = map.Apply(area, new CaptureContext(Players[step.Player], time, new HashSet<Guid>()));
+                last = map.Apply(area, ContextOf(step, time));
             }
 
             if (last is null || before is null)
@@ -672,7 +679,7 @@ public sealed class TerritoryRestoreTests
                     continue;
                 }
 
-                var result = map.Apply(area, new CaptureContext(Players[history[i].Player], time, new HashSet<Guid>()));
+                var result = map.Apply(area, ContextOf(history[i], time));
                 if (i == cheatIndex)
                 {
                     cheat = result;
@@ -723,6 +730,69 @@ public sealed class TerritoryRestoreTests
     }
 
     /// <summary>
+    /// Issue #101 (ночной прогон, seed d9kvVvCld684, история сокращена до трёх захватов): после отката первого захвата угол
+    /// куска Анны лежит на стороне нового куска Бориса — вершину на прямой новый кусок не хранит. Проверка со snap-rounding
+    /// уводила эту сторону к соседней вершине Анны и находила «наложение» 0,01 м², которого в кусках нет.
+    /// </summary>
+    [Fact]
+    public void Rollback_leaves_no_overlap_where_a_corner_lies_on_a_neighbours_side()
+    {
+        Step[] history =
+        [
+            new(
+                Player: 2,
+                CenterX: -45.06757136546571,
+                CenterY: 46.69230769230769,
+                Radii:
+                [
+                    168.0063034454596, 127.66666666666667, 79, 50.372549019607845, 49, 183.97420514334857, 67.83747923791671,
+                    117.03333333333333, 66, 165.0528442116837, 50, 180, 73, 44.628070931516646,
+                ],
+                Rotation: 0,
+                HoursLater: 25.002001926996414),
+            new(
+                Player: 1,
+                CenterX: 0,
+                CenterY: 187.19542912961788,
+                Radii:
+                [
+                    48.52340525362342, 146, 71.51612903225806, 196, 110.66666666666667, 66.50877192982456, 177, 197.97689687737937,
+                    59.93150684931507, 72.23076923076923, 124, 76.21299457692166, 127.11429988465954, 48,
+                ],
+                Rotation: 5,
+                HoursLater: 10.761363636363637),
+            new(
+                Player: 0,
+                CenterX: 0,
+                CenterY: 25.4,
+                Radii:
+                [
+                    188, 71, 38.08498774200106, 194.39237289845562, 54.964326109077916, 140.88, 66.88695014960163, 131.0857142857143,
+                    144.50422229417023, 159, 109.85464569696879, 143, 192, 52.646636727142806, 137.69626379404872,
+                ],
+                Rotation: 5,
+                HoursLater: 26.308866906130895),
+        ];
+        var map = new TerritoryMap();
+        var time = T0;
+        var captures = new List<CaptureResult>();
+        foreach (var step in history)
+        {
+            time = time.AddHours(step.HoursLater);
+            var area = ShapeOf(step);
+            Assert.NotNull(area);
+            captures.Add(map.Apply(area, new CaptureContext(Players[step.Player], time, new HashSet<Guid>())));
+        }
+
+        map.Restore(captures[0].Changes);
+
+        Assert.Empty(TerritoryInvariants.Check(map));
+        var pieces = map.ParcelsIn(new TileKey(684, 5775));
+        var snapped = pieces.SelectMany((a, i) => pieces.Skip(i + 1).Select(b => GeoOps.Intersection(a.Geometry, b.Geometry).Area));
+        Assert.Equal(0.01, snapped.Max(), 3); // со snap-rounding пара соседей всё ещё «налезает» — история не устарела
+    }
+
+    /// <summary>
     /// Растровый оракул отката с переносом визитов (публичная проекция скрытого захвата): после последнего захвата истории
     /// случайные владельцы пробежали по всем своим кускам, у каждого куска своё время визита. В точке следа, где земля
     /// такая, какой её оставил захват, — прежнее состояние; где её меняли только визиты — прежнее с теми же визитами
@@ -754,7 +824,7 @@ public sealed class TerritoryRestoreTests
                 time = time.AddHours(step.HoursLater);
                 if (ShapeOf(step) is { } area)
                 {
-                    hidden = map.Apply(area, new CaptureContext(Players[step.Player], time, new HashSet<Guid>()));
+                    hidden = map.Apply(area, ContextOf(step, time));
                 }
             }
 

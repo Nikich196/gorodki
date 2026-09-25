@@ -38,7 +38,13 @@ public sealed record ParcelState
 /// Может ли игрок снимать чужие уровни. Нет — у нового аккаунта (моложе 48 ч или с пробегом меньше 3 км, §3.3,
 /// защита от мультиаккаунтов): ничью землю он берёт, чужую не трогает.
 /// </param>
-public sealed record CaptureContext(Guid CapturerId, DateTimeOffset At, IReadOnlySet<Guid> ClanMates, bool CanRemoveLevels = true);
+/// <param name="BigLoop">
+/// Большая петля (§3.3, issue #48): площадь P после масок больше порога лиги (<c>territory.bigLoopSquareMeters</c>).
+/// Ничью землю она берёт, свою и соклановцев освежает, а чужую не трогает вовсе: пометка «спорная» — отдельный слой
+/// карты (<see cref="CaptureResult.Contested"/>), не состояние куска.
+/// </param>
+public sealed record CaptureContext(
+    Guid CapturerId, DateTimeOffset At, IReadOnlySet<Guid> ClanMates, bool CanRemoveLevels = true, bool BigLoop = false);
 
 /// <summary>Числа правил земли. Хранятся в игровом конфиге.</summary>
 public sealed record TerritoryRules
@@ -99,6 +105,11 @@ public enum PieceOutcome
     /// заведённый на минуту, снимал бы уровни «вторым нападающим».
     /// </summary>
     NewAccountLimited,
+    /// <summary>
+    /// Чужой кусок внутри большой петли (§3.3, #48): не тронут вовсе — не перешёл, не треснул, без осады и счётчиков снятия
+    /// уровней. Эта земля попадает в зону «спорная» на 24 ч (<see cref="CaptureResult.Contested"/>) — отдельный слой карты.
+    /// </summary>
+    Contested,
 }
 
 /// <summary>
@@ -107,9 +118,9 @@ public enum PieceOutcome
 /// </summary>
 /// <remarks>
 /// Реализованы: ничья земля, своя земля (+1 уровень не чаще 20 ч, не во время осады), соклановцы, щит, переход L1,
-/// «трещина» L2/L3 с осадой, лимиты снятия уровней, опоздавшая петля, угасание (по действующему уровню).
-/// Защита от мультиаккаунтов — <see cref="CaptureContext.CanRemoveLevels"/>. Ослабление большой петли (issue #48) и рейды —
-/// следующий шаг.
+/// «трещина» L2/L3 с осадой, лимиты снятия уровней, опоздавшая петля, угасание (по действующему уровню), ослабление большой
+/// петли (issue #48, <see cref="CaptureContext.BigLoop"/>). Защита от мультиаккаунтов — <see cref="CaptureContext.CanRemoveLevels"/>.
+/// Рейды — следующий шаг.
 /// <para>
 /// Петли могут обрабатываться не в том порядке, в каком их пробежали (телефон был без сети). Правила устроены так,
 /// чтобы задержка отправки не помогала: визит не отодвигает время назад, а чужой кусок, которого владелец касался
@@ -159,6 +170,13 @@ public static class CaptureRules
         if (!context.CanRemoveLevels)
         {
             return (current, PieceOutcome.NewAccountLimited);
+        }
+
+        // Большая петля ослаблена (§3.3, решено 25.09 в #48): чужая земля внутри — и L1, и L2/L3 — не переходит и не
+        // трескается, окно и счётчики снятия уровней не трогаются. Кусок остаётся прежним; пометка «спорная» — отдельный слой.
+        if (context.BigLoop)
+        {
+            return (current, PieceOutcome.Contested);
         }
 
         // Окно снятия уровней: прошло — считаем заново. Петля «из прошлого» (now раньше начала окна) — в том же окне.
