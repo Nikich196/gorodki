@@ -648,6 +648,24 @@ flowchart LR
 [osm-pipeline.md](../architecture/osm-pipeline.md)). Доля открытых клеток на `FogTileCodec` по растру «достижимого» → новые
 поля в `/fog/summary`. Тесты, например: маленький эталонный растр, 0 % и 100 %, клетки вне «достижимого» не считаются.
 
+*Что уже есть (C6, 26.09) — опирайся на это, свою геометрию не пиши:*
+- таблицы `reachable_tiles` (биты «достижимого» города по тайлам z14 — те же тайлы и тот же формат, что `fog_tiles`),
+  `districts` и `district_tiles` (город, Ленинский и Московский районы, Арена, кварталы; у Арены и кварталов пока
+  `proposal = true`);
+- `ReachableStore` (`Features/Osm`, зарегистрирован в `Program.cs`): `CurrentSetVersionAsync()` — номер действующего
+  набора из текущего игрового конфига (`osm.setVersion`; `null` — набора нет, процент не отдаём); `LoadAsync(set)` —
+  «достижимое» города и районов из кэша (набор не меняется);
+- `OsmReach.SharesOf(explored)` — доли города и каждого района: `popcount(explored & reachable) / popcount(reachable)`;
+  `explored` — словарь `FogTileKey → FogTileBits` из своих `fog_tiles` слоя (`FogTileCodec.Decompress(bits)`); «Всего» —
+  `ReachableArea.ShareOfUnion([foot, bike])` (объединение слоёв, не сумма);
+- тесты-образцы: `Gorodki.Domain.Tests/Osm/ReachableAreaTests` (0 %, 100 %, вне «достижимого» не считается, «Всего» ≤ 100 %)
+  и `OsmSetTests.Reachable_store_reads_the_city_and_districts_and_gives_their_shares` (как положить свой маленький набор
+  в базу теста — `SetImporter`).
+
+*Что делаешь ты:* новые поля ответа — после заготовки контракта от Claude (номер набора рядом с процентом, чтобы телефон
+мог сказать «пересчитано по новой карте»); читать только свои тайлы (процент — персональные данные, как весь туман).
+Пока ведущий не включил набор (`osm.setVersion = null`), поля процента пустые — так и проверяй «набора нет».
+
 **E12 — карточка недели `GET /me/weekly?week=`** (PLAN §3.15). Волна 2, 30.11, после E9. Неделя по Минску: км, «+га»
 тумана (из `FogNewCells` забегов), % Бреста, площадь своих захватов («взятое» из заявок — его автор видит сразу); только числа.
 

@@ -1,0 +1,104 @@
+# Как запустить конвейер OSM и загрузить набор
+
+> Для Никиты и ведущего. Что строит конвейер и почему так — [osm-pipeline.md](../architecture/osm-pipeline.md). Код —
+> `backend/tools/Gorodki.OsmPipeline`, параметры — `backend/tools/Gorodki.OsmPipeline/osm-pipeline.json`.
+
+Конвейер — офлайн-инструмент: он работает на ноутбуке (в WSL), а сервер только читает готовые таблицы. Данные OSM и
+наборы — производная база под ODbL: **в git их не коммитим**, держим вне репозитория (`.gitignore` страхует).
+
+## 0. Что нужно
+
+- WSL (Ubuntu) с .NET SDK из `backend/global.json` — как для остального сервера.
+- osmium без прав администратора, через micromamba:
+
+  ```bash
+  ~/mm/bin/micromamba create -y -r ~/mm/root -n osm -c conda-forge osmium-tool
+  export PATH="$HOME/mm/root/envs/osm/bin:$PATH"
+  osmium --version   # 26.09 собрано на osmium 1.19.1 / libosmium 2.23.1 — версии попадают в metadata.json
+  ```
+
+- Папка вне репозитория, например `/mnt/c/Users/nikic/gorodki-osm/`.
+
+## 1. Выгрузка Geofabrik
+
+```bash
+cd /mnt/c/Users/nikic/gorodki-osm
+curl -fLO https://download.geofabrik.de/europe/belarus-latest.osm.pbf
+curl -fLO https://download.geofabrik.de/europe/belarus-latest.osm.pbf.md5 && md5sum -c belarus-latest.osm.pbf.md5
+```
+
+Выгрузка ~350 МБ. **Из-за VPN** Geofabrik может не отвечать (обрыв TLS): 26.09 выгрузка скачалась только с
+привязкой к физическому интерфейсу, без отключения VPN (`curl --interface <IP сетевой карты> …` в Windows).
+
+## 2. Темы osmium
+
+Из папки `backend` рабочей копии:
+
+```bash
+dotnet run -c Release --project tools/Gorodki.OsmPipeline -- extract \
+  --pbf /mnt/c/Users/nikic/gorodki-osm/belarus-latest.osm.pbf --work /mnt/c/Users/nikic/gorodki-osm/work
+```
+
+Команда вырезает рамку Бреста (`osmium extract -s smart`), отбирает темы (`tags-filter`), экспортирует их в GeoJSONSeq
+с типом и id объекта и журналом ошибок, берёт границы города, страны и районов по id из полной выгрузки и записывает
+`source.json` (SHA-256 выгрузки, дата репликации, версия osmium). ≈1,5 мин.
+
+## 3. Сборка набора
+
+```bash
+dotnet run -c Release --project tools/Gorodki.OsmPipeline -- build \
+  --work /mnt/c/Users/nikic/gorodki-osm/work --version 1 --out /mnt/c/Users/nikic/gorodki-osm/sets/osm-set-1.zip
+```
+
+- `--version` — номер набора; **набор с номером не меняется**: новый набор — новый номер.
+- На экран — сводка: маски по видам, «достижимое», районы, примечания (что выключено). ≈1,5 мин, до 4 ГБ памяти.
+- Перед записью проверяются инварианты (osm-pipeline.md, «Проверка»): каждый кусок маски — правильный многоугольник на
+  сетке внутри своего тайла, TWKB читается без потерь, нет «достижимой» клетки с центром в маске, клетки районов — внутри
+  «достижимого», все отношения-площади собраны, кварталов 6–8. **Хоть одно нарушение — набор не выпускается** (код 1).
+- Набор — один файл: `metadata.json` (вход, параметры, версии инструментов, числа, отпечаток), маски и земля в TWKB по
+  тайлам, биты клеток, районы, `LICENSE.txt` (ODbL и атрибуция).
+
+## 4. Карта для проверки глазами
+
+```bash
+dotnet run -c Release --project tools/Gorodki.OsmPipeline -- preview \
+  --set /mnt/c/Users/nikic/gorodki-osm/sets/osm-set-1.zip --work /mnt/c/Users/nikic/gorodki-osm/work --out карта.html
+```
+
+Самодостаточный HTML без тайлов карт: Арена и кварталы, маски, «достижимое», списки кандидатов (корпуса и общежития,
+мемориалы, военные объекты, trunk и тротуары). Никита смотрит его перед включением набора; точечно — Мухавец, вокзал и
+пути, крепость, граница у Буга.
+
+## 5. Загрузка в базу
+
+Строка подключения — **только в переменной окружения** (не в аргументах: их видно в истории оболочки). Для Supabase —
+та же строка, что у сервера на Render (пул сессий, порт 5432). Сначала на сервер должна выйти миграция
+`OsmPipelineSets` (при старте, `Database__MigrateOnStartup=true`).
+
+```bash
+read -rs GORODKI_OSM_DB && export GORODKI_OSM_DB   # вставить строку, Enter
+dotnet run -c Release --project tools/Gorodki.OsmPipeline -- import --set /mnt/c/Users/nikic/gorodki-osm/sets/osm-set-1.zip
+unset GORODKI_OSM_DB
+```
+
+- Одна транзакция: набор ложится рядом со старым, старый не трогается.
+- Повтор с тем же файлом — «уже загружен, ничего не изменено». Другой файл под занятым номером — ошибка.
+- Проверено 26.09 на локальной PostgreSQL + PostGIS: набор 1 — 1 442 куска масок, 3 221 кусок земли ×0,5, 90 тайлов
+  «достижимого», 10 районов; ≈4 с, ≈3,5 МБ в базе.
+
+## 6. Включение
+
+Загруженный набор **ничего не меняет**, пока его номер не появится в игровом конфиге: `osm.setVersion` в новой версии
+конфига (`game_configs`, будущий `POST /admin/config` — задача E19). Забеги, начатые раньше, судятся старой версией
+конфига — без масок или по прежнему набору. Перед включением:
+
+1. Никита утвердил списки: корпуса и общежития Арены, разрез и названия кварталов, мемориалы, исключения «тротуар есть,
+   а тега нет» (`majorRoads.sidewalkWayIds`), при желании — военные объекты вручную (PLAN §14, п. 8).
+2. Решено, где можно захватывать в Сезоне 0 (вопрос 6.4): `playZone` — `city`, если к 04.11 закрыта погранполоса
+   (ширина из официальных правил или временная линия Никиты у Буга), иначе `arena`. Граница города **доходит** до
+   госграницы: ≈17,6 км общей линии по Бугу.
+3. Набор пересобран с утверждёнными параметрами под новым номером, `preview` просмотрен, набор загружен.
+4. Набор опубликован отдельным релизом GitHub `osm-set-N` под ODbL (вопрос 5, А) — вместе с `LICENSE.txt`.
+
+Храним не больше двух наборов: старый удаляется (`DELETE FROM app.osm_sets WHERE version = N` — каскадом уходят его
+маски, клетки и районы), когда на него не ссылается ни одна версия конфига, по которой ещё может судиться забег.
