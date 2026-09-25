@@ -8,11 +8,13 @@ import Sync
 struct ProbeCounters: Codable, Equatable {
     /// Точки, принятые судьёй в след.
     var accepted = 0
-    /// Точки, записанные в очередь, но отброшенные судьёй (точность, скорость, устаревшая…).
+    /// Точки, записанные в очередь, но не принятые судьёй (точность, скорость…). Устаревшие и негодные точки забег
+    /// не записывает вовсе — их здесь нет.
     var rejected = 0
     /// Замкнутые и заявленные петли.
     var loops = 0
-    /// Клетки тумана, открытые на телефоне.
+    /// Клетки тумана, открытые на телефоне. После перезапуска туман считается заново: клетки, пройденные снова,
+    /// прибавляются ещё раз.
     var fogCells = 0
     var distanceMeters = 0.0
 
@@ -296,12 +298,14 @@ final class ProbeRun {
     private func apply(_ fresh: TrackerState) {
         let wasRunning = state.isRunning
         state = fresh
-        guard var record, fresh.runId == record.runId else { return }
-        record.total = counters
-        self.record = record
+        // Счёт — только своего забега; конец забега — всегда, иначе остались бы геопозиция, подсказка и плашка.
+        if var record, fresh.runId == record.runId {
+            record.total = counters
+            self.record = record
+        }
         if wasRunning, !fresh.isRunning {
             ended()  // в том числе конец по пределу длины
-        } else if fresh.isRunning {
+        } else if fresh.isRunning, let record, fresh.runId == record.runId {
             updateLiveActivity(record.total)
             if Date.now.timeIntervalSince(lastSave) >= 5 {
                 save()

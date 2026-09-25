@@ -247,14 +247,16 @@ final class RunController {
     /// Выход из аккаунта: сначала завершить забег (он принадлежит этому игроку), потом отозвать вход на сервере и стереть
     /// всё, что телефон хранит об игроке (`AppDependencies.wipeLocalData`). Событие о смене входа приходит уже после
     /// стирания — поэтому завершать надо здесь, в самом действии выхода.
-    /// - Throws: ошибку «Финиша» — тогда вход остаётся: иначе забег остался бы без хозяина до следующего входа; или
-    ///   ошибку стирания — вход к этому времени уже стёрт.
+    /// - Throws: ошибку «Финиша» — тогда вход остаётся: иначе забег остался бы без хозяина до следующего входа;
+    ///   `TrackerError.alreadyRunning` — не закончился пробный забег «Лаборатории», вход тоже остаётся; или ошибку
+    ///   стирания — вход к этому времени уже стёрт.
     func signOut() async throws {
         if await tracker.state.isRunning {
             try await finish()
         }
         // Стирание уберёт и пробные забеги «Лаборатории»: идущий пробный — закончить, иначе он писал бы куски стёртого.
         await ProbeRun.shared.finish()
+        guard await !ProbeRun.shared.isOccupied() else { throw TrackerError.alreadyRunning }
         await AppDependencies.shared.signIn?.signOut()
         defer { hasDemoRecording = Self.loadDemoRecording() != nil }
         try await AppDependencies.shared.wipeLocalData()
