@@ -5,6 +5,8 @@
 /// вместе (`LocalRun.configVersion`).
 public struct PhoneRules: Hashable, Sendable, Decodable {
     public var loopDetector: LoopDetectorSettings
+    /// Пороги площади сервера (`capture.shape`): флаги подсказки «до замыкания» — меньше порога или больше 3,5 км².
+    public var captureArea: CaptureAreaLimits
     /// Предел длины забега, часы (`capture.maxRunHours`).
     public var maxRunHours: Double
     /// Порог точности для новичка (ещё ни одного засчитанного захвата), м — вместо порога лиги
@@ -17,9 +19,10 @@ public struct PhoneRules: Hashable, Sendable, Decodable {
     public init(
         loopDetector: LoopDetectorSettings = LoopDetectorSettings(), maxRunHours: Double = 4,
         newcomerMaxAccuracyMeters: Double = 35, run: LeagueRules = .run, bike: LeagueRules = .bike,
-        exploration: ExplorationSettings = ExplorationSettings()
+        exploration: ExplorationSettings = ExplorationSettings(), captureArea: CaptureAreaLimits = CaptureAreaLimits()
     ) {
         self.loopDetector = loopDetector
+        self.captureArea = captureArea
         self.maxRunHours = maxRunHours
         self.newcomerMaxAccuracyMeters = newcomerMaxAccuracyMeters
         self.run = run
@@ -49,7 +52,7 @@ public struct PhoneRules: Hashable, Sendable, Decodable {
     }
 
     private enum CaptureKeys: String, CodingKey {
-        case loopDetector, maxRunHours, newcomerMaxAccuracyMeters
+        case loopDetector, maxRunHours, newcomerMaxAccuracyMeters, shape
     }
 
     private enum LeagueKeys: String, CodingKey {
@@ -67,6 +70,7 @@ public struct PhoneRules: Hashable, Sendable, Decodable {
             newcomerMaxAccuracyMeters: try capture.decode(Double.self, forKey: .newcomerMaxAccuracyMeters),
             run: try leagues.decode(LeagueRules.self, forKey: .run),
             bike: try leagues.decode(LeagueRules.self, forKey: .bike),
-            exploration: try root.decode(ExplorationSettings.self, forKey: .exploration))
+            exploration: try root.decode(ExplorationSettings.self, forKey: .exploration),
+            captureArea: try capture.decode(CaptureAreaLimits.self, forKey: .shape))
     }
 }

@@ -29,6 +29,14 @@ public struct FogTileKey: Hashable, Codable, Sendable, Comparable {
     }
 
     public static func < (a: FogTileKey, b: FogTileKey) -> Bool { a.x != b.x ? a.x < b.x : a.y < b.y }
+
+    /// Площадь одной клетки тумана в этом тайле, м², — на широте центра тайла (в пределах тайла ≈1,5 км разница
+    /// меньше десятой доли процента).
+    public var cellAreaSquareMeters: Double {
+        let size = FogGrid.cellSizeMeters(
+            atLatitude: FogGrid.center(of: FogCell(x: (x << 8) + 128, y: (y << 8) + 128)).latitude)
+        return size * size
+    }
 }
 
 /// Математика сетки тумана: веб-меркатор, уровень 22.
