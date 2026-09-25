@@ -108,6 +108,31 @@
         }
       }
     },
+    "/me/stats": {
+      "get": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Своя статистика: забеги, засчитанные метры, открытая площадь за всё время и сезон, место в рейтинге",
+        "description": "Только числа. Забеги — завершённые живые (повторы демо не считаются), метры — засчитанные судьёй. Площадь — как в GET /fog/summary, оба слоя вместе. Место — в «Кто открыл больше» («Всего», за всё время) по последнему срезу; null — в срезе игрока нет.",
+        "operationId": "getMyStats",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyStatsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/me/export": {
       "get": {
         "tags": [
@@ -259,6 +284,49 @@
           },
           "400": {
             "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/players/{id}": {
+      "get": {
+        "tags": [
+          "Игроки"
+        ],
+        "summary": "Карточка игрока по номеру: ник (с его согласия) или «Игрок #1234», цвет",
+        "description": "Номер владельца есть у каждого куска земли (GET /territory). Ник — только если игрок согласился его показывать (PUT /me/public-profile) или это ты сам; иначе тот же псевдоним, что в рейтинге. Нет игрока или его аккаунт удаляется — 404 player_not_found.",
+        "operationId": "getPlayer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2236,6 +2304,47 @@
           }
         }
       },
+      "MyStatsResponse": {
+        "required": [
+          "runs",
+          "distanceMeters",
+          "exploredSquareMeters",
+          "seasonExploredSquareMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "distanceMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "exploredSquareMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "season": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "seasonExploredSquareMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "explorationRank": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "ParcelView": {
         "required": [
           "id",
@@ -2319,6 +2428,31 @@
           "bike": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "PlayerResponse": {
+        "required": [
+          "id",
+          "name",
+          "colorIndex",
+          "isMe"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "colorIndex": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "isMe": {
+            "type": "boolean"
           }
         }
       },
@@ -3004,6 +3138,9 @@
     },
     {
       "name": "Исследование"
+    },
+    {
+      "name": "Игроки"
     },
     {
       "name": "Вход"

@@ -14,7 +14,8 @@
 | [decisions/osm-questions.md](decisions/osm-questions.md) | Вопросы по OSM и решения 25.09 — буферы масок, пешеходные пути, Арена, «Ничейные земли», ODbL |
 | [architecture/run-hud.md](architecture/run-hud.md) | HUD забега, церемония захвата и итог: логика, что считает телефон и что сервер, решения Никиты |
 | [legal/README.md](legal/README.md) | Черновики соглашения, политики и согласия (закон 99-З) — для проверки преподавателем |
-| [guides/for-egor.md](guides/for-egor.md) | **Для Егора**: что готово, его задачи (#34–#41) и как их сделать, где что лежит |
+| [guides/egor-server.md](guides/egor-server.md) | **Для Егора: сервер — твоя часть** — как делим сервер, карта кода, путь запроса, страховочные тесты, приватность, задачи по волнам, волна 0 по шагам |
+| [guides/for-egor.md](guides/for-egor.md) | **Для Егора**: стартовые задачи (#34–#41) и как их сделать, где что лежит |
 | [guides/install-on-iphone.md](guides/install-on-iphone.md) | Установка на iPhone без Mac через Sideloadly |
 | [guides/probe-walk.md](guides/probe-walk.md) | Пробная прогулка: спайки S1 (фоновый трекинг) и S4 (карта, туман) |
 | [guides/field-test-1.md](guides/field-test-1.md) | Протокол полевого теста №1 (24–25.10): готовность, маршруты петель, отметки, калибровка, критерии |

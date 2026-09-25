@@ -20,7 +20,8 @@ namespace Gorodki.IntegrationTests;
 /// </summary>
 /// <remarks>
 /// Список адресов с параметрами берётся у самого сервера (<see cref="EndpointDataSource"/>): новый адрес с идентификатором
-/// без случая здесь роняет <see cref="Every_route_with_an_identifier_is_checked"/>.
+/// без случая здесь роняет <see cref="Every_route_with_an_identifier_is_checked"/>. Адрес задачи Егора, у которого пока
+/// заглушка, ждёт в <see cref="AwaitingTasks"/>.
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
 public sealed class IdorTests(DatabaseFixture database)
@@ -36,7 +37,23 @@ public sealed class IdorTests(DatabaseFixture database)
         ["DELETE /me/privacy-zones/{id:guid}"] = HttpStatusCode.NotFound,
         ["POST /admin/users/{userId:guid}/rollback"] = HttpStatusCode.Forbidden,
         ["GET /admin/rollbacks/{rollbackId:guid}"] = HttpStatusCode.Forbidden,
+        ["DELETE /admin/invites/{code}"] = HttpStatusCode.Forbidden,
+        // Карточка игрока публична по замыслу: номер владельца и так есть у каждого куска на карте (GET /territory).
+        ["GET /players/{id:guid}"] = HttpStatusCode.OK,
     };
+
+    /// <summary>
+    /// Адреса задач Егора, у которых пока заглушка: запроса Бориса к ним ещё нет. Сделал задачу — убери её строку отсюда,
+    /// и <see cref="Someone_elses_resources_cannot_be_read_or_changed"/> попросит добавить запрос Бориса к адресу.
+    /// </summary>
+    private static readonly Dictionary<string, string> AwaitingTasks = new()
+    {
+        ["DELETE /admin/invites/{code}"] = "ЗАДАЧА #114",
+        ["GET /players/{id:guid}"] = "ЗАДАЧА #115",
+    };
+
+    /// <summary>Ответ называет номер Анны по замыслу: карточка игрока. Ника без её согласия в ответе всё равно нет.</summary>
+    private static readonly string[] ShowsOwnerId = ["GET /players/{id:guid}"];
 
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
@@ -100,12 +117,19 @@ public sealed class IdorTests(DatabaseFixture database)
             ["GET /admin/rollbacks/{rollbackId:guid}"] = await boris.GetAsync($"/admin/rollbacks/{rollbackId}", Cancel),
         };
 
-        Assert.Equal(Expected.Keys.Order(), answers.Keys.Order());
+        // Здесь нужен запрос Бориса к каждому адресу, кроме ждущих задачи Егора (AwaitingTasks).
+        Assert.Equal(Expected.Keys.Except(AwaitingTasks.Keys).Order(), answers.Keys.Order());
+        var annaName = await DisplayNameAsync(annaId);
         foreach (var (route, response) in answers)
         {
             Assert.True(Expected[route] == response.StatusCode, $"{route}: {response.StatusCode}, а нужно {Expected[route]}");
             var body = await response.Content.ReadAsStringAsync(Cancel);
-            Assert.DoesNotContain(annaId.ToString(), body, StringComparison.OrdinalIgnoreCase); // ответ ничего не выдаёт
+            if (!ShowsOwnerId.Contains(route))
+            {
+                Assert.DoesNotContain(annaId.ToString(), body, StringComparison.OrdinalIgnoreCase); // ответ ничего не выдаёт
+            }
+
+            Assert.DoesNotContain(annaName, body, StringComparison.OrdinalIgnoreCase); // и ника Анны (согласия нет) — тоже
         }
 
         // Тот же идентификатор забега в новом старте — конфликт, а не чужой забег.
@@ -115,6 +139,12 @@ public sealed class IdorTests(DatabaseFixture database)
         Assert.Equal(before, await SnapshotAsync(claim.RunId, annaId));
         var zones = await anna.GetFromJsonAsync<List<PrivacyZoneResponse>>("/me/privacy-zones", Json, Cancel);
         Assert.Contains(zones!, z => z.Id == zoneId);
+    }
+
+    private async Task<string> DisplayNameAsync(Guid userId)
+    {
+        await using var db = database.CreateContext();
+        return await db.Users.Where(u => u.Id == userId).Select(u => u.DisplayName).SingleAsync(Cancel);
     }
 
     /// <summary>Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката.</summary>

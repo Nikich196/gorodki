@@ -36,6 +36,7 @@ public static class AdminEndpoints
         var admin = app.MapGroup("/admin").ExcludeFromDescription();
         admin.MapPost("/users/{userId:guid}/rollback", RequestRollback);
         admin.MapGet("/rollbacks/{rollbackId:guid}", GetRollback);
+        admin.MapInviteEndpoints(); // инвайты — InviteEndpoints.cs
         return app;
     }
 
@@ -117,7 +118,8 @@ public static class AdminEndpoints
         return TypedResults.Ok(ToResponse(job, frozenUntil));
     }
 
-    private static async Task<Guid?> AdminIdAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
+    /// <summary>Номер вошедшего, если он администратор (роль — по базе, не по токену); иначе <c>null</c> — ответ 403 <c>admin_only</c>.</summary>
+    internal static async Task<Guid?> AdminIdAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
         if (principal.UserId() is not { } userId)
         {
@@ -142,6 +144,7 @@ public static class AdminEndpoints
         job.SkippedArea,
         frozenUntil);
 
-    private static ProblemHttpResult Problem(int status, string code, string title) =>
+    /// <summary>Ошибка в формате ProblemDetails с кодом для приложения (<c>code</c>).</summary>
+    internal static ProblemHttpResult Problem(int status, string code, string title) =>
         TypedResults.Problem(title: title, statusCode: status, extensions: new Dictionary<string, object?> { ["code"] = code });
 }
