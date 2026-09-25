@@ -30,8 +30,11 @@ public sealed class OsmSetTests(DatabaseFixture database)
 
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    /// <summary>Рамка — все тайлы, где гуляют интеграционные тесты (<see cref="Walks.NewArea"/>).</summary>
-    private static readonly TileRange TestFrame = new(677, 5_768, 692, 5_782);
+    /// <summary>
+    /// Рамка — с запасом все тайлы, где гуляют интеграционные тесты: <see cref="Walks.NewArea"/> сдвигает каждое новое место
+    /// на 1,5 км, и при полном прогоне места уходят на десятки километров к северу.
+    /// </summary>
+    private static readonly TileRange TestFrame = new(600, 5_700, 800, 5_900);
 
     private static int NewSetVersion() => Interlocked.Increment(ref _nextSet);
 
@@ -184,12 +187,12 @@ public sealed class OsmSetTests(DatabaseFixture database)
         await using var api = new ApiFactory(database);
         await using var scope = api.Services.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<IMaskStore>();
-        var farAway = new Envelope(700_100, 700_200, 5_790_100, 5_790_200); // за рамкой 677–692 × 5768–5782
+        var farAway = new Envelope(950_100, 950_200, 5_950_100, 5_950_200); // за рамкой 600–800 × 5700–5900
 
         var outside = await store.CoveringAsync(farAway, limited, Cancel);
 
         Assert.NotNull(outside);
-        Assert.True(outside.EqualsTopologically(new TileKey(700, 5790).ToPolygon()));
+        Assert.True(outside.EqualsTopologically(new TileKey(950, 5950).ToPolygon()));
         Assert.Null(await store.CoveringAsync(farAway, open, Cancel));
     }
 
