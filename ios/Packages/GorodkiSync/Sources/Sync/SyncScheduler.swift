@@ -191,6 +191,9 @@ public actor SyncScheduler {
         /// Приложение уходит в фон или iOS разбудила его фоновой задачей: время ограничено, шаг повторов сначала.
         /// Истёкший вход и сбитые часы не обходит — в отличие от выхода на передний план.
         case backgroundTask
+        /// Игрок нажал «Синхронизировать сейчас» («Резервная копия»): как выход на передний план — шаг повторов
+        /// сначала, и попробовать даже после истёкшего входа или сбитых часов (вдруг уже исправлено).
+        case manual
     }
 
     private let engine: SyncEngine
@@ -242,17 +245,18 @@ public actor SyncScheduler {
     @discardableResult
     public func trigger(_ reason: Reason) async -> SyncWake {
         switch reason {
-        case .appActive, .networkRestored, .signedIn, .backgroundTask:
+        case .appActive, .networkRestored, .signedIn, .backgroundTask, .manual:
             backoff.reset()
         case .recorded, .hint, .timer:
             break
         }
 
         // Пока вход истёк, запросы бессмысленны — ждём входа (или выхода на передний план: вдруг токен обновился).
-        if case .needsSignIn = wake, reason != .signedIn, reason != .appActive {
+        let byPlayer = reason == .appActive || reason == .manual
+        if case .needsSignIn = wake, reason != .signedIn, !byPlayer {
             return wake
         }
-        if case .blocked = wake, reason != .appActive, reason != .signedIn {
+        if case .blocked = wake, reason != .signedIn, !byPlayer {
             return wake
         }
 

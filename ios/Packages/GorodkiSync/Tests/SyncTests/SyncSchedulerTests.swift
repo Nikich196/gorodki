@@ -278,6 +278,26 @@ struct SyncSchedulerTests {
         #expect(await server.log.contains("finish"))
     }
 
+    @Test("«Синхронизировать сейчас»: шаг повторов сначала и попытка даже после истёкшего входа")
+    func manualSyncResetsBackoffAndRetriesSignIn() async throws {
+        let run = Fixture.run()
+        try await Fixture.record(run, points: 5, into: store)
+        let scheduler = scheduler()
+
+        await server.fail("start", with: .offline)
+        #expect(await scheduler.trigger(.appActive) == .after(.seconds(15)))
+        await server.fail("start", with: .offline)
+        #expect(await scheduler.trigger(.timer) == .after(.seconds(30)))
+        await server.fail("start", with: .offline)
+        #expect(await scheduler.trigger(.manual) == .after(.seconds(15)))
+
+        await server.answerStart(of: run.id, status: 401, code: "")
+        #expect(await scheduler.trigger(.timer) == .needsSignIn)
+        await server.clearStartAnswer(of: run.id)
+        #expect(await scheduler.trigger(.manual) == .idle, "игрок нажал сам — пробуем, вдруг вход уже обновлён")
+        #expect(await server.log.contains("finish"))
+    }
+
     @Test("Фоновая задача: шаг повторов сначала, но истёкший вход она не обходит")
     func backgroundTaskResetsBackoffButNotSignIn() async throws {
         let run = Fixture.run()

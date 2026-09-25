@@ -43,4 +43,19 @@ public enum NumberText {
     public static func seconds(_ seconds: Double, fractionDigits: Int) -> String {
         decimal(seconds, fractionDigits: fractionDigits) + unitSeparator + "с"
     }
+
+    /// Размер файлов, как в «Хранилище iPhone» — десятичными единицами (1 КБ = 1 000 байт): «812 Б», «4,2 МБ»,
+    /// «37 МБ», «1,3 ГБ». До 10 — один знак после запятой, дальше — целые.
+    public static func bytes(_ count: Int64) -> String {
+        let units = ["КБ", "МБ", "ГБ", "ТБ"]
+        guard count >= 1_000 else { return integer(Int(max(count, 0))) + unitSeparator + "Б" }
+        var value = Double(count) / 1_000
+        var unit = 0
+        // Округлённое до показа значение не должно выйти за 1 000 («1 000 КБ» — это уже «1,0 МБ»).
+        while unit < units.count - 1 && value.rounded() >= 1_000 {
+            value /= 1_000
+            unit += 1
+        }
+        return decimal(value, fractionDigits: value < 9.95 ? 1 : 0) + unitSeparator + units[unit]
+    }
 }
