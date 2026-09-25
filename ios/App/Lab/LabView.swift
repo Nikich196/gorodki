@@ -26,6 +26,11 @@ struct LabView: View {
                 } label: {
                     Label("Сервер: связь, вход, реальное время (S7)", systemImage: "network")
                 }
+                NavigationLink {
+                    DesignLabView()
+                } label: {
+                    Label("Дизайн: цвета, стекло, церемонии", systemImage: "paintpalette")
+                }
             } footer: {
                 Text("Каждый экран отвечает на один вопрос из плана. Результат — снимок экрана со сводкой.")
             }

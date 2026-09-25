@@ -13,6 +13,7 @@
 | [architecture/osm-pipeline.md](architecture/osm-pipeline.md) | Конвейер OSM (проект v1): маски, «достижимая» площадь и % Бреста, граница и Арена, атрибуция ODbL |
 | [decisions/osm-questions.md](decisions/osm-questions.md) | Вопросы по OSM и решения 25.09 — буферы масок, пешеходные пути, Арена, «Ничейные земли», ODbL |
 | [architecture/run-hud.md](architecture/run-hud.md) | HUD забега, церемония захвата и итог: логика, что считает телефон и что сервер, решения Никиты |
+| [design/tokens.md](design/tokens.md) | Дизайн-система: токены дня и ночи, земли, туман, шрифт, стекло, движение и где это в коде. «Ок» Никиты — в [../design/APPROVALS.md](../design/APPROVALS.md) |
 | [legal/README.md](legal/README.md) | Черновики соглашения, политики и согласия (закон 99-З) — для проверки преподавателем |
 | [guides/egor-server.md](guides/egor-server.md) | **Для Егора: сервер — твоя часть** — как делим сервер, карта кода, путь запроса, страховочные тесты, приватность, задачи по волнам, волна 0 по шагам |
 | [guides/for-egor.md](guides/for-egor.md) | **Для Егора**: стартовые задачи (#34–#41) и как их сделать, где что лежит |

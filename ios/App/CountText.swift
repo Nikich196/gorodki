@@ -36,4 +36,14 @@ enum CountText {
     static func tiles(_ count: Int) -> String {
         String(localized: "\(count) тайлов", locale: NumberText.locale)
     }
+
+    /// Сотка = 100 м² (PLAN.md, §6.10): «12 480 м² = 125 соток».
+    static func sotki(_ count: Int) -> String {
+        String(localized: "\(count) соток", locale: NumberText.locale)
+    }
+
+    /// Очки сезона: «2 340 очков» — вместо «SP» (docs/design/tokens.md, §4).
+    static func score(_ count: Int) -> String {
+        String(localized: "\(count) очков", locale: NumberText.locale)
+    }
 }

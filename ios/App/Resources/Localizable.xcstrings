@@ -106,6 +106,41 @@
         }
       }
     },
+    "%lld очков" : {
+      "comment" : "Очки сезона: «1 очко», «2 очка», «2 340 очков».",
+      "localizations" : {
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld очка"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld очков"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld очко"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld очка"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld петель" : {
       "comment" : "Замкнутые петли забега или прогулки: «1 петля», «2 петли», «5 петель».",
       "localizations" : {
@@ -134,6 +169,41 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld петли"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld соток" : {
+      "comment" : "Площадь в сотках (1 сотка = 100 м²): «1 сотка», «2 сотки», «125 соток».",
+      "localizations" : {
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld сотки"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld соток"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld сотка"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld сотки"
                 }
               }
             }
