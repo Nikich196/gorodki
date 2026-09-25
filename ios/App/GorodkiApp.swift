@@ -80,8 +80,8 @@ final class RealtimeRelay {
 }
 
 /// Вход и выход (`TokenStore.events`; подписчик у потока один — этот): соединение реального времени держит токен того,
-/// кто вошёл, поэтому при смене входа оно закрывается и открывается заново. Экран входа (ждёт Client ID, #4) будет
-/// получать состояние отсюда же.
+/// кто вошёл, поэтому при смене входа оно закрывается и открывается заново. Корень приложения узнаёт о входе отсюда же
+/// (`AppSession`): не вошёл — онбординг, вошёл — вкладки.
 @MainActor
 final class SessionRelay {
     static let shared = SessionRelay()
@@ -93,7 +93,13 @@ final class SessionRelay {
         started = true
         let dependencies = AppDependencies.shared
         Task.detached {
+            // Вход, сохранённый в Keychain с прошлого запуска, событием не приходит — прочитать его сразу.
+            let saved = await dependencies.tokens.current()
+            await AppSession.shared.update(saved)
             for await event in dependencies.tokens.events {
+                // Экран — первым: вышедший игрок сразу видит онбординг, не дожидаясь сброса кэшей.
+                let current = await dependencies.tokens.current()
+                await AppSession.shared.update(current)
                 await dependencies.realtime?.stop()
                 // Видимые версии у каждого игрока свои (скрытые чужие захваты) — кэш земли прежнего входа не годится.
                 await dependencies.territory?.reset()

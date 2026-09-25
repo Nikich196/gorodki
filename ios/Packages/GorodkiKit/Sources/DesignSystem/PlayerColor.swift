@@ -29,6 +29,13 @@ public enum PlayerColor: String, CaseIterable, Identifiable, Sendable {
     /// Базовый цвет — «Старт» и полоса палитры.
     public var base: RGBA { RGBA(hex) }
 
+    /// Цвет по номеру с сервера (`colorIndex` 0–11 в `GET /me` и у участков) — номера идут в порядке `allCases`.
+    /// Номер вне 0–11 берётся по модулю: неожиданный ответ не роняет экран.
+    public init(index: Int) {
+        let all = Self.allCases
+        self = all[(index % all.count + all.count) % all.count]
+    }
+
     /// Светлые цвета: у них база альфы днём 0,55, а не 0,40 (PLAN.md, §6.5), и заливка днём на тон глубже —
     /// тот же оттенок с OKLCH-светлотой 0,76, иначе L1 на светлой земле не виден.
     public var isLight: Bool {

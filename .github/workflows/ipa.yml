@@ -1,6 +1,9 @@
 # IPA для установки на iPhone через Sideloadly (сборка Free, без Mac и без платного аккаунта).
 # Запуск: вкладка Actions → ipa → Run workflow, или автоматически после изменений iOS-кода в main.
 # Результат — во вкладке запуска, раздел Artifacts: два IPA (без подписи и с ad-hoc подписью).
+# Галочка «probe» (только ручной запуск) — пробная сборка команды: отладочное меню («Лаборатория», «Проверка установки»)
+# и «Посмотреть без входа» открыты всем (флаг GORODKI_PROBE, DebugAccess). Такой IPA — только для телефонов команды:
+# игрокам раздавать сборку без галочки (артефакт без «-probe» в имени), там меню видят лишь роли demo и admin.
 # -skipPackagePluginValidation — ради плагина, генерирующего клиент API (см. ios.yml).
 name: ipa
 
@@ -11,6 +14,11 @@ on:
       - "ios/**"
       - ".github/workflows/ipa.yml"
   workflow_dispatch:
+    inputs:
+      probe:
+        description: "Пробная сборка команды: отладочное меню всем (не для игроков)"
+        type: boolean
+        default: false
 
 # Новый коммит в PR отменяет прогон прежнего (у ipa запусков по PR нет, но правило — как у остальных). Вне PR у каждого
 # прогона своя группа: прогон коммита в main не отменяется и не вытесняется следующим слиянием из очереди — Render
@@ -38,13 +46,17 @@ jobs:
       - name: Генерация Gorodki.xcodeproj
         run: '"$RUNNER_TEMP/xcodegen/bin/xcodegen" generate --spec ios/project.yml'
 
-      - name: Release-Free для iPhone (без подписи)
+      # У запуска по push входов нет: inputs.probe пуст — сборка для игроков.
+      - name: Release-Free для iPhone (без подписи${{ inputs.probe && ', пробная сборка команды' || '' }})
+        env:
+          PROBE_FLAG: ${{ inputs.probe && 'GORODKI_PROBE' || '' }}
         run: |
           xcodebuild build \
             -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configuration Release-Free \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
             -skipPackagePluginValidation \
+            GORODKI_PROBE_FLAG="$PROBE_FLAG" \
             CODE_SIGNING_ALLOWED=NO -quiet
 
       - name: Упаковка IPA
@@ -52,7 +64,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: gorodki-free-ipa-${{ github.run_number }}
+          name: gorodki-free-ipa${{ inputs.probe && '-probe' || '' }}-${{ github.run_number }}
           path: ${{ runner.temp }}/ipa/*.ipa
           retention-days: 14
           if-no-files-found: error

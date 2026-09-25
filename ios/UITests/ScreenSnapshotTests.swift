@@ -1,8 +1,9 @@
 import XCTest
 
 /// Снимки экранов, которые открываются без сервера (PLAN.md, §8 и §13: «снимки и UI-тесты — информационно»):
-/// стартовый экран с «Проверкой установки» и «Лаборатория» — прогулка (S1), стенд карты (S4), сервер (S7), пробный
-/// забег, дизайн в обеих темах. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest, workflow
+/// отладочное меню с «Проверкой установки» и «Лаборатория» — прогулка (S1), стенд карты (S4), сервер (S7), пробный
+/// забег, дизайн в обеих темах; онбординг и вкладки — в режиме фикстур (`-GorodkiScreen`, `-GorodkiFixture`,
+/// `-GorodkiTheme`; App/Fixtures), каждый экран днём и ночью. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest, workflow
 /// выгружает их из пакета результатов в PNG (артефакт запуска): так приложение можно посмотреть без Mac.
 ///
 /// Каждый тест запускает приложение заново — сорвавшийся переход не утянет за собой остальные снимки. Снимок делается
@@ -17,19 +18,21 @@ final class ScreenSnapshotTests: XCTestCase {
     private static let launchTimeout: TimeInterval = 30
     private static let screenTimeout: TimeInterval = 10
 
+    /// Отладочное меню (`-GorodkiScreen debug`) — то, что раньше было стартовым экраном: «Лаборатория» сверху,
+    /// «Проверка установки» ниже.
     @MainActor
-    func test01RootAndInstallCheck() {
+    func test01DebugMenuAndInstallCheck() {
         let app = launchApp()
         let opened = rootShown(in: app)
-        snapshot("01-root")
-        XCTAssertTrue(opened, "Стартовый экран не открылся")
+        snapshot("01-debug-menu")
+        XCTAssertTrue(opened, "Отладочное меню не открылось")
 
-        // «Проверка установки» встроена в стартовый экран ниже заголовка — второй снимок после прокрутки до кнопки
-        // «Лаборатории» в конце списка. Первая прокрутка — всегда: на высоком экране кнопка видна и без неё.
+        // Второй снимок — после прокрутки до кнопки «Проверить заново» в конце списка. Первая прокрутка — всегда:
+        // на высоком экране кнопка видна и без неё.
         app.swipeUp()
-        let reached = reveal(button(in: app, containing: "Лаборатория"), in: app)
+        let reached = reveal(button(in: app, containing: "Проверить заново"), in: app)
         snapshot("02-install-check")
-        XCTAssertTrue(reached, "Не видно кнопки «Лаборатория» внизу стартового экрана")
+        XCTAssertTrue(reached, "Не видно кнопки «Проверить заново» внизу отладочного меню")
     }
 
     @MainActor
@@ -91,6 +94,115 @@ final class ScreenSnapshotTests: XCTestCase {
         XCTAssertTrue(switched, "На экране «Дизайн» нет переключателя «Ночь»")
     }
 
+    // MARK: - Онбординг и вкладки (режим фикстур)
+
+    @MainActor
+    func test10OnboardingIntro() {
+        snapshotScreen("intro", expecting: "Обеги — и участок твой", name: "10-onboarding-intro")
+    }
+
+    @MainActor
+    func test11Invite() {
+        snapshotScreen("invite", expecting: "Код приглашения", name: "11-onboarding-invite")
+    }
+
+    /// Ошибка входа «код не подошёл» — на поле кода, текстом `SignInFailure`.
+    @MainActor
+    func test12InviteInvalid() {
+        snapshotScreen(
+            "invite", fixture: "invite-invalid", expecting: "Код приглашения не подошёл",
+            name: "12-onboarding-invite-invalid")
+    }
+
+    @MainActor
+    func test13Age() {
+        snapshotScreen("age", expecting: "Тебе есть 16?", name: "13-onboarding-age")
+    }
+
+    /// Согласие длинное — снимок сверху и после прокрутки.
+    @MainActor
+    func test14Consent() {
+        snapshotScreen("consent", expecting: "Правила и согласие", name: "14-onboarding-consent", pages: 3)
+    }
+
+    /// Без Client ID Google кнопка входа выключена и объясняет почему.
+    @MainActor
+    func test15SignIn() {
+        snapshotScreen(
+            "sign-in", expecting: "Вход через Google появится после настройки", name: "15-onboarding-sign-in")
+    }
+
+    @MainActor
+    func test16SignInOffline() {
+        snapshotScreen(
+            "sign-in", fixture: "offline", expecting: "Нет связи с сервером", name: "16-onboarding-sign-in-offline")
+    }
+
+    /// Тайлы Apple Maps дорисовываются уже после открытия экрана.
+    @MainActor
+    func test17Map() {
+        snapshotScreen("map", fixture: "player", expecting: "Старт", name: "17-tab-map", settle: 6)
+    }
+
+    @MainActor
+    func test18Leaderboards() {
+        snapshotScreen("leaderboards", expecting: "Рейтинги — скоро", name: "18-tab-leaderboards")
+    }
+
+    @MainActor
+    func test19Clan() {
+        snapshotScreen("clan", expecting: "Кланы — скоро", name: "19-tab-clan")
+    }
+
+    @MainActor
+    func test20Profile() {
+        snapshotScreen("profile", fixture: "player", expecting: "Бегун-1234", name: "20-tab-profile")
+    }
+
+    /// Вход через Google настроен: кнопка активна, пояснения «появится после настройки» нет.
+    @MainActor
+    func test21SignInGoogleReady() {
+        snapshotScreen(
+            "sign-in", fixture: "google-ready", expecting: "Войти через Google", name: "21-onboarding-sign-in-ready")
+    }
+
+    /// Остальные ошибки входа — та же карточка, что у «нет связи» (16), с другим текстом: только днём.
+    @MainActor
+    func test22SignInErrors() {
+        snapshotScreen(
+            "sign-in", fixture: "google-rejected", expecting: "Google не подтвердил вход",
+            name: "22-onboarding-sign-in-google-rejected", themes: ["day"])
+        snapshotScreen(
+            "sign-in", fixture: "account-deleting", expecting: "Этот аккаунт удаляется",
+            name: "23-onboarding-sign-in-account-deleting", themes: ["day"])
+    }
+
+    /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у
+    /// остальных. `pages` — сколько снимков с прокруткой между ними.
+    @MainActor
+    private func snapshotScreen(
+        _ screen: String, fixture: String? = nil, expecting fragment: String, name: String,
+        settle: TimeInterval = 1, pages: Int = 1, themes: [String] = ["day", "night"]
+    ) {
+        for theme in themes {
+            var arguments = ["-GorodkiScreen", screen, "-GorodkiTheme", theme]
+            if let fixture {
+                arguments += ["-GorodkiFixture", fixture]
+            }
+            let app = launchApp(arguments)
+            let shown = waitForAny([text(in: app, containing: fragment)], timeout: Self.launchTimeout)
+            pause(settle)
+            snapshot("\(name)-\(theme)")
+            for page in stride(from: 2, through: pages, by: 1) {
+                app.swipeUp()
+                pause(1.5)
+                snapshot("\(name)-\(theme)-\(page)")
+            }
+            XCTAssertTrue(shown, "«\(screen)» (\(theme)): нет текста «\(fragment)»")
+            app.terminate()
+        }
+    }
+
     @MainActor
     private func snapshotDesignLab(in app: XCUIApplication, prefix: String) {
         snapshot("\(prefix)-1")
@@ -103,11 +215,13 @@ final class ScreenSnapshotTests: XCTestCase {
 
     // MARK: - Переходы
 
+    /// Запуск; без аргументов — сразу отладочное меню: «Проверка установки» и «Лаборатория» живут теперь там,
+    /// а корень приложения без входа — онбординг.
     @MainActor
-    private func launchApp() -> XCUIApplication {
+    private func launchApp(_ arguments: [String] = ["-GorodkiScreen", "debug"]) -> XCUIApplication {
         let app = XCUIApplication()
         // Язык и регион — как на телефоне игрока: даты и системные кнопки («Назад») на снимках по-русски.
-        app.launchArguments += ["-AppleLanguages", "(ru)", "-AppleLocale", "ru_RU"]
+        app.launchArguments += ["-AppleLanguages", "(ru)", "-AppleLocale", "ru_RU"] + arguments
         app.launch()
         return app
     }
@@ -123,7 +237,7 @@ final class ScreenSnapshotTests: XCTestCase {
     @MainActor
     private func rootShown(in app: XCUIApplication) -> Bool {
         waitForAny(
-            [app.staticTexts["Городки"].firstMatch, text(in: app, containing: "Обеги участок")],
+            [text(in: app, containing: "Проверка установки"), button(in: app, containing: "Лаборатория")],
             timeout: Self.launchTimeout)
     }
 
