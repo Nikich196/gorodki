@@ -99,6 +99,17 @@ struct SampleDecodingTests {
         #expect(receipt.duplicate && receipt.lastSeq == 119)
     }
 
+    @Test("Своя статистика и карточка игрока: числа, пустые поля, псевдоним")
+    func statsAndPlayer() throws {
+        let stats = try Samples.decode(Components.Schemas.MyStatsResponse.self, "me-stats")
+        let player = try Samples.decode(Components.Schemas.PlayerResponse.self, "player")
+
+        #expect(stats.runs == 12 && stats.distanceMeters == 42_195.5)
+        #expect(stats.season == 0 && stats.explorationRank == 7)
+        #expect(stats.seasonExploredSquareMeters == 321_000.4)
+        #expect(player.name.hasPrefix("Игрок #") && !player.isMe && player.colorIndex == 7)
+    }
+
     @Test("Сезоны: у последнего нет конца, текущий — номер")
     func seasons() throws {
         let seasons = try Samples.decode(Components.Schemas.SeasonsResponse.self, "seasons")
