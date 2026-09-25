@@ -2,6 +2,7 @@ import DesignSystem
 import GameCore
 import GorodkiAPI
 import SwiftUI
+import Sync
 
 /// Профиль до этапа 6: кто ты (ник, цвет, роль), сколько тумана открыто, отладочное меню и выход. Простые значения —
 /// их задают ответы сервера (`load`) или образцы `contracts/samples` в режиме фикстур.
@@ -17,6 +18,8 @@ final class ProfileModel {
     var seasonExploredSquareMeters: Double? = nil
     var seasonName: String? = nil
     var signedIn: Bool
+    /// Клиент API вошедшего игрока (`LiveRoot`); `nil` — не вошёл, нет адреса сервера или режим фикстур.
+    @ObservationIgnored var api: (any APIProtocol)?
 
     init(signedIn: Bool = false, role: String? = nil) {
         self.signedIn = signedIn
@@ -50,8 +53,20 @@ final class ProfileModel {
         seasonName = seasons.seasons.first { seasons.current.map(Int.init) == Int($0.number) }?.name
     }
 
+    /// Профиль ещё не загрузился (например, приложение запустилось без сети).
+    var needsLoad: Bool {
+        displayName == nil || exploredSquareMeters == nil
+    }
+
+    /// Загрузить заново через `api` — при входе (`LiveRoot`), по жесту «потянуть вниз» и при заходе на вкладку, если
+    /// в прошлый раз не загрузилось (`ProfileTab`).
+    func refresh() async {
+        guard signedIn, let api else { return }
+        await load(api: api)
+    }
+
     /// Данные вошедшего игрока с сервера. Ошибки не показываются: профиль останется с тем, что уже знает, а
-    /// следующий заход на вкладку попробует снова.
+    /// следующий заход на вкладку или «потянуть вниз» попробуют снова (`refresh`).
     func load(api: any APIProtocol) async {
         if let me = try? await api.getMe().ok.body.json {
             apply(me)
@@ -69,6 +84,9 @@ final class ProfileModel {
 struct ProfileTab: View {
     let model: ProfileModel
     @State private var signOutError: String?
+    @State private var signOutAsked = false
+    /// Сколько забегов сотрёт выход, не дойдя до сервера (`AppDependencies.unsentRunCount`) — для вопроса перед выходом.
+    @State private var unsentRuns = 0
 
     var body: some View {
         NavigationStack {
@@ -85,7 +103,27 @@ struct ProfileTab: View {
             }
             .background(Palette.uiBackground.color)
             .navigationTitle("Профиль")
+            .refreshable { await model.refresh() }
+            .task {
+                // Не загрузилось при входе (не было сети) — ещё раз при заходе на вкладку.
+                if model.needsLoad { await model.refresh() }
+            }
+            .confirmationDialog("Выйти из аккаунта?", isPresented: $signOutAsked, titleVisibility: .visible) {
+                Button("Выйти", role: .destructive) {
+                    Task { await signOut() }
+                }
+                Button("Отмена", role: .cancel) {}
+            } message: {
+                Text(signOutWarning)
+            }
         }
+    }
+
+    /// Что потеряется при выходе: `RunController.signOut` заканчивает забег и стирает очередь синхронизации.
+    private var signOutWarning: String {
+        let base = "Идущий забег закончится, а всё об игроке на этом телефоне сотрётся."
+        guard unsentRuns > 0 else { return base }
+        return base + " Ещё не дошли до сервера \(CountText.runs(unsentRuns)) — они пропадут."
     }
 
     private var header: some View {
@@ -132,7 +170,10 @@ struct ProfileTab: View {
             }
             if model.signedIn {
                 Button {
-                    Task { await signOut() }
+                    Task {
+                        unsentRuns = await AppDependencies.shared.unsentRunCount()
+                        signOutAsked = true
+                    }
                 } label: {
                     ProfileRow(title: "Выйти", systemImage: "rectangle.portrait.and.arrow.right")
                 }
@@ -164,8 +205,29 @@ struct ProfileTab: View {
             try await RunController.shared.signOut()
             signOutError = nil
         } catch {
-            signOutError = "Выйти не получилось: сначала закончи забег. \(error.localizedDescription)"
+            let signedOut = await AppDependencies.shared.tokens.current() == nil
+            let message = Self.signOutFailure(error, signedOut: signedOut)
+            if message.stayedSignedIn {
+                signOutError = message.text
+            } else {
+                // Вход уже стёрт: корень переключится на онбординг, и эта вкладка ошибку не покажет.
+                AppSession.shared.notice = message.text
+            }
         }
+    }
+
+    /// Текст ошибки выхода для игрока. `signedOut` — вход к этому времени уже стёрт (упало стирание данных).
+    static func signOutFailure(_ error: any Error, signedOut: Bool) -> (text: String, stayedSignedIn: Bool) {
+        if signedOut {
+            return (
+                "Ты вышел, но часть данных на телефоне стереть не удалось. Удали и поставь приложение заново — "
+                    + "так сотрётся всё.", false
+            )
+        }
+        if error as? TrackerError == .alreadyRunning {
+            return ("Сначала закончи пробный забег в «Лаборатории».", true)
+        }
+        return ("Не получилось закончить забег, поэтому выход отменён. Попробуй ещё раз.", true)
     }
 }
 

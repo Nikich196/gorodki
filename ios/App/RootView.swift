@@ -5,8 +5,13 @@ import SwiftUI
 /// В Debug аргументы `-GorodkiScreen` / `-GorodkiFixture` / `-GorodkiTheme` открывают экран сразу — для снимков.
 struct RootView: View {
     var body: some View {
-        content
-            .preferredColorScheme(LaunchOptions.current.colorScheme)
+        // Тема — только если её задал `-GorodkiTheme`: `.preferredColorScheme(nil)` у корня перекрыл бы вложенный
+        // выбор темы (переключатель «День | Ночь» в «Лаборатории → Дизайн»).
+        if let scheme = LaunchOptions.current.colorScheme {
+            content.preferredColorScheme(scheme)
+        } else {
+            content
+        }
     }
 
     @ViewBuilder
@@ -28,6 +33,7 @@ private struct LiveRoot: View {
     private let session = AppSession.shared
     @State private var onboarding = OnboardingModel.live()
     @State private var shell = ShellModel(profile: ProfileModel())
+    @State private var noticeShown = false
 
     var body: some View {
         Group {
@@ -40,7 +46,8 @@ private struct LiveRoot: View {
                 } else {
                     OnboardingView(
                         model: onboarding,
-                        browseWithoutSignIn: DebugAccess.buildAllows ? { session.browsingWithoutSignIn = true } : nil)
+                        browseWithoutSignIn: DebugAccess.buildAllows
+                            ? { @MainActor in AppSession.shared.browsingWithoutSignIn = true } : nil)
                 }
             }
         }
@@ -52,8 +59,16 @@ private struct LiveRoot: View {
             }
             shell.profile.signedIn = session.status == .signedIn
             shell.profile.role = session.role
-            guard session.status == .signedIn, let api = AppDependencies.shared.api else { return }
-            await shell.profile.load(api: api)
+            shell.profile.api = session.status == .signedIn ? AppDependencies.shared.api : nil
+            await shell.profile.refresh()
+        }
+        .onChange(of: session.notice) { _, notice in
+            noticeShown = notice != nil
+        }
+        .alert("Выход", isPresented: $noticeShown, presenting: session.notice) { _ in
+            Button("Понятно", role: .cancel) { session.notice = nil }
+        } message: { notice in
+            Text(notice)
         }
     }
 }
