@@ -6,7 +6,8 @@ import GameCore
 ///
 /// Формы — в каталоге строк (`Resources/Localizable.xcstrings`, варианты one/few/many/other; полноту проверяет
 /// ios/scripts/check-localization.py), здесь — только ключи. Правило выбора формы — русское при любом языке телефона
-/// (`NumberText.locale`): игра говорит только по-русски, а по английскому правилу вышло бы «2 петель».
+/// (`NumberText.locale`): игра говорит только по-русски, а по английскому правилу вышло бы «2 петель». Та же локаль
+/// пишет и само число, как NumberText: «5 000 участков», а не «5,000».
 enum CountText {
     static func loops(_ count: Int) -> String {
         String(localized: "\(count) петель", locale: NumberText.locale)

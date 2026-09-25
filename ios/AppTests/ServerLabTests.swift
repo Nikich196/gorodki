@@ -32,11 +32,11 @@ struct ServerLabTests {
                 == RealtimeLabText(connection: "на связи", reconnects: "2", lastHint: "12\u{00A0}с назад"))
     }
 
-    @Test("Ждёт повтора — с паузой; подсказок ещё не было")
+    @Test("Ждёт повтора — с паузой, «4 с» не разрывается; подсказок ещё не было")
     func waiting() {
         let diagnostics = RealtimeClient.Diagnostics(state: .waiting(.seconds(4)), needsSignIn: false, reconnects: 0)
         let text = RealtimeLabText(diagnostics: diagnostics, signedIn: true)
-        #expect(text.connection == "ждёт повтора (4 с)")
+        #expect(text.connection == "ждёт повтора (4\u{00A0}с)")
         #expect(text.lastHint == "ещё не было")
     }
 }

@@ -27,6 +27,16 @@ struct RussianTextTests {
         #expect([1, 3, 5, 0].map(CountText.tiles) == ["1 тайл", "3 тайла", "5 тайлов", "0 тайлов"])
     }
 
+    /// Разряды ставит сам `String(localized:locale:)`: по документации Apple `locale` задаёт запись подставленных
+    /// чисел, поэтому `%lld` из каталога выходит «5 000». Без `locale` на английском симуляторе было бы
+    /// «5,000 участков».
+    @Test("Разряды в счётных словах — как у остальных чисел: «5 000 участков», «12 480 точек»")
+    func countsGroupThousands() {
+        #expect(CountText.parcels(5_000) == NumberText.integer(5_000) + " участков")
+        #expect(CountText.points(12_480) == NumberText.integer(12_480) + " точек")
+        #expect(CountText.pieces(5_349) == NumberText.integer(5_349) + " кусков")
+    }
+
     @Test("Плашка забега: «1,23 км» и «2 петли · туман 0,12 га», а не «1.23 км» и «Петель 2»")
     func runActivity() {
         var stats = RunStats()

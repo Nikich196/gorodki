@@ -35,7 +35,9 @@ struct RealtimeLabText: Equatable {
             case .connected:
                 connection = "на связи"
             case .waiting(let delay):
-                connection = "ждёт повтора (\(delay.components.seconds) с)"
+                // Целые секунды паузы; «4 с» — через NumberText, как остальные числа: пробел неразрывный.
+                connection =
+                    "ждёт повтора (" + NumberText.seconds(Double(delay.components.seconds), fractionDigits: 0) + ")"
             }
         }
         self.init(
