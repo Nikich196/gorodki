@@ -20,7 +20,8 @@ namespace Gorodki.Api.Features.Captures;
 /// <remarks>
 /// Расчёт — без блокировок; запись — короткая транзакция под блокировками тайлов, куски перечитываются и визит
 /// применяется к их свежему состоянию (визит — функция состояния и времени). Кусок, который с тех пор пересобрал захват
-/// (другой номер), пропускается. Путь внутри приватных зон игрока (§3.16) не считается.
+/// (другой номер), пропускается. Путь внутри приватных зон игрока (§3.16) не считается. Пока в тайлах забега скрыт
+/// захват, в журнале которого есть земля игрока, визиты ждут его раскрытия — иначе скрытую петлю выдал бы шов.
 /// </remarks>
 public sealed class VisitProcessor(
     AppDbContext db, RunJudgements judgements, GameConfigStore configs, RealtimeHints hints, TimeProvider time)
@@ -30,7 +31,8 @@ public sealed class VisitProcessor(
     /// (<see cref="TerritoryReader.PublicHorizon"/>: «сейчас − 20 минут» вниз до 5 минут, §3.16): визит меняет землю и
     /// версию тайла, и раньше он выдал бы «игрок только что пробежал здесь». Конец — по часам сервера: у телефона с
     /// отстающими часами он иначе «в прошлом» уже в момент завершения. Забеги демо-аккаунта — сразу, как его захваты.
-    /// Забег, визиты которого не посчитались из-за ошибки, ждёт своей паузы (<see cref="PostponeAsync"/>).
+    /// Забег, визиты которого не посчитались из-за ошибки, ждёт своей паузы (<see cref="PostponeAsync"/>), а забег,
+    /// в тайлах которого ещё скрыт захват земли игрока, — раскрытия этого захвата (<see cref="ProcessRunAsync"/>).
     /// </summary>
     public async Task<List<Guid>> RunsReadyAsync(int take, CancellationToken cancellationToken)
     {
@@ -75,8 +77,28 @@ public sealed class VisitProcessor(
         endedAt.AddSeconds(-clockSkewMs / 1000.0) <= horizon;
 
     /// <summary>
+    /// Когда применён самый поздний ещё скрытый от всех захват (<see cref="TerritoryReader.HiddenJournal"/>) в этих
+    /// тайлах, в журнале которого — до или после — есть земля игрока; null — такого нет.
+    /// </summary>
+    /// <remarks>
+    /// Пока такой захват скрыт, визиты забега не засчитываются (docs/architecture/territory-map.md). Иначе они легли бы
+    /// на куски после захвата: у жертвы — на треснувшую часть и остаток (у автора — на освежённую землю и остаток его
+    /// куска), каждому своё время визита и свой порог 50 м. Публичная проекция откатывает захват по граням следа и
+    /// остаток вне следа с возвращённой землёй не сливает — скрытая петля была бы видна по шву раньше 20 минут. Автор
+    /// захвата ждёт так же (в журнале его земля): обычно не ждёт вовсе — петля применяется ещё во время забега и
+    /// раскрывается раньше его конца; ждёт забег, чей захват применён позже конца (забег из офлайна).
+    /// </remarks>
+    private Task<DateTimeOffset?> HiddenCaptureOfOwnLandAsync(
+        RunEntity run, int minX, int maxX, int minY, int maxY, DateTimeOffset horizon, CancellationToken cancellationToken) =>
+        TerritoryReader.HiddenJournal(db, run.League, horizon)
+            .Where(j => j.TileX >= minX && j.TileX <= maxX && j.TileY >= minY && j.TileY <= maxY
+                && db.CaptureJournalPieces.Any(p => p.CaptureId == j.CaptureId && p.TileX == j.TileX && p.TileY == j.TileY
+                    && p.OwnerId == run.UserId))
+            .MaxAsync(j => (DateTimeOffset?)j.AppliedAt, cancellationToken);
+
+    /// <summary>
     /// Засчитывает визиты забега. Возвращает, сколько кусков освежено, или null — забег уже обработан или ещё рано
-    /// (не прошла публичная задержка после его конца).
+    /// (не прошла публичная задержка после его конца или в его тайлах ещё скрыт захват земли игрока).
     /// </summary>
     public async Task<int?> ProcessRunAsync(Guid runId, CancellationToken cancellationToken)
     {
@@ -86,9 +108,10 @@ public sealed class VisitProcessor(
             return null;
         }
 
+        var delay = await DelayAsync(cancellationToken);
+        var horizon = TerritoryReader.PublicHorizon(time.GetUtcNow(), delay);
         var demo = await db.Users.AnyAsync(u => u.Id == run.UserId && u.Role == UserRole.Demo, cancellationToken);
-        if (!demo && (run.EndedAt is not { } endedAt
-            || !EndIsPublic(endedAt, run.ClockSkewMs, TerritoryReader.PublicHorizon(time.GetUtcNow(), await DelayAsync(cancellationToken)))))
+        if (!demo && (run.EndedAt is not { } endedAt || !EndIsPublic(endedAt, run.ClockSkewMs, horizon)))
         {
             return null;
         }
@@ -113,6 +136,19 @@ public sealed class VisitProcessor(
 
             var tiles = TileKey.Covering(envelope);
             int minX = tiles.Min(t => t.X), maxX = tiles.Max(t => t.X), minY = tiles.Min(t => t.Y), maxY = tiles.Max(t => t.Y);
+            if (await HiddenCaptureOfOwnLandAsync(run, minX, maxX, minY, maxY, horizon, cancellationToken) is { } appliedAt)
+            {
+                // Ещё рано, это не ошибка (счётчик ошибок не растёт): визиты ждут раскрытия захвата и лягут на публичные
+                // куски, без шва. До раскрытия забег не берётся в очередь — и не судится заново каждые 5 секунд. Ожидание
+                // конечно: захват раскрывается не позже чем через задержку и шаг раскрытия (≤ 25 минут) после применения,
+                // и ждать снова забег будет, только если за это время в его тайлах применён ещё один захват земли игрока.
+                var publicAt = TerritoryReader.PublicAt(appliedAt, delay);
+                await db.Runs
+                    .Where(r => r.Id == runId && r.VisitsProcessedAt == null)
+                    .ExecuteUpdateAsync(set => set.SetProperty(r => r.VisitsRetryAt, publicAt), cancellationToken);
+                return null;
+            }
+
             var own = await db.Parcels.AsNoTracking()
                 .Where(p => p.OwnerId == run.UserId && p.League == run.League
                     && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
