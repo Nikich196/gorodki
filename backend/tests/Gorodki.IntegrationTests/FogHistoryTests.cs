@@ -89,8 +89,13 @@ public sealed class FogHistoryTests(DatabaseFixture database)
         }
     }
 
+    /// <remarks>
+    /// Только забеги, которые сервер уже знает в момент очистки. Забег, записанный офлайн до очистки и впервые дошедший
+    /// до сервера после неё, туман откроет — известная дыра (docs/architecture/fog.md, «Не закрыто»): момент очистки
+    /// сервер не хранит, нужна миграция вроде <c>users.fog_cleared_at</c>.
+    /// </remarks>
     [Fact]
-    public async Task Walk_from_before_the_clear_never_opens_fog_even_if_it_is_delivered_later()
+    public async Task Walk_from_before_the_clear_never_opens_fog_even_if_it_finishes_after_the_clear()
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);

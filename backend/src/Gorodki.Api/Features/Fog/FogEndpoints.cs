@@ -76,21 +76,29 @@ public static class FogEndpoints
         }
 
         var seasonNumber = season ?? SeasonCalendar.AllTime;
-        var query = db.FogTiles.AsNoTracking().Where(f => f.UserId == userId && f.Layer == kind && f.Season == seasonNumber);
         var result = new List<FogTileView>();
         var unchanged = new List<TileRef>();
         if (requested is null)
         {
-            var all = await query.OrderBy(f => f.TileX).ThenBy(f => f.TileY).Take(MaxTilesWithoutList).ToListAsync(cancellationToken);
+            var all = await db.FogTiles.AsNoTracking()
+                .Where(f => f.UserId == userId && f.Layer == kind && f.Season == seasonNumber)
+                .OrderBy(f => f.TileX).ThenBy(f => f.TileY).Take(MaxTilesWithoutList)
+                .ToListAsync(cancellationToken);
             result.AddRange(all.Select(ToView));
         }
         else
         {
             // Строки спрошенных тайлов — все, без предела: ответ «не изменился» и «пуст» должен быть правдой о каждом тайле.
             // Рамка вокруг далёких тайлов с пределом строк отрезала бы настоящий тайл, и телефон закэшировал бы его пустым.
-            var xs = requested.Select(t => t.Tile.X).Distinct().ToList();
-            var ys = requested.Select(t => t.Tile.Y).Distinct().ToList();
-            var stored = await query.Where(f => xs.Contains(f.TileX) && ys.Contains(f.TileY)).ToListAsync(cancellationToken);
+            // Ищутся ровно пары (x, y): все x со всеми y — это до 25 × 25 строк (до 8 КБ каждая) ради 25 нужных, если тайлы
+            // разбросаны.
+            var xs = requested.Select(t => t.Tile.X).ToArray();
+            var ys = requested.Select(t => t.Tile.Y).ToArray();
+            var stored = await db.FogTiles
+                .FromSql($"SELECT * FROM app.fog_tiles WHERE (tile_x, tile_y) IN (SELECT * FROM unnest({xs}, {ys}))")
+                .AsNoTracking()
+                .Where(f => f.UserId == userId && f.Layer == kind && f.Season == seasonNumber)
+                .ToListAsync(cancellationToken);
             foreach (var (tile, known) in requested)
             {
                 var entity = stored.SingleOrDefault(f => f.TileX == tile.X && f.TileY == tile.Y);
