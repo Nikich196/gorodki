@@ -52,7 +52,7 @@
 | Профиль | 6 | `GET /me`, `DELETE /me`, `GET /me/export`, `GET` и `POST /me/privacy-zones`, `DELETE /me/privacy-zones/{id}` |
 | Забеги | 4 | `POST /runs`, `PUT /runs/{runId}/chunks/{firstSeq}`, `POST /runs/{runId}/finish`, `GET /runs/{runId}` |
 | Захваты | 2 | `POST /runs/{runId}/loops`, `GET /runs/{runId}/captures` |
-| Исследование | 3 | `GET /fog`, `GET /fog/summary`, `GET /leaderboards/exploration` |
+| Исследование | 4 | `GET /fog`, `DELETE /fog`, `GET /fog/summary`, `GET /leaderboards/exploration` |
 | Карта, Конфиг, Сезоны, Служебное | по 1 | `GET /territory`, `GET /config`, `GET /seasons`, `GET /health` |
 
 **Форма данных и ошибки.** Время — целые миллисекунды Unix по часам телефона; сдвиг часов сервер считает сам по полю
