@@ -124,15 +124,30 @@ final class AppDependencies: Sendable {
         league: GameCore.League, motionAuthorized: Bool, source: LocalRun.Source = .live, startedAt: Double? = nil
     ) async throws -> RunSession? {
         guard let ownerId = await tokens.current()?.playerId else { return nil }
+        let session = try await beginRun(
+            ownerId: ownerId, league: league, motionAuthorized: motionAuthorized, source: source, startedAt: startedAt)
+        Task { await syncScheduler()?.trigger(.recorded) }
+        return session
+    }
+
+    /// Пробный забег «Лаборатории» (`ProbeRun`): тот же путь, что у забега игрока, — правила последней известной версии
+    /// (без сервера — с которыми собрано приложение), очередь в базе, — но без входа: хозяин `LocalRun.labOwnerId`.
+    /// Синхронизация его не видит — она берёт только забеги вошедшего игрока.
+    func startProbeRun(league: GameCore.League, motionAuthorized: Bool) async throws -> RunSession {
+        try await beginRun(ownerId: LocalRun.labOwnerId, league: league, motionAuthorized: motionAuthorized)
+    }
+
+    private func beginRun(
+        ownerId: String, league: GameCore.League, motionAuthorized: Bool, source: LocalRun.Source = .live,
+        startedAt: Double? = nil
+    ) async throws -> RunSession {
         let rules = await self.rules.current()
         let run = LocalRun(
             id: UUID(), ownerId: ownerId, league: league, source: source, configVersion: rules.version,
             startedAtMs: StoragePrecision.milliseconds(startedAt ?? now()), deviceId: await installation.value(),
             appVersion: Self.appVersion, motionAuthorized: motionAuthorized)
         let newcomer = try await RunSession.isNewcomer(ownerId: ownerId, store: syncStore)
-        let session = try await RunSession.start(run, store: syncStore, rules: rules.rules, newcomer: newcomer)
-        Task { await syncScheduler()?.trigger(.recorded) }
-        return session
+        return try await RunSession.start(run, store: syncStore, rules: rules.rules, newcomer: newcomer)
     }
 
     // MARK: - Данные на телефоне

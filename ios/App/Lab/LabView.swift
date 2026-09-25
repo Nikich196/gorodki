@@ -12,6 +12,11 @@ struct LabView: View {
                     Label("Прогулка: фоновый трекинг (S1)", systemImage: "figure.walk")
                 }
                 NavigationLink {
+                    ProbeRunView()
+                } label: {
+                    Label("Пробный забег (без сервера)", systemImage: "figure.run")
+                }
+                NavigationLink {
                     MapStressView()
                 } label: {
                     Label("Карта: 5 000 участков, туман, швы (S4)", systemImage: "map")

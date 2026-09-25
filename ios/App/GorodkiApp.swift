@@ -29,6 +29,7 @@ struct GorodkiApp: App {
                 Task { try? await dependencies.rules.refresh() }
                 // Забег, продолженный после перезапуска в фоне, мог остаться без Live Activity: в фоне её не запустить.
                 RunController.shared.becameActive()
+                ProbeRun.shared.becameActive()
             case .background:
                 // В фоне подсказки некому показывать, а соединение тратит батарею: закрыть, а не ждать, пока iOS
                 // оборвёт его сама (у сервера — не больше трёх соединений на игрока).

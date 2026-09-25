@@ -67,6 +67,20 @@ struct AppDependenciesTests {
         #expect(await offline.syncScheduler() == nil)
     }
 
+    @Test("Пробный забег начинается без входа и сервера: хозяин «lab», правила — с которыми собрано приложение")
+    func probeRunWithoutSignIn() async throws {
+        let queue = InMemorySyncStore()
+        let dependencies = AppDependencies(serverURL: nil, tokenStorage: InMemoryTokenStorage(), syncStore: queue)
+
+        let session = try await dependencies.startProbeRun(league: GameCore.League.run, motionAuthorized: true)
+
+        let run = try #require(await queue.runs().first)
+        #expect(run.id == session.runId && run.isLabProbe)
+        #expect(run.configVersion == RulesVersion.bundled.version)
+        #expect(try await dependencies.startRun(league: GameCore.League.run, motionAuthorized: true) == nil)
+        #expect(await queue.runs().count == 1)
+    }
+
     @Test("Выход стирает всё на телефоне: вход, очередь, правила, тайлы на диске, запись повтора, историю")
     func wipeLocalData() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

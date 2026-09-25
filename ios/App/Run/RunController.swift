@@ -69,11 +69,13 @@ final class RunController {
     // MARK: - Экран
 
     /// «Старт». Разрешения проверяются до записи забега: пустой забег съел бы суточный лимит (10 забегов).
+    /// Идёт пробный забег «Лаборатории» (`ProbeRun`) — `TrackerError.alreadyRunning`: трекер на телефоне один за раз.
     /// - Parameter recordDemo: записать забег для демо-повтора (запись сохраняется после «Финиша»).
     func start(league: League, recordDemo: Bool = false) async throws {
         guard !busy else { throw TrackerError.alreadyRunning }
         busy = true
         defer { busy = false }
+        guard await !ProbeRun.shared.isOccupied() else { throw TrackerError.alreadyRunning }
         guard await !tracker.state.isRunning else { throw TrackerError.alreadyRunning }
         let manager = CLLocationManager()
         switch manager.authorizationStatus {
@@ -148,8 +150,15 @@ final class RunController {
         ended()
     }
 
+    /// Забег идёт, начинается, продолжается после перезапуска или повторяется — пробный забег «Лаборатории» ждёт
+    /// (`ProbeRun`): трекер на телефоне один за раз.
+    func isOccupied() async -> Bool {
+        if busy { return true }
+        return await tracker.state.isRunning
+    }
+
     /// Разрешение «Движение и фитнес». Не спрошено — системный запрос сейчас: ответ нужен до записи забега.
-    private static func motionAuthorization() async -> Bool {
+    static func motionAuthorization() async -> Bool {
         switch CMMotionActivityManager.authorizationStatus() {
         case .authorized:
             return true
@@ -186,6 +195,7 @@ final class RunController {
         guard !busy else { throw TrackerError.alreadyRunning }
         busy = true
         defer { busy = false }
+        guard await !ProbeRun.shared.isOccupied() else { throw TrackerError.alreadyRunning }
         guard let recording = Self.loadDemoRecording() else { return }
         let replay = RunReplay(recording, speed: speed)
         let startedAt = replay.startedAt(now: Date.now.timeIntervalSince1970)
@@ -243,6 +253,8 @@ final class RunController {
         if await tracker.state.isRunning {
             try await finish()
         }
+        // Стирание уберёт и пробные забеги «Лаборатории»: идущий пробный — закончить, иначе он писал бы куски стёртого.
+        await ProbeRun.shared.finish()
         await AppDependencies.shared.signIn?.signOut()
         defer { hasDemoRecording = Self.loadDemoRecording() != nil }
         try await AppDependencies.shared.wipeLocalData()
@@ -266,6 +278,7 @@ final class RunController {
         let deviceId = await dependencies.installation.value()
         let playerId = await dependencies.tokens.current()?.playerId
         let rules = dependencies.rules
+        // Только забеги игрока: пробные «Лаборатории» продолжает и закрывает `ProbeRun`.
         let session = try? await RunTracker.recover(
             store: dependencies.syncStore, deviceId: deviceId, signedIn: playerId,
             now: Date.now.timeIntervalSince1970, rules: { await rules.rules(version: $0)?.rules })
