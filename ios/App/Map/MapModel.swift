@@ -138,13 +138,13 @@ struct ParcelSheetContent: Equatable {
         if let until = parcel.siegeUntilMs, parcel.siegeActive(atMs: nowMs) {
             rows.append(
                 Row(
-                    title: "Осада — укреплять нельзя",
+                    title: "Осада",
                     value: MomentText.until(until, now: nowMs, timeZone: timeZone)))
         }
         if let zone = selection.zone, zone.isActive(atMs: nowMs) {
             rows.append(
                 Row(
-                    title: "Спорная — её обвела большая петля",
+                    title: "Спорная",
                     value: MomentText.until(zone.untilMs, now: nowMs, timeZone: timeZone)))
         }
         self.rows = rows
@@ -251,6 +251,25 @@ final class MapModel {
     var player: PlayerColor { profile.playerColor }
 
     // MARK: - Что рисовать
+
+    /// Всё, от чего зависит картинка карты, — простыми значениями. Экран читает это в `body` и передаёт карте:
+    /// меняется — SwiftUI зовёт `updateUIView` (сам `updateUIView` за чтениями модели не следит — снимок 28 показал
+    /// «Отношения» с прежними цветами).
+    struct RenderVersion: Equatable {
+        var land: Int
+        var fog: Int
+        var layer: MapLayer
+        var coloring: LandColoring
+        var viewer: String?
+        var player: PlayerColor
+        var nowMs: Int64
+    }
+
+    var renderVersion: RenderVersion {
+        RenderVersion(
+            land: landRevision, fog: fogRevision, layer: layer, coloring: coloring, viewer: viewerId, player: player,
+            nowMs: nowMs)
+    }
 
     /// Стиль куска для этого зрителя и режима окраски.
     func style(of parcel: LandParcel) -> LandStyle {

@@ -15,6 +15,8 @@ import SwiftUI
 /// - **Касание** — `UITapGestureRecognizer` → координата и допуск в метрах → `MapModel.select`.
 struct GameMapView: UIViewRepresentable {
     let model: MapModel
+    /// Значения, от которых зависит картинка: `MapScreen` читает их в `body`, поэтому их смена вызывает `updateUIView`.
+    let version: MapModel.RenderVersion
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
@@ -189,7 +191,7 @@ struct GameMapView: UIViewRepresentable {
             let style = entry.style
             let isEdge = entry.isEdge
             if !isEdge, let multi = overlay as? MKMultiPolygon {
-                let renderer = MKMultiPolygonRenderer(multiPolygon: multi)
+                let renderer = LandFillRenderer(multiPolygon: multi)
                 renderer.fillColor = style.fill(theme).uiColor
                 renderer.lineWidth = 0  // заливки без обводки: так не видно швов на краях тайлов (PLAN.md, D4)
                 return renderer
@@ -237,6 +239,16 @@ struct GameMapView: UIViewRepresentable {
             model.select(
                 at: Coordinate(latitude: coordinate.latitude, longitude: coordinate.longitude), tolerance: tolerance)
         }
+    }
+}
+
+/// Заливка земли без сглаживания краёв. Со сглаживанием у соседних кусков одного участка (сервер режет землю по тайлам)
+/// общий край закрашен дважды наполовину, и по линии тайла видна светлая нить (снимок 24). Без него каждый пиксель —
+/// ровно одного куска, шва нет; внешний край заливки закрыт кромкой (≥ 1 pt), ступенек не видно.
+final class LandFillRenderer: MKMultiPolygonRenderer, @unchecked Sendable {
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        context.setShouldAntialias(false)
+        super.draw(mapRect, zoomScale: zoomScale, in: context)
     }
 }
 

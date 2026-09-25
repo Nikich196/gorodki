@@ -174,8 +174,8 @@ struct MapModelTests {
                 ["Уровень", "3 из 3"],
                 ["Последний визит", "сегодня в 16:00"],
                 ["Щит", "до 22:00"],
-                ["Осада — укреплять нельзя", "до завтра, 14:00"],
-                ["Спорная — её обвела большая петля", "до 27 сентября, 14:00"],
+                ["Осада", "до завтра, 14:00"],
+                ["Спорная", "до 27 сентября, 14:00"],
             ])
 
         let expired = ParcelSheetContent(
@@ -282,7 +282,7 @@ struct MapModelTests {
         #expect(!model.fog.isEmpty)
         #expect(model.selection?.parcel.id == 41)
         #expect(model.sheet?.title == "Бегун-1234")
-        #expect(model.sheet?.rows.map(\.title).contains("Спорная — её обвела большая петля") == true)
+        #expect(model.sheet?.rows.map(\.title).contains("Спорная") == true)
 
         #expect(Fixtures.map(.mapStart, fixture: nil, profile: profile).primer == .location)
         #expect(Fixtures.map(.mapExplore, fixture: nil, profile: profile).layer == .explore)

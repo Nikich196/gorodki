@@ -9,7 +9,7 @@ struct MapScreen: View {
     @Bindable var model: MapModel
 
     var body: some View {
-        GameMapView(model: model)
+        GameMapView(model: model, version: model.renderVersion)
             .ignoresSafeArea()
             .overlay(alignment: .top) {
                 MapControls(model: model)
