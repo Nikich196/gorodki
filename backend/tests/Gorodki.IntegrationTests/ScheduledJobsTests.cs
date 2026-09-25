@@ -98,7 +98,7 @@ public sealed class ScheduledJobsTests(DatabaseFixture database)
         Assert.Equal(HttpStatusCode.OK, recurring.StatusCode);
         var page = await recurring.Content.ReadAsStringAsync(Cancel);
         Assert.Contains(ScheduledJobs.RefreshTokensJob, page);
-        Assert.DoesNotContain("only-for-tests", page); // строка подключения (с паролем) на странице не показывается
+        Assert.DoesNotContain("PostgreSQL Server", page); // хранилище (хост пула, имя базы) на странице не показывается
 
         // Только чтение: кнопки «запустить» нет, а запрос в обход неё не выполняется.
         using var trigger = new FormUrlEncodedContent([new("jobs[]", ScheduledJobs.RefreshTokensJob)]);

@@ -68,7 +68,7 @@ public static class ScheduledJobs
     /// <summary>Дашборд и расписание. Вызывать после <c>UseAuthentication</c>/<c>UseAuthorization</c>: без входа дашборд — 401.</summary>
     public static WebApplication UseScheduledJobs(this WebApplication app)
     {
-        // Токен из адреса — в куку, и сразу тот же адрес без токена: он не остаётся в истории браузера.
+        // Токен из адреса — в куку, и сразу тот же адрес без токена: в ссылках страницы и её запросах его уже нет.
         app.Use(async (context, next) =>
         {
             if (context.Request.Path.StartsWithSegments(DashboardPath)
@@ -94,7 +94,7 @@ public static class ScheduledJobs
             Authorization = [], // по умолчанию — «только с этой машины»: за прокси Render это никто
             AsyncAuthorization = [new AdminOnly()],
             IsReadOnlyFunc = _ => true,
-            DisplayStorageConnectionString = false, // иначе на странице — адрес пула и имя пользователя базы
+            DisplayStorageConnectionString = false, // иначе на странице — хост пула и имя базы
             DashboardTitle = "Городки — задачи по расписанию",
             AppPath = null,
             StatsPollingInterval = 10_000, // открытый дашборд опрашивает базу — не чаще раза в 10 с
