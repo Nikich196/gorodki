@@ -48,6 +48,19 @@ struct RunHistoryTests {
         #expect(try await history.archiveEnded(from: queue).isEmpty)
     }
 
+    @Test("Пробный забег «Лаборатории» в историю не попадает: история — забеги игрока")
+    func labProbeSkipped() async throws {
+        let queue = InMemorySyncStore()
+        let history = RunHistory(try AppDatabase.inMemory())
+        let run = try await endedRun(in: queue)
+        var probe = try await endedRun(in: queue, startedAtMs: 1_790_000_200_000)
+        probe.ownerId = LocalRun.labOwnerId
+        try await queue.insert(probe)
+
+        #expect(try await history.archiveEnded(from: queue) == [run.id])
+        #expect(try await history.entries().map(\.id) == [run.id])
+    }
+
     @Test("Предел хранения — последние по началу; по умолчанию — все (число за Никитой)")
     func retention() async throws {
         #expect(RunHistory.defaultRetention == nil)

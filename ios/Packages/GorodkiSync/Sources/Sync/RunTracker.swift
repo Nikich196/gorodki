@@ -271,15 +271,22 @@ public actor RunTracker {
     /// Какой забег продолжить после перезапуска приложения. Продолжается забег этого устройства, не завершённый и не
     /// отвергнутый сервером, игрока, который вошёл (или ничей вход: он мог истечь — запись от входа не зависит), если
     /// правила его версии известны, предел длины не вышел и последняя записанная точка (или старт) не старше
-    /// `maxResumeGapSeconds`. Все остальные незавершённые забеги закрываются — их петли иначе ждали бы датчиков вечно.
-    /// - Parameter rules: правила версии конфига (`RulesStore.rules(version:)`); `nil` — неизвестна.
+    /// `maxResumeGapSeconds`. Все остальные незавершённые забеги того же вида закрываются — их петли иначе ждали бы
+    /// датчиков вечно.
+    /// - Parameters:
+    ///   - rules: правила версии конфига (`RulesStore.rules(version:)`); `nil` — неизвестна.
+    ///   - labProbe: `true` — пробный забег «Лаборатории» (`LocalRun.labOwnerId`), `false` — забег игрока. При запуске
+    ///     приложения восстанавливаются оба вида, и каждый трогает только свои: иначе без входа забег игрока продолжил бы
+    ///     пробный, а продолжение одного закрыло бы другой.
     public static func recover(
         store: any SyncStore, deviceId: UUID, signedIn playerId: String?, now: Double,
-        rules: @Sendable (Int) async -> PhoneRules?, policy: ChunkPolicy = ChunkPolicy()
+        rules: @Sendable (Int) async -> PhoneRules?, labProbe: Bool = false, policy: ChunkPolicy = ChunkPolicy()
     ) async throws -> RunSession? {
         let nowMs = StoragePrecision.milliseconds(now)
         var chosen: (run: LocalRun, rules: PhoneRules)?
-        let open = try await store.runs().filter { !$0.isFinishedLocally && $0.serverState != .rejected }
+        let open = try await store.runs().filter {
+            !$0.isFinishedLocally && $0.serverState != .rejected && $0.isLabProbe == labProbe
+        }
         for run in open.sorted(by: { $0.startedAtMs > $1.startedAtMs }) {
             // Демо-повтор не продолжается: настоящая геопозиция в забеге-повторе была бы подделкой.
             guard run.source == .live, run.deviceId == deviceId, playerId == nil || run.ownerId == playerId,
@@ -292,7 +299,7 @@ public actor RunTracker {
                 break
             }
         }
-        try await RunRecorder.closeInterrupted(except: chosen?.run.id, store: store)
+        try await RunRecorder.closeInterrupted(except: chosen?.run.id, store: store) { $0.isLabProbe == labProbe }
         guard let chosen else { return nil }
         return try await RunSession.resume(runId: chosen.run.id, store: store, rules: chosen.rules, policy: policy)
     }

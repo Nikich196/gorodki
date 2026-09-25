@@ -93,6 +93,23 @@ struct SyncEngineTests {
         #expect(try await stored(own).confirmedComplete)
     }
 
+    @Test("Пробные забеги «Лаборатории» на сервер не уходят и в очередь игрока не считаются — остаются на телефоне")
+    func labProbeRunsStayOnPhone() async throws {
+        let probe = Fixture.run(owner: LocalRun.labOwnerId)
+        try await Fixture.record(probe, points: 25, into: store, claims: [Fixture.loop(2, 14)])
+        let own = Fixture.run(startedAt: Fixture.start + 3_600)
+        try await Fixture.record(own, points: 5, into: store)
+
+        _ = await engine().syncOnce()
+
+        #expect(await server.run(probe.id) == nil)
+        #expect(try await stored(probe).serverState == .unknown)
+        #expect(await store.chunks(of: probe.id).count == 3)
+        #expect(await store.claims(of: probe.id).allSatisfy { !$0.sent })
+        #expect(try await stored(own).confirmedComplete)
+        #expect(try await SyncBacklog.of(store, ownerId: Fixture.owner) == SyncBacklog())
+    }
+
     // MARK: - Сеть и повторы
 
     @Test("Нет сети: ничего не потеряно, следующий проход доделывает")
@@ -645,5 +662,6 @@ actor UnreadableChunkStore: SyncStore {
     func claims(of runId: UUID) async -> [PendingClaim] { await inner.claims(of: runId) }
     func lastClaimNo(of runId: UUID) async -> Int? { await inner.lastClaimNo(of: runId) }
     func save(_ claim: PendingClaim) async { await inner.save(claim) }
+    func removeRun(_ id: UUID) async { await inner.removeRun(id) }
     func removeAll() async { await inner.removeAll() }
 }

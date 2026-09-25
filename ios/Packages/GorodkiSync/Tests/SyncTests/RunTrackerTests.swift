@@ -203,6 +203,28 @@ struct RunTrackerTests {
         #expect(session?.runId == run)
     }
 
+    @Test("Пробный забег «Лаборатории» и забег игрока продолжаются каждый своим продолжением и не закрывают друг друга")
+    func recoverKeepsLabProbeApart() async throws {
+        let now = Fixture.start + 3_600
+        let player = await insertRun(startedAt: now - 600, lastPoint: now - 20)
+        // Пробный — новее: без разделения продолжение забега игрока (никто не вошёл) выбрало бы его.
+        let probe = await insertRun(startedAt: now - 300, lastPoint: now - 10) { $0.ownerId = LocalRun.labOwnerId }
+        let staleProbe = await insertRun(startedAt: now - 1_800, lastPoint: now - 11 * 60) {
+            $0.ownerId = LocalRun.labOwnerId
+        }
+
+        let real = try await RunTracker.recover(
+            store: store, deviceId: Fixture.device, signedIn: nil, now: now, rules: { _ in .version1 })
+        #expect(real?.runId == player)
+        #expect(await openRuns() == [player, probe, staleProbe])
+
+        let lab = try await RunTracker.recover(
+            store: store, deviceId: Fixture.device, signedIn: LocalRun.labOwnerId, now: now, rules: { _ in .version1 },
+            labProbe: true)
+        #expect(lab?.runId == probe)
+        #expect(await openRuns() == [player, probe])
+    }
+
     @Test("«Финиш» сразу после точек, без ожидания, — все точки в забеге: конец идёт той же очередью")
     func finishAfterQueuedPoints() async throws {
         let tracker = RunTracker()
