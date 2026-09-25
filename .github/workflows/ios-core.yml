@@ -39,7 +39,7 @@ jobs:
 
       - name: Оформление кода (swift-format)
         working-directory: ios
-        run: swift format lint --strict --recursive --configuration .swift-format Packages App AppTests Widgets
+        run: swift format lint --strict --recursive --configuration .swift-format Packages App AppTests Widgets Tools
 
       # После проверки оформления: в .build пакета лежат исходники зависимостей, их проверять не нужно.
       - name: Клиент API (GorodkiAPI) — генерация из contracts/openapi.v1.json и тесты
@@ -47,6 +47,11 @@ jobs:
 
       - name: Офлайн-синхронизация (GorodkiSync) — запись забега и доставка по контракту
         run: swift test --package-path ios/Packages/GorodkiSync
+
+      # Инструмент разработчика, в приложение не входит: детектор петли GameCore на записанных забегах
+      # (docs/guides/calibration-replay.md). Вторая половина — backend/tools/Gorodki.Calibration, её тесты — в backend.
+      - name: Разбор забегов (ios/Tools/LoopReplay) — детектор петли с другими числами
+        run: swift test --package-path ios/Tools/LoopReplay
 
       # GRDB на Linux собирается с системной SQLite, распаковка тайлов тумана — с системной zlib: нужны заголовки.
       - name: Заголовки SQLite (GRDB) и zlib (туман)
