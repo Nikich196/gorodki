@@ -456,7 +456,8 @@ public sealed class CaptureProcessor(
 
     /// <summary>
     /// Стирает журнал захватов старше <see cref="JournalRetention"/> (куски — каскадом) и зоны «спорная», истёкшие больше
-    /// суток назад (задача E6 перенесёт это в повторяющуюся задачу Hangfire). Возвращает, сколько записей журнала стёрто.
+    /// суток назад (стадия остаётся в <c>CaptureWorker</c> вместе с журналом, docs/architecture/jobs.md). Возвращает, сколько
+    /// записей журнала стёрто.
     /// </summary>
     public async Task<int> PruneJournalAsync(CancellationToken cancellationToken)
     {

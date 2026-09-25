@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Gorodki.Api.Features.Auth;
 
 /// <summary>
-/// Истёкшие refresh-токены стираются раз в час (фоновый обработчик). Каждый вход и каждое обновление (раз в 15 минут на
+/// Истёкшие refresh-токены стираются раз в час (задача Hangfire <c>refresh-tokens-purge</c>, <c>ScheduledJobs</c>). Каждый вход и каждое обновление (раз в 15 минут на
 /// телефон) добавляют строку, и без чистки таблица росла бы без предела, а «Мои данные» выгружали бы всю историю входов.
 /// </summary>
 /// <remarks>

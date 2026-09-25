@@ -1,5 +1,4 @@
 using System.Threading.Channels;
-using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
@@ -59,8 +58,9 @@ public sealed class CaptureWorker(
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// Раз в час: стирается журнал захватов старше недели, сырые точки старше 14 дней и истёкшие токены входа, закрываются
-    /// забытые забеги, стираются аккаунты, удаление которых запрошено, раз в игровые сутки — срез рейтингов.
+    /// Раз в час: стирается журнал захватов старше недели и сырые точки старше 14 дней, закрываются забытые забеги,
+    /// стираются аккаунты, удаление которых запрошено, раз в игровые сутки — срез рейтингов. Истёкшие токены входа стирает
+    /// уже Hangfire (<c>ScheduledJobs</c>) — образец переноса остальных чисток (ADR 0005).
     /// </summary>
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
 
@@ -88,7 +88,6 @@ public sealed class CaptureWorker(
         // Забытые забеги — до тумана и визитов прохода: закрытый забег сразу готов к ним.
         await StageAsync("забытые забеги", () => InScopeAsync<RunRetention>(r => r.CloseForgottenAsync(cancellationToken)), logger, cancellationToken);
         await StageAsync("сырые точки", () => InScopeAsync<RunRetention>(r => r.PurgeRawPointsAsync(cancellationToken)), logger, cancellationToken);
-        await StageAsync("токены входа", () => InScopeAsync<RefreshTokenRetention>(r => r.PurgeExpiredAsync(cancellationToken)), logger, cancellationToken);
         await StageAsync("удаление аккаунтов", () => InScopeAsync<AccountDeletion>(d => d.ProcessRequestedAsync(cancellationToken)), logger, cancellationToken);
         await StageAsync("срез рейтингов", () => InScopeAsync<LeaderboardSnapshots>(s => s.TakeIfDueAsync(cancellationToken)), logger, cancellationToken);
     }

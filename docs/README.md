@@ -9,6 +9,7 @@
 | [architecture/data-model.md](architecture/data-model.md) | Модель данных: таблицы, ER-диаграмма, проверки |
 | [architecture/sync.md](architecture/sync.md) | Офлайн-синхронизация на телефоне: запись забега и доставка очереди |
 | [architecture/realtime.md](architecture/realtime.md) | Реальное время (SignalR): подсказки «тайлы изменились» и «заявка решена», контракт для приложения |
+| [architecture/jobs.md](architecture/jobs.md) | Задачи по расписанию (Hangfire): расписание, как добавить задачу, дашборд `/admin/hangfire`, бюджет памяти и соединений |
 | [architecture/ios-app.md](architecture/ios-app.md) | Приложение: клиент API, токены в Keychain, обновление при 401, адрес сервера |
 | [architecture/osm-pipeline.md](architecture/osm-pipeline.md) | Конвейер OSM (проект v1): маски, «достижимая» площадь и % Бреста, граница и Арена, атрибуция ODbL |
 | [decisions/osm-questions.md](decisions/osm-questions.md) | Вопросы по OSM и решения 25.09 — буферы масок, пешеходные пути, Арена, «Ничейные земли», ODbL |

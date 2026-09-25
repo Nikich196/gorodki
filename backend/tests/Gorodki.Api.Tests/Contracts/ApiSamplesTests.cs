@@ -11,6 +11,7 @@ using Gorodki.Api.Features.Players;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
+using Gorodki.Api.Infrastructure.Jobs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
 using Gorodki.Domain.Fog;
@@ -44,6 +45,7 @@ public sealed class ApiSamplesTests
             builder.UseSetting("ConnectionStrings:Gorodki", "Host=localhost;Database=samples-only");
             builder.UseSetting("Auth:SigningKey", Convert.ToBase64String(new byte[32]));
             builder.UseSetting(CaptureWorker.EnabledSetting, "false");
+            builder.UseSetting(ScheduledJobs.EnabledSetting, "false");
         });
         var server = app.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions;
         var pretty = new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
