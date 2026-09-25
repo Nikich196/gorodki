@@ -43,4 +43,31 @@ public enum NumberText {
     public static func seconds(_ seconds: Double, fractionDigits: Int) -> String {
         decimal(seconds, fractionDigits: fractionDigits) + unitSeparator + "с"
     }
+
+    /// «140 м» — целые метры.
+    public static func meters(_ meters: Int) -> String {
+        integer(meters) + unitSeparator + "м"
+    }
+
+    /// Время как на часах забега: «17:42», с часа — «1:02:03» (PLAN.md, §6.10). Секунды — вниз до целой: таймер
+    /// не забегает вперёд. Отрицательное — ноль.
+    public static func clock(seconds: Double) -> String {
+        let total = Int(max(0, seconds.isFinite ? seconds : 0).rounded(.down))
+        let (hours, minutes, rest) = (total / 3_600, total % 3_600 / 60, total % 60)
+        let tail = twoDigits(rest)
+        return hours > 0 ? "\(hours):\(twoDigits(minutes)):\(tail)" : "\(minutes):\(tail)"
+    }
+
+    /// Темп без единицы: «5:32» — минуты и секунды на километр, до ближайшей секунды (§6.10: «5:32 /км»).
+    public static func pace(secondsPerKilometer: Double) -> String {
+        let total = Int(max(0, secondsPerKilometer.isFinite ? secondsPerKilometer : 0).rounded())
+        return "\(total / 60):\(twoDigits(total % 60))"
+    }
+
+    /// Единица темпа — «/км» (через неразрывный пробел после числа: «5:32 /км»).
+    public static let paceUnit = "/км"
+
+    private static func twoDigits(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
+    }
 }
