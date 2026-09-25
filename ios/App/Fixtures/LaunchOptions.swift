@@ -20,9 +20,9 @@ struct LaunchOptions: Equatable {
     /// Аргументы этого запуска.
     static let current: LaunchOptions = {
         #if DEBUG
-            parse(ProcessInfo.processInfo.arguments)
+            return parse(ProcessInfo.processInfo.arguments)
         #else
-            LaunchOptions()
+            return LaunchOptions()
         #endif
     }()
 

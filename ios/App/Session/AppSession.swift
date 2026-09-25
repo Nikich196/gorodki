@@ -17,7 +17,7 @@ final class AppSession {
 
     private(set) var status: Status = .unknown
     /// Роль из access-токена (`player`, `demo`, `admin`); `nil` — не вошёл или токен без роли.
-    private(set) var role: String?
+    private(set) var role: String? = nil
     /// Сборка команды разрешает посмотреть вкладки без входа (`DebugAccess.buildAllows`): вход через Google ждёт
     /// Client ID (#4), а пробную установку смотреть нужно уже сейчас. Не сохраняется — после перезапуска снова онбординг.
     var browsingWithoutSignIn = false
@@ -42,9 +42,9 @@ final class AppSession {
 enum DebugAccess {
     static var buildAllows: Bool {
         #if DEBUG || FREE_SIGNING
-            true
+            return true
         #else
-            false
+            return false
         #endif
     }
 

@@ -7,7 +7,7 @@ import SwiftUI
 struct OnboardingView: View {
     @Bindable var model: OnboardingModel
     /// Посмотреть вкладки без входа — только в сборках команды (`DebugAccess.buildAllows`).
-    var browseWithoutSignIn: (() -> Void)?
+    var browseWithoutSignIn: (@MainActor () -> Void)?
     @State private var debugMenuShown = false
 
     var body: some View {
@@ -196,7 +196,7 @@ private struct ConsentStep: View {
 
 private struct SignInStep: View {
     @Bindable var model: OnboardingModel
-    var browseWithoutSignIn: (() -> Void)?
+    var browseWithoutSignIn: (@MainActor () -> Void)?
 
     var body: some View {
         StepScaffold(

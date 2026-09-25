@@ -8,14 +8,14 @@ import SwiftUI
 @MainActor
 @Observable
 final class ProfileModel {
-    var displayName: String?
+    var displayName: String? = nil
     /// Номер цвета с сервера (`colorIndex`); `nil` — ещё не знаем.
-    var colorIndex: Int?
-    var role: String?
+    var colorIndex: Int? = nil
+    var role: String? = nil
     /// Открыто тумана «Пешком» за всё время и за текущий сезон, м².
-    var exploredSquareMeters: Double?
-    var seasonExploredSquareMeters: Double?
-    var seasonName: String?
+    var exploredSquareMeters: Double? = nil
+    var seasonExploredSquareMeters: Double? = nil
+    var seasonName: String? = nil
     var signedIn: Bool
 
     init(signedIn: Bool = false, role: String? = nil) {

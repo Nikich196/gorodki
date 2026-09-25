@@ -88,7 +88,7 @@ private struct IntroIllustration: View {
 
 /// Кварталы: несколько улиц поперёк картинки.
 private struct StreetGrid: Shape {
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         var path = Path()
         for fraction in [0.3, 0.68] {
             path.move(to: CGPoint(x: rect.minX, y: rect.height * fraction))
@@ -104,7 +104,7 @@ private struct StreetGrid: Shape {
 private struct ParcelShape: Shape {
     let rect: CGRect
 
-    func path(in _: CGRect) -> Path {
+    nonisolated func path(in _: CGRect) -> Path {
         let points = [
             CGPoint(x: 0.12, y: 0.08), CGPoint(x: 0.7, y: 0), CGPoint(x: 1, y: 0.38), CGPoint(x: 0.86, y: 0.94),
             CGPoint(x: 0.3, y: 1), CGPoint(x: 0, y: 0.56),
@@ -149,7 +149,7 @@ private struct FogWithClearing: View {
 
 /// Путь пешехода через картинку.
 private struct TrailPath: Shape {
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.width * 0.12, y: rect.height * 0.86))
         path.addCurve(

@@ -37,7 +37,7 @@ final class OnboardingModel {
     var returningPlayer = false
     var isSigningIn = false
     /// Текст ошибки входа для игрока (`SignInFailure.message`).
-    var errorMessage: String?
+    var errorMessage: String? = nil
 
     private let signIn: SignIn?
     private let googleToken: GoogleToken?
