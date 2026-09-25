@@ -71,7 +71,7 @@
 | Почта из Google не хранится | `GoogleTokenValidator` читает `email`, но `AuthEndpoints` сохраняет только `sub`; в `UserEntity` поля почты нет |
 | Состав данных | `Entities.cs`; `RunContracts.cs` (`StartRunRequest`, `TrackPointDto`, `MotionSampleDto`, `StepSampleDto`) |
 | Состав «Моих данных» | `AccountExport` |
-| Что другие видят у чужой земли | `ParcelView` в `TerritoryEndpoints` (`OwnerId`, `ColorIndex`, `Level`, `Ghost`, `LastVisitAtMs`, `ShieldUntilMs`, `SiegeUntilMs`, `ContestedUntilMs`); точность у чужих — `TerritoryReader.ToView` (час, 10 минут; пометка «спорная» — 10 минут у всех); «призрак» 3 дня — `TerritoryConfig.GhostDays`; [глава 7 записки](../report/07-fair-play-and-privacy.md) |
+| Что другие видят у чужой земли | `ParcelView` в `TerritoryEndpoints` (`OwnerId`, `ColorIndex`, `Level`, `Ghost`, `LastVisitAtMs`, `ShieldUntilMs`, `SiegeUntilMs`) и зоны «спорная» (`ContestedZoneView`: конец и контур, без владельца и автора петли; видны после границы публичности); точность у чужих — `TerritoryReader.ToView` (час, 10 минут; конец зоны — 10 минут у всех); «призрак» 3 дня — `TerritoryConfig.GhostDays`; [глава 7 записки](../report/07-fair-play-and-privacy.md) |
 | Номер на карте связывается с «Игрок #1234» | `LeaderboardEndpoints.Pseudonym` — хэш того же номера игрока, что `OwnerId` на карте |
 | Сервер и база — Франкфурт | `render.yaml` (`region: frankfurt`); [deploy-render.md](../guides/deploy-render.md) (`eu-central-1`); [глава 10](../report/10-deployment.md) |
 | Меры защиты | `TokenService` (хэш refresh-токена), `FallbackPolicy` в `Program.cs`, `IdorTests`, тест полноты удаления; Data API выключен ([глава 10](../report/10-deployment.md)); `SSL Mode=Require` ([deploy-render.md](../guides/deploy-render.md)) |
