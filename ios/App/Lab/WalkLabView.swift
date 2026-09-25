@@ -1,3 +1,4 @@
+import GameCore
 import SwiftUI
 
 /// Экран прогулки для спайка S1: фоновый трекинг, Live Activity, живые правила GameCore.
@@ -41,9 +42,12 @@ struct WalkLabView: View {
                     LabeledContent("Точек", value: "\(stats.fixes) (отброшено \(stats.ignored))")
                     LabeledContent("Самый длинный разрыв", value: "\(Int(stats.longestGapSeconds)) с")
                     LabeledContent("Разрывов длиннее 15 с", value: "\(stats.gapsOver15Seconds)")
-                    LabeledContent("Дистанция", value: String(format: "%.2f км", stats.distanceMeters / 1_000))
+                    LabeledContent(
+                        "Дистанция", value: NumberText.kilometers(fromMeters: stats.distanceMeters, fractionDigits: 2))
                     LabeledContent("Петель", value: "\(stats.loops)")
-                    LabeledContent("Туман открыт", value: String(format: "%.2f га", stats.fogAreaSquareMeters / 10_000))
+                    LabeledContent(
+                        "Туман открыт",
+                        value: NumberText.hectares(fromSquareMeters: stats.fogAreaSquareMeters, fractionDigits: 2))
                     if let event = lab.lastEvent {
                         Text(event).font(.footnote).foregroundStyle(.secondary)
                     }

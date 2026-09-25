@@ -14,12 +14,12 @@ struct LabView: View {
                 NavigationLink {
                     MapStressView()
                 } label: {
-                    Label("Карта: 5 000 участков и туман (S4)", systemImage: "map")
+                    Label("Карта: 5 000 участков, туман, швы (S4)", systemImage: "map")
                 }
                 NavigationLink {
                     ServerLabView(dependencies: .shared)
                 } label: {
-                    Label("Сервер: связь и вход", systemImage: "network")
+                    Label("Сервер: связь, вход, реальное время (S7)", systemImage: "network")
                 }
             } footer: {
                 Text("Каждый экран отвечает на один вопрос из плана. Результат — снимок экрана со сводкой.")

@@ -370,9 +370,15 @@ final class RunController {
     private func updateLiveActivity(_ stats: RunStats) {
         guard let activityID, Date.now.timeIntervalSince(lastActivityUpdate) >= 5 else { return }
         lastActivityUpdate = .now
-        let state = RunActivityAttributes.ContentState(
-            title: "Забег · \(String(format: "%.2f", stats.distanceMeters / 1_000)) км",
-            detail: "Петель \(stats.loops) · туман \(String(format: "%.2f", stats.fogAreaSquareMeters / 10_000)) га")
+        let state = Self.activityContent(stats)
         Task { await RunActivityController.update(id: activityID, state: state) }
+    }
+
+    /// Текст плашки: «Забег · 1,23 км», «2 петли · туман 0,12 га» — по-русски при любом языке телефона.
+    nonisolated static func activityContent(_ stats: RunStats) -> RunActivityAttributes.ContentState {
+        RunActivityAttributes.ContentState(
+            title: "Забег · " + NumberText.kilometers(fromMeters: stats.distanceMeters, fractionDigits: 2),
+            detail: CountText.loops(stats.loops) + " · туман "
+                + NumberText.hectares(fromSquareMeters: stats.fogAreaSquareMeters, fractionDigits: 2))
     }
 }

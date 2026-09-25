@@ -1,4 +1,4 @@
-# Игровое ядро GameCore на Linux (быстро и без Mac) и проверка оформления Swift-кода.
+# Игровое ядро GameCore на Linux (быстро и без Mac), проверка оформления Swift-кода и текстов по-русски.
 name: ios-core
 
 on:
@@ -24,6 +24,15 @@ jobs:
     container: swift:6.4-noble
     steps:
       - uses: actions/checkout@v7
+
+      # Тексты для игрока — по-русски (PLAN.md §6.10): дроби не через String(format:) — он ставит точку («1.23 км»),
+      # и полные русские формы множественного числа в каталогах строк. Каталог собирает только Xcode, поэтому здесь —
+      # проверка исходников; сами формы проверяют тесты приложения на симуляторе (ios.yml). Сначала — тесты проверки.
+      - name: Локализация (ios/scripts/check-localization.py)
+        run: |
+          command -v python3 >/dev/null || { apt-get update -qq && apt-get install -y -qq python3; }
+          python3 -B -m unittest discover -s ios/scripts -p 'test_*.py'
+          python3 -B ios/scripts/check-localization.py
 
       - name: Тесты GameCore
         run: swift test --package-path ios/Packages/GameCore

@@ -22,6 +22,26 @@ public actor RealtimeClient {
         case waiting(Duration)
     }
 
+    /// Как живёт соединение — для «Лаборатории» (спайк S7, PLAN.md §10: «SignalR переподключается»).
+    public struct Diagnostics: Equatable, Sendable {
+        public var state: State
+        /// Цикл подключения остановился, потому что входа нет или он потерян: подключится после входа.
+        public var needsSignIn: Bool
+        /// Сколько раз соединение восстановилось само после разрыва — без `stop` и `start` между ними. Новое
+        /// соединение после `start` (приложение вернулось на передний план) переподключением не считается.
+        public var reconnects: Int
+        /// Сколько секунд назад пришла последняя подсказка сервера; `nil` — ещё ни одной. Своё событие `.connected`
+        /// подсказкой не считается: оно не значит, что сервер что-то прислал.
+        public var secondsSinceLastHint: Double?
+
+        public init(state: State, needsSignIn: Bool, reconnects: Int, secondsSinceLastHint: Double? = nil) {
+            self.state = state
+            self.needsSignIn = needsSignIn
+            self.reconnects = reconnects
+            self.secondsSinceLastHint = secondsSinceLastHint
+        }
+    }
+
     public static let longestRetry: Duration = .seconds(30)
     /// Сколько секунд соединение должно прожить, чтобы его закрытие не считалось неудачей.
     public static let stableAfter: Double = 30
@@ -43,6 +63,10 @@ public actor RealtimeClient {
     private var pause: Task<Void, Never>?
     /// Просили подключиться сейчас (`wake`), пока шла попытка или пауза: следующая попытка — без паузы.
     private var woken = false
+    private var needsSignIn = false
+    private var reconnects = 0
+    /// Когда пришла последняя подсказка сервера, по часам `now`.
+    private var lastHintAt: Double?
 
     /// - Parameters:
     ///   - now: монотонные часы в секундах — сколько прожило соединение.
@@ -69,12 +93,20 @@ public actor RealtimeClient {
         return min(.seconds(1 << min(failures - 1, 5)), longestRetry)
     }
 
+    /// Снимок для «Лаборатории».
+    public var diagnostics: Diagnostics {
+        Diagnostics(
+            state: state, needsSignIn: needsSignIn, reconnects: reconnects,
+            secondsSinceLastHint: lastHintAt.map { now() - $0 })
+    }
+
     /// Подключиться (приложение на переднем плане, игрок вошёл). Если цикл подключения уже идёт — как `wake`.
     public func start() {
         guard loop == nil else {
             wake()
             return
         }
+        needsSignIn = false
         loopCount += 1
         let id = loopCount
         loop = (id, Task { await self.run(id) })
@@ -121,6 +153,8 @@ public actor RealtimeClient {
 
     private func run(_ id: Int) async {
         var failures = 0
+        // В этом цикле уже было соединение: следующее — переподключение после разрыва.
+        var wasConnected = false
         while isCurrent(id) {
             state = .connecting
             var connectedAt: Double?
@@ -141,10 +175,15 @@ public actor RealtimeClient {
                 state = .connected
                 woken = false
                 connectedAt = now()
+                if wasConnected {
+                    reconnects += 1
+                }
+                wasConnected = true
                 eventsContinuation.yield(.connected)
                 for await message in open.messages {
                     // Остановили, пока сообщение было в пути, — оно уже не нужно.
                     guard isCurrent(id) else { break }
+                    lastHintAt = now()
                     eventsContinuation.yield(message)
                 }
             } catch RealtimeConnectError.notSignedIn {
@@ -152,6 +191,7 @@ public actor RealtimeClient {
                 if isCurrent(id) {
                     loop = nil
                     state = .stopped
+                    needsSignIn = true
                 }
                 return
             } catch {
