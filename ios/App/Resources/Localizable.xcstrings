@@ -36,6 +36,41 @@
         }
       }
     },
+    "%lld забегов" : {
+      "comment" : "Забеги, которые ещё не дошли до сервера: «1 забег», «2 забега», «5 забегов».",
+      "localizations" : {
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld забега"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld забегов"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld забег"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld забега"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld клеток" : {
       "comment" : "Открытые клетки тумана: «1 клетка», «2 клетки», «5 клеток».",
       "localizations" : {

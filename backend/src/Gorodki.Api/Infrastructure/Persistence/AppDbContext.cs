@@ -41,6 +41,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<CaptureJournalPieceEntity> CaptureJournalPieces => Set<CaptureJournalPieceEntity>();
 
+    public DbSet<ContestedZoneEntity> ContestedZones => Set<ContestedZoneEntity>();
+
     public DbSet<CaptureRollbackEntity> CaptureRollbacks => Set<CaptureRollbackEntity>();
 
     public DbSet<SeasonEntity> Seasons => Set<SeasonEntity>();
@@ -281,6 +283,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 .HasForeignKey(p => new { p.CaptureId, p.TileX, p.TileY })
                 .OnDelete(DeleteBehavior.Cascade);
             piece.ToTable(t => t.HasCheckConstraint("ck_capture_journal_pieces_level", "level BETWEEN 1 AND 3"));
+        });
+
+        model.Entity<ContestedZoneEntity>(zone =>
+        {
+            zone.HasKey(z => z.Id);
+            zone.Property(z => z.Id).UseIdentityAlwaysColumn();
+            zone.Property(z => z.Geometry).HasColumnType($"geometry(Polygon, {Utm34.Srid})");
+            zone.HasOne<CaptureEntity>().WithMany().HasForeignKey(z => z.CaptureId).OnDelete(DeleteBehavior.Cascade);
+            zone.HasIndex(z => new { z.League, z.TileX, z.TileY });
         });
 
         model.Entity<CaptureRollbackEntity>(rollback =>

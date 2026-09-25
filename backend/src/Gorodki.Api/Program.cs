@@ -15,6 +15,7 @@ using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
+using Gorodki.Api.Infrastructure.Jobs;
 using Gorodki.Api.Infrastructure.OpenApi;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Time;
@@ -114,6 +115,12 @@ if (withDatabase)
         builder.Services.AddHostedService<CaptureWorker>();
     }
 
+    // Задачи по расписанию — Hangfire (ADR 0005): схема hangfire в той же базе, пул 3, дашборд только администратору.
+    if (ScheduledJobs.IsEnabled(builder.Configuration))
+    {
+        builder.Services.AddScheduledJobs(connectionString!);
+    }
+
     var authSection = builder.Configuration.GetSection(AuthOptions.Section);
     var auth = authSection.Get<AuthOptions>() ?? new AuthOptions();
     var signingKey = TokenService.SigningKey(auth); // без ключа сервер не стартует — и сразу говорит почему
@@ -128,15 +135,21 @@ if (withDatabase)
             options.MapInboundClaims = false;
 
             // WebSocket из браузера и часть клиентов не умеют заголовок Authorization — токен приходит в строке запроса.
-            // Принимаем его так только на адресе хаба: в остальных адресах токену в URL (и в логах) не место.
+            // Принимаем его так только на адресе хаба и дашборда задач (его открывают в браузере; дальше токен — в куке):
+            // в остальных адресах токену в URL (и в логах) не место.
             options.Events = new JwtBearerEvents
             {
                 OnMessageReceived = context =>
                 {
-                    var token = context.Request.Query["access_token"];
-                    if (!string.IsNullOrEmpty(token) && context.HttpContext.Request.Path.StartsWithSegments(GameHub.Path))
+                    var path = context.HttpContext.Request.Path;
+                    var token = context.Request.Query["access_token"].ToString();
+                    if (token.Length > 0 && path.StartsWithSegments(GameHub.Path))
                     {
                         context.Token = token;
+                    }
+                    else if (path.StartsWithSegments(ScheduledJobs.DashboardPath))
+                    {
+                        context.Token = token.Length > 0 ? token : context.Request.Cookies[ScheduledJobs.DashboardCookie];
                     }
 
                     return Task.CompletedTask;
@@ -204,6 +217,10 @@ if (withDatabase)
     app.UseAuthentication();
     app.UseAuthorization();
     app.UseRateLimiter();
+    if (ScheduledJobs.IsEnabled(app.Configuration))
+    {
+        app.UseScheduledJobs();
+    }
 }
 
 if (app.Environment.IsDevelopment())

@@ -60,6 +60,10 @@ secrets.json
 *.fit
 *.tcx
 !testdata/gpx/*.gpx
+# «Мои данные» (GET /me/export) и итоги разбора забегов — настоящие маршруты (docs/guides/calibration-replay.md).
+gorodki-my-data*.json
+*.loops.json
+*.report.html
 *.dump
 *.backup
 *.sql.gz

@@ -32,7 +32,12 @@
     "ghostDays": 3,
     "visitMinMeters": 50,
     "newAccountHours": 48,
-    "newAccountMinMeters": 3000
+    "newAccountMinMeters": 3000,
+    "bigLoopSquareMeters": {
+      "run": 500000,
+      "bike": 2000000
+    },
+    "contestedHours": 24
   },
   "leagues": {
     "run": {

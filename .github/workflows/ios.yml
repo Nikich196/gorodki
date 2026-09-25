@@ -103,6 +103,20 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO -quiet
 
+      # Образцы contracts/samples — данные режима фикстур, только в Debug (project.yml, EXCLUDED_SOURCE_FILE_NAMES):
+      # в IPA для игроков их быть не должно. Сборки выше идут с -quiet, поэтому состав бандлов — отдельной проверкой.
+      - name: Образцы ответов — только в Debug
+        run: |
+          products="$RUNNER_TEMP/dd/Build/Products"
+          test -f "$products/Debug-Free-iphonesimulator/Gorodki.app/samples/me.json"             || { echo "::error::В Debug нет samples/me.json — режиму фикстур нечего показать"; exit 1; }
+          for config in Release-Free Release-Paid; do
+            app="$products/$config-iphoneos/Gorodki.app"
+            test -d "$app" || { echo "::error::Нет $app"; exit 1; }
+            if [ -e "$app/samples" ]; then
+              echo "::error::В $config попала папка samples (образцы для снимков)"; exit 1
+            fi
+          done
+
       # iPhone новейшей из установленных iOS (ios/scripts/boot-simulator.sh — общий со снимками экранов).
       # Сбой симулятора на preview-раннере красит ios-build, а с ним не слить PR и не выкатить сервер (Render,
       # checksPass). Начнёт сбоить — повтор после simctl shutdown и erase, но не continue-on-error: тот спрячет и

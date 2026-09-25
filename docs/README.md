@@ -9,6 +9,7 @@
 | [architecture/data-model.md](architecture/data-model.md) | Модель данных: таблицы, ER-диаграмма, проверки |
 | [architecture/sync.md](architecture/sync.md) | Офлайн-синхронизация на телефоне: запись забега и доставка очереди |
 | [architecture/realtime.md](architecture/realtime.md) | Реальное время (SignalR): подсказки «тайлы изменились» и «заявка решена», контракт для приложения |
+| [architecture/jobs.md](architecture/jobs.md) | Задачи по расписанию (Hangfire): расписание, как добавить задачу, дашборд `/admin/hangfire`, бюджет памяти и соединений |
 | [architecture/ios-app.md](architecture/ios-app.md) | Приложение: клиент API, токены в Keychain, обновление при 401, адрес сервера |
 | [architecture/osm-pipeline.md](architecture/osm-pipeline.md) | Конвейер OSM (проект v1): маски, «достижимая» площадь и % Бреста, граница и Арена, атрибуция ODbL |
 | [decisions/osm-questions.md](decisions/osm-questions.md) | Вопросы по OSM и решения 25.09 — буферы масок, пешеходные пути, Арена, «Ничейные земли», ODbL |
@@ -20,6 +21,7 @@
 | [guides/install-on-iphone.md](guides/install-on-iphone.md) | Установка на iPhone без Mac через Sideloadly |
 | [guides/probe-walk.md](guides/probe-walk.md) | Пробная прогулка: спайки S1 (фоновый трекинг) и S4 (карта, туман) |
 | [guides/field-test-1.md](guides/field-test-1.md) | Протокол полевого теста №1 (24–25.10): готовность, маршруты петель, отметки, калибровка, критерии |
+| [guides/calibration-replay.md](guides/calibration-replay.md) | Разбор записанных забегов: перепрогон точек через детектор петли и контур сервера с другими R, `A_min`, `R_min` — калибровка на полевом тесте №1 |
 | [guides/getting-started-windows.md](guides/getting-started-windows.md) | Запуск сервера и тестов на Windows |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Как мы работаем: ветки, коммиты, задачи, безопасность |
 

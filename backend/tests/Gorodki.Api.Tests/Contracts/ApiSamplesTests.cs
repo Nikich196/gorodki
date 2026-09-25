@@ -11,6 +11,7 @@ using Gorodki.Api.Features.Players;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
+using Gorodki.Api.Infrastructure.Jobs;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
 using Gorodki.Domain.Fog;
@@ -44,6 +45,7 @@ public sealed class ApiSamplesTests
             builder.UseSetting("ConnectionStrings:Gorodki", "Host=localhost;Database=samples-only");
             builder.UseSetting("Auth:SigningKey", Convert.ToBase64String(new byte[32]));
             builder.UseSetting(CaptureWorker.EnabledSetting, "false");
+            builder.UseSetting(ScheduledJobs.EnabledSetting, "false");
         });
         var server = app.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions;
         var pretty = new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
@@ -68,10 +70,10 @@ public sealed class ApiSamplesTests
     private static IEnumerable<(string Name, object Sample)> Samples()
     {
         yield return ("run-active", new RunResponse(
-            Run, League.Run, RunSource.Live, 1, Start, null, RunStatus.Active, null, -1, [new SeqRange(0, 119)], [], Newcomer: true, FogNewCells: null));
+            Run, League.Run, RunSource.Live, 1, Start, null, RunStatus.Active, null, -1, [new SeqRange(0, 119)], [], Newcomer: true, FogNewCells: null, VisitedParcels: null));
         yield return ("run-finished", new RunResponse(
             Run, League.Bike, RunSource.Replay, 1, Start, Start + 3_600_000, RunStatus.Finished, 199, 179,
-            [new SeqRange(0, 59), new SeqRange(120, 199)], [new SeqRange(60, 119)], Newcomer: false, FogNewCells: 1_234));
+            [new SeqRange(0, 59), new SeqRange(120, 199)], [new SeqRange(60, 119)], Newcomer: false, FogNewCells: 1_234, VisitedParcels: null));
         yield return ("chunk-receipt", new ChunkReceipt(0, 119, Duplicate: true));
         yield return ("capture-pending", new CaptureResponse(
             Guid.Parse("2e19b697-e397-532d-a6e6-7c0fc1940226"), 0, 10, 300, CaptureStatus.Pending, "sensors", null, 0, null, null, null));
@@ -94,6 +96,13 @@ public sealed class ApiSamplesTests
                     new ParcelView(
                         42, Player, 7, 0, Ghost: true, Start - 700_000_000, null, null,
                         [52.099, 23.688, 52.099, 23.689, 52.0995, 23.689, 52.099, 23.688], []),
+                ],
+                [
+                    // Чужая большая петля обвела угол куска 41: зона до «через сутки», вверх до 10 минут.
+                    new ContestedZoneView(
+                        1_790_086_800_000,
+                        [52.0983, 23.689, 52.0983, 23.6895, 52.0985, 23.6895, 52.0985, 23.689, 52.0983, 23.689],
+                        []),
                 ]),
             ],
             [new TileRef(685, 5775)]));

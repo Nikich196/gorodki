@@ -31,12 +31,25 @@ public sealed record ParcelView(
     IReadOnlyList<double> Exterior,
     IReadOnlyList<IReadOnlyList<double>> Holes);
 
+/// <summary>
+/// Зона «спорная» (§3.3, большая петля): чужая земля, которую обвела петля больше 0,5 км² (в «Вело» — 2 км²). Отдельный
+/// слой поверх кусков, без игровой силы: кромка рисуется «бегущими муравьями», пока сейчас раньше <paramref name="UntilMs"/>.
+/// </summary>
+/// <param name="UntilMs">До какого момента зона на карте (мс Unix), вверх до 10 минут — минуты петли не видно никому.</param>
+/// <param name="Exterior">Внешний контур, как у куска: <c>[широта, долгота, …]</c>, первая точка повторяется в конце.</param>
+/// <param name="Holes">Дыры, в том же виде.</param>
+public sealed record ContestedZoneView(long UntilMs, IReadOnlyList<double> Exterior, IReadOnlyList<IReadOnlyList<double>> Holes);
+
 /// <summary>Тайл и все его куски.</summary>
 /// <param name="Version">
 /// Версия тайла, какой её видит этот игрок: растёт с каждым видимым ему изменением, никогда не убывает; 0 — в тайле
 /// ничего не было. Чужой захват меняет её только через 20 минут (PLAN.md, §3.16) — у разных игроков версии разные.
 /// </param>
-public sealed record TileTerritory(int X, int Y, long Version, IReadOnlyList<ParcelView> Parcels);
+/// <param name="ContestedZones">
+/// Зоны «спорная» в тайле, которые видит этот игрок: своих больших петель — сразу, чужих — когда захват станет публичным
+/// (как сам захват). Только пока не истекли; на номера кусков не влияют.
+/// </param>
+public sealed record TileTerritory(int X, int Y, long Version, IReadOnlyList<ParcelView> Parcels, IReadOnlyList<ContestedZoneView> ContestedZones);
 
 /// <summary>Земля по тайлам.</summary>
 /// <param name="Tiles">Тайлы, которые изменились (или все запрошенные, если версии не переданы).</param>

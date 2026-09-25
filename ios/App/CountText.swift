@@ -13,6 +13,10 @@ enum CountText {
         String(localized: "\(count) петель", locale: NumberText.locale)
     }
 
+    static func runs(_ count: Int) -> String {
+        String(localized: "\(count) забегов", locale: NumberText.locale)
+    }
+
     static func points(_ count: Int) -> String {
         String(localized: "\(count) точек", locale: NumberText.locale)
     }

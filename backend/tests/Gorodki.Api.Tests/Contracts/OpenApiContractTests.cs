@@ -2,6 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Infrastructure.Jobs;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -26,6 +27,7 @@ public sealed class OpenApiContractTests
             builder.UseSetting("ConnectionStrings:Gorodki", "Host=localhost;Database=openapi-only");
             builder.UseSetting("Auth:SigningKey", Convert.ToBase64String(new byte[32]));
             builder.UseSetting(CaptureWorker.EnabledSetting, "false");
+            builder.UseSetting(ScheduledJobs.EnabledSetting, "false");
         });
         var live = JsonNode.Parse(await app.CreateClient().GetStringAsync("/openapi/v1.json", TestContext.Current.CancellationToken))!;
         live.AsObject().Remove("servers"); // адрес сервера зависит от окружения — в контракт не входит

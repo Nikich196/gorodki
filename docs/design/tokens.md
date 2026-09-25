@@ -4,7 +4,7 @@
 
 В коде — пакет `ios/Packages/GorodkiKit`, модуль `DesignSystem` (§10), на телефоне — «Лаборатория → Дизайн».
 
-**Принцип «ничего не усложнять».** Берём нативное: `TabView` с `Tab(role: .search)`, `.glassEffect()`, `.buttonStyle(.glass/.glassProminent)`, `GlassEffectContainer`, `.contentTransition(.numericText())`, `KeyframeAnimator`, `.sensoryFeedback`. Своё рисуем только на карте: заливки, узоры, туман — и только тем, что MapKit реально умеет (§3.1).
+**Принцип «ничего не усложнять».** Берём нативное: `TabView`, `.glassEffect()`, `.buttonStyle(.glass/.glassProminent)`, `GlassEffectContainer`, `.contentTransition(.numericText())`, `KeyframeAnimator`, `.sensoryFeedback`. Своё рисуем только на карте: заливки, узоры, туман — и только тем, что MapKit реально умеет (§3.1).
 
 ## 1. Темы и подложка
 
@@ -229,7 +229,7 @@ Dynamic Type: списки масштабируются полностью; HUD 
 | Плашки HUD | 22 pt; шкала «горячо» — 5 делений 24 × 5 pt, зазор 3 pt |
 | Карточки контента | 24–26 pt, плитки 22 pt, мини-прогресс 16 pt |
 | Карточка недели | 9:16, превью 306 × 544 pt, радиус 26 pt; экспорт 1080 × 1920 |
-| Таб-бар | системный `TabView` (Liquid Glass сам), поиск — `Tab(role: .search)`; свёрнутый забег — `.tabViewBottomAccessory` |
+| Таб-бар | системный `TabView` (Liquid Glass сам): Карта · Рейтинги · Клан · Профиль, вкладки поиска нет (PLAN.md, §5); свёрнутый забег — `.tabViewBottomAccessory` |
 
 Масштаб карты в макете: главная карта — город; HUD — 1,5 pt на метр; церемония — 2 pt на метр. На крупном масштабе здания рисуются чётко (контур `map-bld-edge`), а не увеличиваются из городского.
 

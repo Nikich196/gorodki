@@ -141,4 +141,66 @@ public sealed class CaptureRulesTests
         Assert.Equal((strong, PieceOutcome.NewAccountLimited), (afterStrong, strongOutcome));
         Assert.Equal(PieceOutcome.Refreshed, ownOutcome);
     }
+
+    // ── Большая петля (§3.3, решено 25.09 в #48) ─────────────────────────────
+
+    private static (ParcelState? State, PieceOutcome Outcome) BigLoop(ParcelState? piece, Guid attacker, DateTimeOffset at, params Guid[] clan) =>
+        CaptureRules.Decide(piece, new CaptureContext(attacker, at, clan.ToHashSet(), BigLoop: true), Rules);
+
+    [Fact]
+    public void Big_loop_leaves_enemy_land_of_any_level_exactly_as_it_was()
+    {
+        // Пометка «спорная» — отдельный слой карты (зоны), а не состояние куска: сам кусок не меняется ни в чём.
+        foreach (var level in new[] { 1, 2, 3 })
+        {
+            var land = Land(level);
+
+            var (after, outcome) = BigLoop(land, Anna, T0);
+
+            Assert.Equal(PieceOutcome.Contested, outcome);
+            Assert.Same(land, after);
+        }
+    }
+
+    [Fact]
+    public void Big_loop_touches_no_loss_counters()
+    {
+        // Окно и счётчики снятия уровней не тронуты: обычная петля того же игрока сразу после — всё ещё «трещина».
+        var (after, _) = BigLoop(Land(3), Anna, T0);
+        var (_, next) = Attack(after, Anna, T0.AddMinutes(10));
+
+        Assert.Equal(PieceOutcome.Cracked, next);
+    }
+
+    [Fact]
+    public void Big_loop_takes_neutral_and_decayed_land_and_refreshes_own_and_clan_land()
+    {
+        var decayed = Land(1, visited: T0.AddDays(-7)); // L1 без визита 6 дней — угасла, ничья
+        var own = Land(2) with { OwnerId = Anna };
+        var mates = Land(2);
+
+        var (neutral, neutralOutcome) = BigLoop(null, Anna, T0);
+        var (fromDecayed, decayedOutcome) = BigLoop(decayed, Anna, T0);
+        var (refreshed, ownOutcome) = BigLoop(own, Anna, T0);
+        var (mate, mateOutcome) = BigLoop(mates, Anna, T0, Owner);
+
+        Assert.Equal((Anna, 1, PieceOutcome.ClaimedNeutral), (neutral!.OwnerId, neutral.Level, neutralOutcome));
+        Assert.Equal((Anna, PieceOutcome.ClaimedNeutral), (fromDecayed!.OwnerId, decayedOutcome));
+        Assert.Equal((PieceOutcome.Refreshed, T0), (ownOutcome, refreshed!.LastVisitAt));
+        Assert.Equal((PieceOutcome.RefreshedForClanMate, Owner, T0), (mateOutcome, mate!.OwnerId, mate.LastVisitAt));
+    }
+
+    [Fact]
+    public void Shielded_superseded_and_new_account_targets_are_not_contested()
+    {
+        var shielded = Land(1) with { ShieldUntil = T0.AddHours(1) };
+        var visitedLater = Land(1, visited: T0.AddHours(1));
+        var weak = Land(1);
+
+        Assert.Equal((shielded, PieceOutcome.Shielded), BigLoop(shielded, Anna, T0));
+        Assert.Equal((visitedLater, PieceOutcome.Superseded), BigLoop(visitedLater, Anna, T0));
+        Assert.Equal(
+            (weak, PieceOutcome.NewAccountLimited),
+            CaptureRules.Decide(weak, new CaptureContext(Anna, T0, new HashSet<Guid>(), CanRemoveLevels: false, BigLoop: true), Rules));
+    }
 }

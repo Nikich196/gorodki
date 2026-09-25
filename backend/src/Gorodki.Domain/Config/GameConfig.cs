@@ -109,6 +109,18 @@ public sealed record TerritoryConfig
     /// <summary>…и с засчитанным пробегом (все забеги, обе лиги) меньше стольких метров — тоже.</summary>
     public double NewAccountMinMeters { get; init; } = 3000;
 
+    /// <summary>
+    /// Большая петля (§3.3, решено 25.09 в #48): если площадь петли после масок больше, чужая земля внутри не переходит и не
+    /// трескается — только попадает в зону «спорная». В вело-лиге порог в 4 раза больше. м².
+    /// </summary>
+    public PerLeague<double> BigLoopSquareMeters { get; init; } = new(Run: 500_000, Bike: 2_000_000);
+
+    /// <summary>Сколько часов держится зона «спорная» — без игровой силы, только слой на карте.</summary>
+    public double ContestedHours { get; init; } = 24;
+
+    /// <summary>Большая ли петля площадью <paramref name="areaSquareMeters"/> (P после масок) в этой лиге.</summary>
+    public bool IsBigLoop(League league, double areaSquareMeters) => areaSquareMeters > BigLoopSquareMeters.For(league);
+
     public TerritoryRules ToRules() => new()
     {
         MaxLevel = MaxLevel,

@@ -118,7 +118,7 @@ public static class AdminEndpoints
         return TypedResults.Ok(ToResponse(job, frozenUntil));
     }
 
-    /// <summary>Номер вошедшего, если он администратор (роль — по базе, не по токену); иначе <c>null</c> — ответ 403 <c>admin_only</c>.</summary>
+    /// <summary>Номер вошедшего, если он администратор (роль — по базе, не по токену; так же дашборд Hangfire); иначе <c>null</c> — ответ 403 <c>admin_only</c>.</summary>
     internal static async Task<Guid?> AdminIdAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
         if (principal.UserId() is not { } userId)

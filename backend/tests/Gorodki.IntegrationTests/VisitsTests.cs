@@ -37,9 +37,11 @@ public sealed class VisitsTests(DatabaseFixture database)
         // Визит меняет карту — публично, поэтому не раньше чем через 20 минут после конца забега (§3.16).
         Assert.DoesNotContain(run.Id, await ReadyAsync(api));
         Assert.Null(await VisitAsync(api, run.Id));
+        Assert.Null((await anna.GetFromJsonAsync<RunResponse>($"/runs/{run.Id}", Json, Cancel))!.VisitedParcels); // «считается»
         api.Time.Advance(TerritoryReader.PublicDelay);
         Assert.Contains(run.Id, await ReadyAsync(api));
         Assert.Equal(1, await VisitAsync(api, run.Id));
+        Assert.Equal(1, (await anna.GetFromJsonAsync<RunResponse>($"/runs/{run.Id}", Json, Cancel))!.VisitedParcels);
         Assert.Null(await VisitAsync(api, run.Id)); // забег считается один раз
         Assert.DoesNotContain(run.Id, await ReadyAsync(api));
         var piece = Assert.Single(await LandAsync(annaId));

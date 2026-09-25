@@ -1,57 +1,74 @@
 import DesignSystem
 import SwiftUI
 
-/// Стартовый экран этапа 0: название, палитра игроков и «Проверка установки» (спайк S2).
-/// На этапе 2 его место займёт карта.
+/// Корень приложения: не вошёл — онбординг, вошёл — вкладки (docs/architecture/ios-app.md, «Оболочка и онбординг»).
+/// В Debug аргументы `-GorodkiScreen` / `-GorodkiFixture` / `-GorodkiTheme` открывают экран сразу — для снимков.
 struct RootView: View {
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    HeroHeader()
-                        .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 20, trailing: 20))
-                }
-                InstallCheckSections()
-                Section {
-                    NavigationLink {
-                        LabView()
-                    } label: {
-                        Label("Лаборатория: пробная сборка", systemImage: "flask")
-                    }
-                } footer: {
-                    Text("Проверки этапа 1 на настоящем телефоне: фоновый трекинг, Live Activity, туман.")
+        // Тема — только если её задал `-GorodkiTheme`: `.preferredColorScheme(nil)` у корня перекрыл бы вложенный
+        // выбор темы (переключатель «День | Ночь» в «Лаборатории → Дизайн»).
+        if let scheme = LaunchOptions.current.colorScheme {
+            content.preferredColorScheme(scheme)
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        #if DEBUG
+            if let screen = LaunchOptions.current.screen {
+                FixtureRoot(screen: screen, fixture: LaunchOptions.current.fixture)
+            } else {
+                LiveRoot()
+            }
+        #else
+            LiveRoot()
+        #endif
+    }
+}
+
+/// Корень с настоящим входом: `AppSession` обновляет `SessionRelay`.
+private struct LiveRoot: View {
+    private let session = AppSession.shared
+    @State private var onboarding = OnboardingModel.live()
+    @State private var shell = ShellModel(profile: ProfileModel())
+    @State private var noticeShown = false
+
+    var body: some View {
+        Group {
+            switch session.status {
+            case .unknown:
+                Palette.uiBackground.color.ignoresSafeArea()
+            case .signedOut, .signedIn:
+                if session.showsShell {
+                    AppShell(model: shell)
+                } else {
+                    OnboardingView(
+                        model: onboarding,
+                        browseWithoutSignIn: DebugAccess.buildAllows
+                            ? { @MainActor in AppSession.shared.browsingWithoutSignIn = true } : nil)
                 }
             }
         }
-    }
-}
-
-private struct HeroHeader: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Городки")
-                .font(.system(.largeTitle, design: .rounded, weight: .black))
-            Text("Обеги участок — и он твой, ровно по контуру следа.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-            PaletteStrip()
-                .frame(height: 10)
-                .accessibilityHidden(true)
-        }
-    }
-}
-
-/// Полоса из двенадцати цветов игроков.
-private struct PaletteStrip: View {
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(PlayerColor.allCases) { player in
-                Capsule().fill(player.color)
+        .task(id: session.status) {
+            if session.status == .signedOut {
+                // Вышел — онбординг с начала, профиль прежнего игрока забыт.
+                onboarding = OnboardingModel.live()
+                shell = ShellModel(profile: ProfileModel())
             }
+            shell.profile.signedIn = session.status == .signedIn
+            shell.profile.role = session.role
+            shell.profile.api = session.status == .signedIn ? AppDependencies.shared.api : nil
+            await shell.profile.refresh()
+        }
+        .onChange(of: session.notice) { _, notice in
+            noticeShown = notice != nil
+        }
+        .alert("Выход", isPresented: $noticeShown, presenting: session.notice) { _ in
+            Button("Понятно", role: .cancel) { session.notice = nil }
+        } message: { notice in
+            Text(notice)
         }
     }
-}
-
-#Preview {
-    RootView()
 }
