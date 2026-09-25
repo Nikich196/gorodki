@@ -1,17 +1,24 @@
 # Геодвижок на 10 000 случайных историй каждую ночь — информационно (PLAN.md, §13: «геодвижок: property-тесты
 # 10 000 случаев»). В PR тесты участков идут на 150 историях (GORODKI_GEO_ITERATIONS по умолчанию, задача backend) —
 # быстро, но редкий случай там почти не встречается. CsCheck каждую ночь берёт новые случайные истории, так что
-# за неделю проверяется 70 000, а не одни и те же. Упало — в журнале шага строка «Set seed: "…"»: с ней случай
+# за неделю проверяется до 70 000, а не одни и те же. Упало — в журнале шага строка «Set seed: "…"»: с ней случай
 # повторяется у себя (CONTRIBUTING.md, «Сервер»).
 # Идут все тесты Gorodki.Domain.Tests: число историй влияет только на property-тесты, остальные — секунды.
-# Расписание привязывает проверку к последнему коммиту main. Render выкатывает сервер, только если все проверки
-# коммита зелёные, — но к 03:00 проверки дневных слияний давно прошли; задержать деплой может только слияние в сервер
-# за минуты до ночного запуска, если ночной найдёт ошибку.
+#
+# Деплой сервера. Проверка прогона привязана к коммиту, у расписания — к последнему коммиту main. Render выкатывает
+# коммит, только когда все его проверки зелёные (render.yaml, checksPass), и ждёт те, что ещё идут. Начнись ночной
+# прогон, пока идут проверки свежего слияния в сервер, Render ждал бы и его, а красный ночной молча отменил бы деплой:
+# сервер остался бы на старой версии, и никто бы не узнал. Поэтому шаг «Деплой не ждёт этот коммит» пропускает тесты,
+# если проверка коммита ещё идёт или закончилась меньше 10 минут назад (или коммит моложе 10 минут — его проверки
+# могли ещё не появиться). Пропуск проверку не красит: следующей ночью — снова. Иначе Render свой выбор уже сделал
+# (за секунды после последней проверки), и ночной прогон ему не помешает. То же и для запуска кнопкой.
 name: geo-nightly
 
 on:
   schedule:
-    - cron: "0 0 * * *" # 03:00 по Минску
+    # 03:23 по Минску. Не ровно в час: на начало часа у GitHub очередь, запуск по расписанию откладывается,
+    # а под нагрузкой и пропадает.
+    - cron: "23 0 * * *"
   workflow_dispatch:
     inputs:
       iterations:
@@ -25,6 +32,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Шаг «Деплой не ждёт этот коммит» читает проверки коммита через GitHub API.
+  checks: read
 
 jobs:
   geo-property:
@@ -40,12 +49,53 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Сбой API — тоже пропуск, а не падение: красная проверка из-за сети держала бы деплой, а ночь без прогона —
+      # не беда.
+      - name: Деплой не ждёт этот коммит
+        id: window
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELF: ${{ github.job }}
+        run: |
+          # skip «причина» [warning]: warning — для сбоя, которого быть не должно (заметнее в сводке запуска).
+          skip() {
+            echo "::${2:-notice}::Тесты пропущены: $1. Красная проверка могла бы отменить деплой сервера (render.yaml)."
+            echo "Тесты пропущены: $1." >> "$GITHUB_STEP_SUMMARY"
+            echo "clear=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          since=$(( $(date +%s) - 600 ))
+          if (( $(git log -1 --format=%ct) > since )); then
+            skip "коммиту меньше 10 минут, его проверки могли ещё не начаться"
+          fi
+          if ! checks=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100"); then
+            skip "не удалось прочитать проверки коммита" warning
+          fi
+          # Проверки коммита, кроме этой: сколько ещё идёт и когда (в секундах Unix) закончилась последняя.
+          if ! counts=$(jq -r --arg self "$SELF" '
+            [.check_runs[] | select(.name != $self)]
+            | [(map(select(.status != "completed")) | length),
+               (map(.completed_at // empty | fromdateiso8601) | max // 0)]
+            | @tsv' <<< "$checks"); then
+            skip "не удалось разобрать ответ GitHub о проверках коммита" warning
+          fi
+          read -r running last <<< "$counts"
+          if (( running > 0 )); then
+            skip "у коммита идут другие проверки ($running)"
+          fi
+          if (( last > since )); then
+            skip "другие проверки коммита закончились меньше 10 минут назад"
+          fi
+          echo "clear=true" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-dotnet@v6
+        if: steps.window.outputs.clear == 'true'
         with:
           global-json-file: backend/global.json
 
       # Не число — тесты молча взяли бы 150 историй по умолчанию, и «ночная проверка» ничего бы не проверяла.
       - name: Число историй
+        if: steps.window.outputs.clear == 'true'
         run: |
           if ! [[ "$GORODKI_GEO_ITERATIONS" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::GORODKI_GEO_ITERATIONS должно быть целым числом больше нуля, а не «$GORODKI_GEO_ITERATIONS»"
@@ -55,7 +105,9 @@ jobs:
             | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Сборка тестов Domain
+        if: steps.window.outputs.clear == 'true'
         run: dotnet build tests/Gorodki.Domain.Tests --configuration Release
 
       - name: Property-тесты геодвижка
+        if: steps.window.outputs.clear == 'true'
         run: dotnet test --project tests/Gorodki.Domain.Tests --configuration Release --no-build
