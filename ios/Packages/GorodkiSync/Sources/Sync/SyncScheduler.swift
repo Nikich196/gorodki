@@ -197,6 +197,7 @@ public actor SyncScheduler {
     private let backlog: @Sendable () async -> SyncBacklog
     private let appActive: @Sendable () async -> Bool
     private let sleep: @Sendable (Duration) async throws -> Void
+    private let onReport: @Sendable (SyncReport) -> Void
     private var backoff = SyncBackoff()
     private var wake: SyncWake = .idle
     private var lastBacklog = SyncBacklog()
@@ -219,16 +220,20 @@ public actor SyncScheduler {
         knowsBacklog ? BackgroundSyncPlan.requests(after: wake, backlog: lastBacklog) : nil
     }
 
+    /// - Parameter onReport: отчёт каждого прохода — подписчику (экран забега: решённые заявки для второй фазы
+    ///   церемонии, «сервер недоступен»). Зовётся на акторе расписания — долгую работу подписчик уносит к себе.
     public init(
         engine: SyncEngine,
         backlog: @escaping @Sendable () async -> SyncBacklog,
         appActive: @escaping @Sendable () async -> Bool,
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        onReport: @escaping @Sendable (SyncReport) -> Void = { _ in }
     ) {
         self.engine = engine
         self.backlog = backlog
         self.appActive = appActive
         self.sleep = sleep
+        self.onReport = onReport
     }
 
     /// Событие. Возвращает, когда синхронизация решила проснуться снова (после прохода, если он был). Фоновая задача,
@@ -266,6 +271,7 @@ public actor SyncScheduler {
         repeat {
             rerun = false
             let report = await engine.syncOnce()
+            onReport(report)
             lastBacklog = await backlog()
             wake = backoff.next(after: report, backlog: lastBacklog, appActive: await appActive())
             knowsBacklog = true

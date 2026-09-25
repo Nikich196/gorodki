@@ -114,4 +114,31 @@ struct FogTests {
         #expect(ab == ba)
         #expect(ab.cellCount < a.cellCount + b.cellCount)
     }
+
+    @Test("Площадь новых клеток — число новых клеток × площадь клетки; пустой старый тайл — все клетки новые")
+    func newAreaAgainstAllTime() throws {
+        let sim = TrackSimulator()
+        var old = FogLayer()
+        old.reveal(around: sim.coordinate(east: 0, north: 0))
+        var run = old
+        run.reveal(around: sim.coordinate(east: 40, north: 0))
+        let key = try #require(run.tiles.keys.first)
+        #expect(run.tiles.count == 1)
+        let emptyFromCache = try #require(FogTileBits(words: []))
+        #expect(emptyFromCache == FogTileBits())
+        #expect(FogTileBits(words: [1, 2, 3]) == nil)
+
+        let againstOld = run.newArea(comparedTo: old.tiles)
+        let againstEmpty = run.newArea(comparedTo: [key: emptyFromCache])
+        let unknown = run.newArea(comparedTo: [:])
+
+        #expect(againstOld.cells == run.newCellCount(comparedTo: old))
+        #expect(againstOld.cells > 0 && againstOld.cells < run.cellCount)
+        #expect(abs(againstOld.squareMeters - Double(againstOld.cells) * key.cellAreaSquareMeters) < 1e-6)
+        #expect(abs(key.cellAreaSquareMeters - 5.87 * 5.87) < 0.1)
+        #expect(againstOld.unknownTiles.isEmpty)
+        #expect(againstEmpty.cells == run.cellCount)
+        #expect(abs(againstEmpty.squareMeters - run.areaSquareMeters) < 1e-6)
+        #expect(unknown == FogNewArea(cells: 0, squareMeters: 0, unknownTiles: [key]))
+    }
 }

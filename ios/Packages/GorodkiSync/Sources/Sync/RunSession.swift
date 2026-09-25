@@ -47,7 +47,8 @@ public enum RunEvent: Equatable, Sendable {
     case finishedAtLimit
 }
 
-/// Сводка забега для экрана и Live Activity.
+/// Сводка забега для экрана и Live Activity. После перезапуска приложения продолжается с сохранённой в забеге
+/// (`RunSummary`): числа не «падают» до нуля.
 public struct RunStats: Equatable, Sendable {
     public var points = 0
     public var acceptedPoints = 0
@@ -59,10 +60,35 @@ public struct RunStats: Equatable, Sendable {
     /// Открытый туман — по правилу сервера: путь за 30 с до разрыва следа не открывает, поэтому туман отстаёт на 30 с.
     public var fogCells = 0
     public var fogAreaSquareMeters = 0.0
+    /// «≈+N га»: новые клетки тумана по сравнению с туманом игрока за всё время, м² (fog.md: «новое за всё время»).
+    public var fogNewSquareMeters = 0.0
+    /// Туман за всё время известен не для всех тайлов забега (нет сети, ещё не пришёл) — число выше нижняя граница, «≥».
+    public var fogNewIsLowerBound = false
     /// Последняя причина, по которой точка не пошла в след или след порвался, — подсказка игроку.
     public var lastIssue: TrackIssue?
+    /// Когда она случилась, мс: время точки (для точки без номера — время получения).
+    public var lastIssueAtMs: Int64?
+    /// Разрывы следа по причинам.
+    public var breaks: [TrackIssue: Int] = [:]
+    /// Последний разрыв следа и его время (мс) — для плашки «след прервался».
+    public var lastBreak: TrackIssue?
+    public var lastBreakAtMs: Int64?
+    /// Первая принятая точка после последнего разрыва, мс (`nil` — принятых после него ещё нет).
+    public var acceptedAfterBreakAtMs: Int64?
+    /// Последняя принятая точка, мс.
+    public var lastAcceptedAtMs: Int64?
+    /// Последняя записанная точка, мс: часы демо-повтора (`RunHUD.elapsedSeconds`).
+    public var lastPointAtMs: Int64?
 
     public init() {}
+}
+
+/// Кольцо заявленной петли — для первой фазы церемонии и временного контура на карте (docs/architecture/run-hud.md).
+public struct LoopRing: Equatable, Sendable {
+    public var claimNo: Int
+    public var loop: LoopClaim
+    /// Принятые точки от начала петли до точки замыкания (она — последняя).
+    public var coordinates: [Coordinate]
 }
 
 /// Забег на телефоне (PLAN.md, §7.2 «Трекинг»): точка GPS получает номер → античит (`SegmentJudge`) → запись в очередь
@@ -84,6 +110,10 @@ public actor RunSession {
 
     public nonisolated let runId: UUID
     public nonisolated let league: League
+    /// Разрешение «Движение и фитнес» при старте (`LocalRun.motionAuthorized`): без него сервер откажет каждой петле —
+    /// после перезапуска приложение восстанавливает по нему плашку (`RunController.recover`).
+    public nonisolated let motionAuthorized: Bool
+    public nonisolated let source: LocalRun.Source
     public private(set) var stats = RunStats()
     public private(set) var isFinished = false
 
@@ -115,19 +145,33 @@ public actor RunSession {
     /// Точки обрабатываются по одной: номер берётся до записи, и две точки не должны получить один номер.
     private var handling = false
     private var handlingWaiters: [CheckedContinuation<Void, Never>] = []
+    private let captureArea: CaptureAreaLimits
+    /// Туман до перезапуска приложения (из сохранённой сводки): к нему прибавляется туман этого процесса.
+    private var fogBefore = RunSummary()
+    /// Туман игрока за всё время по тайлам — то, что уже дал поставщик (`RunTracker`, `AllTimeFogProvider`).
+    private var allTimeFog: [FogTileKey: FogTileBits] = [:]
+    /// Тайлы, которые уже попрошены у поставщика: каждый — один раз за забег в этом процессе.
+    private var requestedFogTiles: Set<FogTileKey> = []
+    private var latitude: Double?
+    private var endedAtLimit = false
+    /// Принятые точки этого процесса — след для карты и кольца петель.
+    private var trail: [(seq: Int, coordinate: Coordinate, startsSegment: Bool)] = []
+    /// Петли, заявленные в этом процессе, по номеру заявки.
+    private var claimed: [Int: LoopClaim] = [:]
 
-    private init(
-        runId: UUID, league: League, startedAtMs: Int64, recorder: RunRecorder, rules: PhoneRules, newcomer: Bool
-    ) {
-        self.runId = runId
-        self.league = league
-        self.startedAtMs = startedAtMs
+    private init(run: LocalRun, recorder: RunRecorder, rules: PhoneRules, newcomer: Bool) {
+        self.runId = run.id
+        self.league = run.league
+        self.motionAuthorized = run.motionAuthorized
+        self.source = run.source
+        self.startedAtMs = run.startedAtMs
         self.recorder = recorder
-        let judgeRules = rules.rules(for: league, newcomer: newcomer)
+        let judgeRules = rules.rules(for: run.league, newcomer: newcomer)
         self.maxFixAgeSeconds = judgeRules.maxFixAgeSeconds
-        self.judge = SegmentJudge(league: league, rules: judgeRules)
+        self.judge = SegmentJudge(league: run.league, rules: judgeRules)
         self.detector = LoopDetector(settings: rules.loopDetector)
         self.exploration = rules.exploration
+        self.captureArea = rules.captureArea
     }
 
     /// Начать забег: он встаёт в очередь синхронизации, прерванные забеги игрока закрываются.
@@ -142,9 +186,7 @@ public actor RunSession {
         var run = run
         run.judgedAsNewcomer = newcomer
         let recorder = try await RunRecorder.begin(run, store: store, policy: policy.limited(by: rules))
-        return RunSession(
-            runId: run.id, league: run.league, startedAtMs: run.startedAtMs, recorder: recorder, rules: rules,
-            newcomer: newcomer)
+        return RunSession(run: run, recorder: recorder, rules: rules, newcomer: newcomer)
     }
 
     /// Новичок ли игрок — так, как видно с этого телефона: в очереди нет ни одной его засчитанной заявки. Если захваты
@@ -160,17 +202,22 @@ public actor RunSession {
     }
 
     /// Продолжить забег после перезапуска приложения; `nil` — его нет, он завершён или отвергнут сервером.
+    /// - Parameter continuingSummary: сводка продолжается с сохранённой в забеге (`LocalRun.summary`) и заявок очереди —
+    ///   дистанция, петли и туман на экране не падают до нуля. `false` — с нуля: пробный забег «Лаборатории» складывает
+    ///   счёт до перезапуска сам (`ProbeCounters`).
     public static func resume(
-        runId: UUID, store: any SyncStore, rules: PhoneRules, policy: ChunkPolicy = ChunkPolicy()
+        runId: UUID, store: any SyncStore, rules: PhoneRules, policy: ChunkPolicy = ChunkPolicy(),
+        continuingSummary: Bool = true
     ) async throws -> RunSession? {
         guard let run = try await store.runs().first(where: { $0.id == runId }),
             let recorder = try await RunRecorder.resume(runId: runId, store: store, policy: policy.limited(by: rules))
         else { return nil }
-        let session = RunSession(
-            runId: runId, league: run.league, startedAtMs: run.startedAtMs, recorder: recorder, rules: rules,
-            newcomer: run.judgedAsNewcomer ?? false)
+        let session = RunSession(run: run, recorder: recorder, rules: rules, newcomer: run.judgedAsNewcomer ?? false)
         // Время последней точки — у записи: она учитывает и куски, записанные до сбоя без отметки в забеге.
         await session.restore(lastPointMs: await recorder.lastPointMs)
+        if continuingSummary {
+            await session.restore(run.summary ?? RunSummary(), claims: try await store.claims(of: runId))
+        }
         return session
     }
 
@@ -178,6 +225,25 @@ public actor RunSession {
         self.lastPointMs = lastPointMs
         // Конец по пределу после продолжения — последняя записанная точка, а не время первой новой.
         lastTimestamp = lastPointMs.map { Double($0) / 1_000 }
+        stats.lastPointAtMs = lastPointMs
+    }
+
+    /// Сводка до перезапуска: петли — по заявкам очереди (заявка пишется раньше сводки), остальное — из забега.
+    private func restore(_ saved: RunSummary, claims: [PendingClaim]) async {
+        stats.points = saved.points
+        stats.acceptedPoints = saved.acceptedPoints
+        stats.distanceMeters = saved.distanceMeters
+        stats.loops = claims.count
+        stats.loopAreaSquareMeters = claims.reduce(0) { $0 + $1.loop.estimatedArea }
+        for (name, count) in saved.breaks {
+            if let issue = TrackIssue(rawValue: name) {
+                stats.breaks[issue] = count
+            }
+        }
+        fogBefore = saved
+        latitude = saved.latitude
+        updateFogStats()
+        await recorder.note(summary)
     }
 
     /// Новая точка GPS.
@@ -208,12 +274,12 @@ public actor RunSession {
         // Неверная точка (CoreLocation: точность −1 — координата неизвестна) не нумеруется: округление превратило бы
         // точность −1 в 0 — «идеальную», а координата вне диапазона дала бы отказ всего куска (docs/architecture/runs.md).
         guard fix.isValid else {
-            stats.lastIssue = .poorAccuracy
+            note(.poorAccuracy, atMs: StoragePrecision.milliseconds(now))
             return [.dropped]
         }
         // Устаревшая точка (CoreLocation часто первой отдаёт запомненную) не нумеруется и не уходит на сервер.
         if now - fix.timestamp > maxFixAgeSeconds {
-            stats.lastIssue = .staleFix
+            note(.staleFix, atMs: StoragePrecision.milliseconds(now))
             return [.ignored(.staleFix)]
         }
         let point = TrackPoint(
@@ -232,12 +298,13 @@ public actor RunSession {
             if ms < startedAtMs {
                 return [.dropped]
             }
-            try await finishNow(endedAt: lastTimestamp ?? point.timestamp)
+            try await finishNow(endedAt: lastTimestamp ?? point.timestamp, atLimit: true)
             return [.finishedAtLimit]
         }
         lastPointMs = ms
         lastTimestamp = point.timestamp
         stats.points += 1
+        stats.lastPointAtMs = ms
 
         var events: [RunEvent]
         var breaksSegment = false
@@ -245,10 +312,15 @@ public actor RunSession {
         case .accepted:
             events = [.accepted]
         case .ignored(let issue):
-            stats.lastIssue = issue
+            note(issue, atMs: ms)
+            await recorder.note(summary)
             return [.ignored(issue)]
         case .segmentBroken(let issue):
-            stats.lastIssue = issue
+            note(issue, atMs: ms)
+            stats.breaks[issue, default: 0] += 1
+            stats.lastBreak = issue
+            stats.lastBreakAtMs = ms
+            stats.acceptedAfterBreakAtMs = nil
             detector.reset()
             lastAccepted = nil
             breakFog(at: point, issue: issue)
@@ -259,7 +331,13 @@ public actor RunSession {
             unsavedLoops.append(loop)
         }
         events += try await claimUnsaved()
+        await recorder.note(summary)
         return events
+    }
+
+    private func note(_ issue: TrackIssue, atMs ms: Int64) {
+        stats.lastIssue = issue
+        stats.lastIssueAtMs = ms
     }
 
     /// Заявить петли, ждущие записи, по порядку. Ошибка хранилища — петля остаётся ждать, а ошибка уходит трекеру
@@ -271,6 +349,7 @@ public actor RunSession {
                 let claimNo = try await recorder.claim(loop)
                 stats.loops += 1
                 stats.loopAreaSquareMeters += loop.estimatedArea
+                claimed[claimNo] = loop
                 events.append(.loopClaimed(claimNo: claimNo, loop))
             } catch is RecorderError {
                 // Петлю, которую очередь не примет (слишком короткая, уже заявлена), не заявляем: сервер её тоже не принял бы.
@@ -286,6 +365,15 @@ public actor RunSession {
         }
         lastAccepted = point
         stats.acceptedPoints += 1
+        let ms = StoragePrecision.milliseconds(point.timestamp)
+        stats.lastAcceptedAtMs = ms
+        if !breaksSegment, stats.lastBreakAtMs != nil, stats.acceptedAfterBreakAtMs == nil {
+            stats.acceptedAfterBreakAtMs = ms
+        }
+        if latitude == nil {
+            latitude = (point.coordinate.latitude * 100).rounded() / 100
+        }
+        trail.append((point.seq, point.coordinate, breaksSegment || trail.isEmpty))
         if !breaksSegment {  // точка разрыва туман не открывает — см. `breakFog`
             fogPending.append((point, fogNextStartsSegment))
             fogNextStartsSegment = false
@@ -325,8 +413,76 @@ public actor RunSession {
         }
         guard settled > 0 else { return }
         fogPending.removeFirst(settled)
-        stats.fogCells = fog.cellCount
-        stats.fogAreaSquareMeters = fog.areaSquareMeters
+        updateFogStats()
+    }
+
+    // MARK: - «≈+N га» тумана
+
+    /// Туман забега в сводку: до перезапуска + этот процесс; новое — по сравнению с туманом за всё время. Сравнение
+    /// идёт по тайлам (1 024 слова на тайл) и считается при каждом изменении тумана или приходе тайла — это дёшево.
+    private func updateFogStats() {
+        let fresh = fog.newArea(comparedTo: allTimeFog)
+        stats.fogCells = fogBefore.fogCells + fog.cellCount
+        stats.fogAreaSquareMeters = fogBefore.fogAreaSquareMeters + fog.areaSquareMeters
+        stats.fogNewSquareMeters = fogBefore.fogNewSquareMeters + fresh.squareMeters
+        stats.fogNewIsLowerBound = fogBefore.fogNewIsLowerBound || !fresh.unknownTiles.isEmpty
+    }
+
+    /// Тайлы тумана забега, которые ещё не просили у поставщика тумана за всё время, — каждый отдаётся один раз.
+    public func fogTilesToRequest() -> [FogTileKey] {
+        let fresh = fog.tiles.keys.filter { !requestedFogTiles.contains($0) }.sorted()
+        requestedFogTiles.formUnion(fresh)
+        return fresh
+    }
+
+    /// Пришёл тайл тумана игрока за всё время (`nil` — неизвестен: клетки тайла остаются ни новыми, ни старыми, число —
+    /// нижняя граница). Пустой тайл сервера (версия 0) — `FogTileBits(words: [])`: все клетки в нём новые.
+    public func allTimeFogArrived(_ key: FogTileKey, _ bits: FogTileBits?) async {
+        guard let bits else { return }
+        allTimeFog[key] = bits
+        updateFogStats()
+        await recorder.note(summary)
+    }
+
+    // MARK: - Для экрана
+
+    /// Подсказка «до замыкания» для последней принятой точки (цель — начало открытой петли).
+    public var closureHint: ClosureHint { detector.closureHint(limits: captureArea) }
+
+    /// След этого процесса для карты: принятые точки по отрезкам (после разрыва — новый). Прежний след (до перезапуска
+    /// приложения) — в очереди и в истории забегов, не здесь.
+    public func trailSegments() -> [[Coordinate]] {
+        var segments: [[Coordinate]] = []
+        for point in trail {
+            if point.startsSegment || segments.isEmpty {
+                segments.append([])
+            }
+            segments[segments.count - 1].append(point.coordinate)
+        }
+        return segments
+    }
+
+    /// Кольцо заявленной петли: принятые точки от `startSeq` до `endSeq`. `nil` — петля заявлена не в этом процессе.
+    public func ring(claimNo: Int) -> LoopRing? {
+        guard let loop = claimed[claimNo] else { return nil }
+        let coordinates = trail.filter { (loop.startSeq...loop.endSeq).contains($0.seq) }.map(\.coordinate)
+        return LoopRing(claimNo: claimNo, loop: loop, coordinates: coordinates)
+    }
+
+    /// Сводка для записи в забег (переживает перезапуск).
+    private var summary: RunSummary {
+        var summary = RunSummary()
+        summary.points = stats.points
+        summary.acceptedPoints = stats.acceptedPoints
+        summary.distanceMeters = stats.distanceMeters
+        summary.breaks = Dictionary(uniqueKeysWithValues: stats.breaks.map { ($0.key.rawValue, $0.value) })
+        summary.fogCells = stats.fogCells
+        summary.fogAreaSquareMeters = stats.fogAreaSquareMeters
+        summary.fogNewSquareMeters = stats.fogNewSquareMeters
+        summary.fogNewIsLowerBound = stats.fogNewIsLowerBound
+        summary.latitude = latitude
+        summary.endedAtLimit = endedAtLimit
+        return summary
     }
 
     /// Вид движения от CoreMotion — в очередь и, если запись её приняла, судье: судья телефона должен видеть ровно то,
@@ -360,7 +516,7 @@ public actor RunSession {
         try await exclusively {
             guard !isFinished else { return [] }
             if StoragePrecision.milliseconds(seconds) > recorder.windowEndMs {
-                try await finishNow(endedAt: lastTimestamp ?? Double(recorder.windowEndMs) / 1_000)
+                try await finishNow(endedAt: lastTimestamp ?? Double(recorder.windowEndMs) / 1_000, atLimit: true)
                 return [.finishedAtLimit]
             }
             try await recorder.tick(now: seconds)
@@ -386,11 +542,22 @@ public actor RunSession {
         try await exclusively { try await finishNow(endedAt: seconds) }
     }
 
-    private func finishNow(endedAt seconds: Double) async throws {
+    private func finishNow(endedAt seconds: Double, atLimit: Bool = false) async throws {
         guard !isFinished else { return }
         _ = try await claimUnsaved()  // петля, замкнутая в забеге, заявляется до его конца — или «Финиш» не удаётся
-        try await recorder.finish(endedAt: seconds)
-        settleFog(olderThan: .max)  // конец без разрыва: весь хвост засчитан
+        // Конец без разрыва: весь хвост тумана засчитан — до записи конца, чтобы последняя сводка в забеге была итоговой.
+        // «Финиш» не записался — забег продолжается, и хвост снова ждёт своих 30 с.
+        let before = (fog, fogPending, fogLast, stats, endedAtLimit)
+        settleFog(olderThan: .max)
+        endedAtLimit = atLimit
+        await recorder.note(summary)
+        do {
+            try await recorder.finish(endedAt: seconds)
+        } catch {
+            (fog, fogPending, fogLast, stats, endedAtLimit) = before
+            await recorder.note(summary)
+            throw error
+        }
         isFinished = true
     }
 }

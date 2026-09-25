@@ -1,3 +1,5 @@
+import Foundation
+
 /// Заявка петли: сервер построит контур из точек с номерами `startSeq…endSeq` (PLAN.md, §3.2).
 public struct LoopClaim: Hashable, Codable, Sendable {
     public var startSeq: Int
@@ -154,6 +156,37 @@ public struct LoopDetector: Sendable {
             }
         }
         return result.sorted()
+    }
+}
+
+// MARK: - Подсказка «до замыкания»
+
+extension LoopDetector {
+    /// Подсказка «до замыкания» для последней принятой точки (docs/architecture/run-hud.md). Цель — начало открытой
+    /// петли (`firstEligible`): после заявки это точка замыкания, после разрыва — первая точка нового отрезка. Путь,
+    /// площадь и R берутся из тех же массивов и формул, что у детектора (префиксные суммы), — O(1) на точку.
+    /// - Parameter limits: пороги площади сервера — для флагов `belowServerMinimum` и `tooLarge`.
+    public func closureHint(limits: CaptureAreaLimits = CaptureAreaLimits()) -> ClosureHint {
+        guard let plane, let current = points.indices.last else { return .noTrail }
+        let start = firstEligible
+        let path = pathLength[current] - pathLength[start]
+        guard path >= settings.minPathMeters else {
+            return .needsPath(targetSeq: seqs[start], remainingMeters: settings.minPathMeters - path)
+        }
+        let area = loopArea(from: start, to: current)
+        guard area >= settings.minEstimatedAreaSquareMeters else { return .needsTurn(targetSeq: seqs[start]) }
+        let east = points[start].east - points[current].east
+        let north = points[start].north - points[current].north
+        var bearing = atan2(east, north) * 180 / .pi
+        if bearing < 0 {
+            bearing += 360
+        }
+        return .canClose(
+            ClosureTarget(
+                seq: seqs[start], coordinate: plane.unproject(points[start]),
+                distanceMeters: max(0, (east * east + north * north).squareRoot() - radius(start, current)),
+                bearingDegrees: bearing, estimatedAreaSquareMeters: area,
+                belowServerMinimum: area < limits.minAreaSquareMeters, tooLarge: area > limits.maxAreaSquareMeters))
     }
 }
 

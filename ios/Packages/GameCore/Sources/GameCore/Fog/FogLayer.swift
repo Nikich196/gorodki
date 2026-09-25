@@ -9,9 +9,11 @@ public struct FogTileBits: Hashable, Codable, Sendable {
         words = Array(repeating: 0, count: Self.wordCount)
     }
 
+    /// Тайл из слов, как их хранит сервер и кэш тумана (`FogCache.Tile.words`). Пустой список — пустой тайл: так кэш
+    /// хранит тайл, которого у сервера нет (версия 0, все клетки закрыты). Другая длина — `nil`.
     public init?(words: [UInt64]) {
-        guard words.count == Self.wordCount else { return nil }
-        self.words = words
+        guard words.isEmpty || words.count == Self.wordCount else { return nil }
+        self.words = words.isEmpty ? Array(repeating: 0, count: Self.wordCount) : words
     }
 
     public func isSet(_ bit: Int) -> Bool { words[bit >> 6] & (1 << UInt64(bit & 63)) != 0 }
@@ -30,6 +32,22 @@ public struct FogTileBits: Hashable, Codable, Sendable {
         for index in words.indices {
             words[index] |= other.words[index]
         }
+    }
+}
+
+/// Сколько клеток тумана новые по сравнению с туманом за всё время (`FogLayer.newArea(comparedTo:)`).
+public struct FogNewArea: Hashable, Sendable {
+    /// Новые клетки в известных тайлах.
+    public var cells = 0
+    /// Их площадь, м², — нижняя граница, если есть неизвестные тайлы.
+    public var squareMeters = 0.0
+    /// Тайлы, для которых туман за всё время неизвестен.
+    public var unknownTiles: Set<FogTileKey> = []
+
+    public init(cells: Int = 0, squareMeters: Double = 0, unknownTiles: Set<FogTileKey> = []) {
+        self.cells = cells
+        self.squareMeters = squareMeters
+        self.unknownTiles = unknownTiles
     }
 }
 
@@ -104,11 +122,25 @@ public struct FogLayer: Hashable, Codable, Sendable {
     /// Открытая площадь, м²: клетки каждого тайла × площадь клетки на широте его центра.
     public var areaSquareMeters: Double {
         tiles.reduce(0) { total, entry in
-            let latitude = FogGrid.center(of: FogCell(x: (entry.key.x << 8) + 128, y: (entry.key.y << 8) + 128))
-                .latitude
-            let size = FogGrid.cellSizeMeters(atLatitude: latitude)
-            return total + Double(entry.value.count) * size * size
+            total + Double(entry.value.count) * entry.key.cellAreaSquareMeters
         }
+    }
+
+    /// Новое по сравнению с туманом игрока за всё время («+N га» забега; fog.md: «новое за всё время»,
+    /// `popcount(new & ~old)`). Сравнение — по тайлам: тайла нет в `allTime` — он неизвестен (нет сети, запрос не удался),
+    /// его клетки не считаются ни новыми, ни старыми: площадь — нижняя граница, а тайл — в `unknownTiles`.
+    public func newArea(comparedTo allTime: [FogTileKey: FogTileBits]) -> FogNewArea {
+        var result = FogNewArea()
+        for (key, bits) in tiles {
+            guard let old = allTime[key] else {
+                result.unknownTiles.insert(key)
+                continue
+            }
+            let cells = bits.newCount(comparedTo: old)
+            result.cells += cells
+            result.squareMeters += Double(cells) * key.cellAreaSquareMeters
+        }
+        return result
     }
 
     /// Сколько клеток открыто здесь и не было открыто в `old` («+N га сегодня»).

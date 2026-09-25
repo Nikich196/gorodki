@@ -84,6 +84,8 @@ public actor RunRecorder {
     private var finishing = false
     /// Сколько кусков запечатано с начала (или продолжения) записи.
     public private(set) var sealedChunks = 0
+    /// Сводка для экрана (`RunSummary`), которую следующее запечатывание запишет в забег вместе с прогрессом.
+    private var summary: RunSummary?
 
     /// Записи датчиков, пришедшие не позже отметки уже запечатанного куска.
     public private(set) var lateSensorRecords = 0
@@ -247,6 +249,12 @@ public actor RunRecorder {
         return false
     }
 
+    /// Сводка забега на сейчас (её ведёт `RunSession`): уйдёт в забег со следующим запечатанным куском и с концом забега —
+    /// так она переживает перезапуск приложения (docs/architecture/run-hud.md, пробел 1).
+    public func note(_ summary: RunSummary) {
+        self.summary = summary
+    }
+
     /// Телефон уже получил все данные датчиков до этого момента (секунды Unix): CoreMotion и шагомер отдают их с задержкой.
     public func sensorsComplete(through seconds: Double) {
         sensorsMarkMs = max(sensorsMarkMs, StoragePrecision.milliseconds(seconds))
@@ -281,9 +289,13 @@ public actor RunRecorder {
         do {
             try await seal()  // сначала все куски, потом отметка конца: увидев конец, синхронизация видит и все куски
             let lastSeq = nextSeq - 1
+            let summary = self.summary
             try await store.updateRun(runId) {
                 $0.endedAtMs = endedAtMs
                 $0.lastSeq = lastSeq
+                if let summary {
+                    $0.summary = summary  // последняя сводка — итоговая: итог и история берут её без пересчёта
+                }
             }
         } catch {
             // «Финиш» не удался (не записан остаток или сам конец) — забег продолжается, точки снова принимаются.
@@ -320,11 +332,15 @@ public actor RunRecorder {
         acceptsSensorsAfterMs = mark  // датчики не позже отметки уже обещаны этим куском
         let lastSeq = chunk.lastSeq
         let lastPointMs = taken.buffer.last.map { StoragePrecision.milliseconds($0.timestamp) }
+        let summary = self.summary
         do {
             try await store.seal(chunk) {
                 $0.recordedThroughSeq = max($0.recordedThroughSeq, lastSeq)
                 $0.lastPointMs = max($0.lastPointMs ?? .min, lastPointMs ?? .min)
                 $0.sealedSensorsMarkMs = max($0.sealedSensorsMarkMs ?? .min, mark)
+                if let summary {
+                    $0.summary = summary
+                }
             }
             sealedChunks += 1
         } catch {

@@ -65,6 +65,8 @@ struct ContractTests {
 
         #expect(rules == .version1)
         #expect(rules.maxRunHours == 4)
+        #expect(rules.captureArea.minAreaSquareMeters == 2_500)
+        #expect(rules.captureArea.maxAreaSquareMeters == 3_500_000)
         #expect(rules.rules(for: .bike) == .bike)
     }
 

@@ -271,17 +271,35 @@ struct SyncStoreContractTests {
         run.finishRejectCode = "finish_invalid"
         run.confirmedComplete = true
         run.resendRounds = 2
+        run.fogNewCells = 42
+        var summary = RunSummary()
+        summary.points = 10
+        summary.acceptedPoints = 9
+        summary.distanceMeters = 12.5
+        summary.breaks = ["vehicle": 1, "someFutureIssue": 2]
+        summary.fogCells = 300
+        summary.fogAreaSquareMeters = 10_300
+        summary.fogNewSquareMeters = 4_100
+        summary.fogNewIsLowerBound = true
+        summary.latitude = 52.1
+        summary.endedAtLimit = true
+        run.summary = summary
         let chunk = Sample.chunk(run.id, firstSeq: 0, count: 10)
         var claim = Sample.claim(run.id, 0)
         claim.sent = true
         claim.refusedCode = "daily_limit"
+        var settled = Sample.claim(run.id, 1)
+        settled.sent = true
+        settled.outcome = ClaimOutcome(
+            status: "applied", areaSquareMeters: 900, areaByOutcome: ["claimedNeutral": 600, "futureOutcome": 300])
 
         try await store.insert(run)
         try await store.save(chunk)
         try await store.save(claim)
+        try await store.save(settled)
 
         #expect(try await store.runs() == [run])
         #expect(try await store.chunks(of: run.id) == [chunk])
-        #expect(try await store.claims(of: run.id) == [claim])
+        #expect(try await store.claims(of: run.id) == [claim, settled])
     }
 }

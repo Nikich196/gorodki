@@ -298,6 +298,8 @@ final class RunController {
             }
             return
         }
+        // Разрешение «Движение» хранится в забеге: без него плашка «захваты не засчитаются» после перезапуска пропала бы.
+        capturesNeedMotion = !session.motionAuthorized
         let since = Date(timeIntervalSince1970: await session.sensorsResumeFrom)
         try? await tracker.resume(session)
         startSources(motionSince: since)

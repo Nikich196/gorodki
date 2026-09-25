@@ -18,6 +18,25 @@ public enum SyncStop: Equatable, Sendable {
     case rateLimited
 }
 
+/// Заявка, решённая в проходе синхронизации (docs/architecture/run-hud.md, пробел 9): вторая фаза церемонии и итог
+/// забега узнают о решении отсюда, а не из молчаливой записи в хранилище.
+public struct SettledClaim: Equatable, Sendable {
+    public var runId: UUID
+    public var claimNo: Int
+    /// Окончательный итог сервера; `nil` — отказ в самой заявке.
+    public var outcome: ClaimOutcome?
+    /// Отказ в самой заявке (`claim_invalid`, `claim_conflict`, `upload_window_closed`, `claim_limit`) или
+    /// `PendingClaim.runRejectedCode` — забег отвергнут сервером, заявку больше не отправят.
+    public var refusedCode: String?
+
+    public init(_ claim: PendingClaim) {
+        runId = claim.runId
+        claimNo = claim.claimNo
+        outcome = claim.outcome
+        refusedCode = claim.refusedCode
+    }
+}
+
 /// Что сделал проход синхронизации.
 public struct SyncReport: Equatable, Sendable {
     public var startedRuns = 0
@@ -42,6 +61,10 @@ public struct SyncReport: Equatable, Sendable {
     public var unconfirmedFinishes = 0
     /// Исчерпан суточный объём: куски ждут завтрашнего прохода, заявки на уже доставленные точки ушли.
     public var storageLimitReached = false
+    /// Заявки, решённые в этом проходе, — каждая ровно в одном проходе: окончательный итог (из ответа на заявку или из
+    /// `GET …/captures`, в том числе `failed` у забега, которого сервер не знает), отказ в самой заявке, заявки забега,
+    /// отвергнутого в этом проходе.
+    public var settledClaims: [SettledClaim] = []
     public var stop: SyncStop?
 
     public init() {}
@@ -54,6 +77,9 @@ public struct SyncReport: Equatable, Sendable {
 public actor SyncEngine {
     /// Сколько раз досылать точки по списку `missing` (или завершение), прежде чем признать дыру неустранимой.
     public static let maxResendRounds = 3
+    /// Сколько дней после начала забега спрашивать «+N га» (`fogNewCells`): точки забега сервер хранит 14 дней
+    /// (runs.md, PLAN.md §3.16) — без точек туман по забегу уже не откроется.
+    public static let fogQueryDays = 14.0
 
     private let store: any SyncStore
     private let api: any APIProtocol
@@ -100,7 +126,7 @@ public actor SyncEngine {
                 try await sync(run, &report)
             }
             for run in try await ownRuns() where run.serverState == .started {
-                try await refreshClaims(of: run)
+                try await refreshClaims(of: run, &report)
             }
         } catch let stop as Stop {
             report.stop = stop.reason
@@ -190,7 +216,7 @@ public actor SyncEngine {
         case .undocumented(let status, _):
             throw Self.stop(status)
         }
-        try await reject(&run, code)
+        try await reject(&run, code, &report)
         return .later
     }
 
@@ -204,20 +230,26 @@ public actor SyncEngine {
             report.startedRuns += 1
             return .next
         case .notFound:
-            try await reject(&run, code)
+            try await reject(&run, code, &report)
             return .later
         case .undocumented(let status, _):
             throw Self.stop(status)
         }
     }
 
-    /// Отказ окончательный: забег больше не отправляется, его куски стираются (очередь — не история).
-    private func reject(_ run: inout LocalRun, _ code: String?) async throws {
+    /// Отказ окончательный: забег больше не отправляется, его куски стираются (очередь — не история). Его заявки больше
+    /// не уйдут — они решены (`PendingClaim.runRejectedCode`): иначе итог забега ждал бы их вечно.
+    private func reject(_ run: inout LocalRun, _ code: String?, _ report: inout SyncReport) async throws {
         try await update(&run) {
             $0.serverState = .rejected
             $0.rejectCode = code ?? "rejected"
         }
         try await store.deleteChunks(of: run.id)  // все, с нечитаемыми: по прочитанному они остались бы навсегда
+        for var claim in try await store.claims(of: run.id) where !claim.isSettled {
+            claim.refusedCode = PendingClaim.runRejectedCode
+            try await store.save(claim)
+            report.settledClaims.append(SettledClaim(claim))
+        }
     }
 
     // MARK: - Куски
@@ -402,11 +434,14 @@ public actor SyncEngine {
             throw Self.stop(status)
         }
         try await store.save(updated)
+        if updated.isSettled {
+            report.settledClaims.append(SettledClaim(updated))
+        }
         return .next
     }
 
     /// Итоги отправленных, но ещё не решённых заявок (`GET /runs/{id}/captures`).
-    private func refreshClaims(of run: LocalRun) async throws {
+    private func refreshClaims(of run: LocalRun, _ report: inout SyncReport) async throws {
         let waiting = try await store.claims(of: run.id).filter { $0.sent && !$0.isSettled }
         guard !waiting.isEmpty else { return }
         let output = try await call { try await api.listCaptures(path: .init(runId: Self.string(run.id))) }
@@ -417,6 +452,9 @@ public actor SyncEngine {
                 guard let capture = captures.first(where: { Int($0.claimNo) == claim.claimNo }) else { continue }
                 claim.outcome = Self.outcome(capture)
                 try await store.save(claim)
+                if claim.isSettled {
+                    report.settledClaims.append(SettledClaim(claim))
+                }
             }
         case .notFound:
             // Незавершённый забег начнёт заново следующий проход. У подтверждённого на телефоне ничего не осталось —
@@ -426,6 +464,7 @@ public actor SyncEngine {
                 claim.outcome = ClaimOutcome(
                     status: "failed", waitingFor: nil, rejectCode: "run_not_found", areaSquareMeters: 0)
                 try await store.save(claim)
+                report.settledClaims.append(SettledClaim(claim))
             }
         case .undocumented(let status, _):
             throw Self.stop(status)
@@ -487,6 +526,9 @@ public actor SyncEngine {
             throw Self.stop(status)
         }
 
+        if let cells = serverRun.fogNewCells, run.fogNewCells == nil {
+            try await update(&run) { $0.fogNewCells = Int(cells) }
+        }
         let gaveUp = run.resendRounds >= Self.maxResendRounds
         guard serverRun.status == .finished || run.finishRejectCode != nil || gaveUp else {
             try await update(&run) {
@@ -512,6 +554,81 @@ public actor SyncEngine {
                 try await store.save(chunk)
             }
             report.requeuedChunks += requeue.count
+        }
+    }
+
+    // MARK: - Итог забега: перезапросы
+
+    /// Итог забега по запросу экрана — открыт итог или детали (docs/architecture/run-hud.md, «Итог забега»): «+N га»
+    /// (`fogNewCells`), пока его нет у завершённого забега, и разбивка `areaByOutcome` применённых заявок, пока её нет
+    /// (сервер отдаёт её только после границы публичности). Что уже известно, больше не спрашивается.
+    /// - Returns: почему остановились (нет сети и т. п.); `nil` — спрошено всё, что можно было спросить.
+    @discardableResult
+    public func refreshResults(of runId: UUID) async -> SyncStop? {
+        do {
+            guard let run = try await ownRuns().first(where: { $0.id == runId }), run.serverState == .started else {
+                return nil
+            }
+            try await refreshFogNewCells(of: run)
+            let missing = try await store.claims(of: run.id).filter {
+                $0.outcome?.status == "applied" && $0.outcome?.areaByOutcome == nil
+            }
+            guard !missing.isEmpty else { return nil }
+            let output = try await call { try await api.listCaptures(path: .init(runId: Self.string(run.id))) }
+            switch output {
+            case .ok(let response):
+                let captures = try response.body.json
+                for var claim in missing {
+                    guard let capture = captures.first(where: { Int($0.claimNo) == claim.claimNo }),
+                        let byOutcome = capture.areaByOutcome
+                    else { continue }
+                    claim.outcome?.areaByOutcome = byOutcome.additionalProperties
+                    try await store.save(claim)
+                }
+            case .notFound:
+                break
+            case .undocumented(let status, _):
+                throw Self.stop(status)
+            }
+            return nil
+        } catch let stop as Stop {
+            return stop.reason
+        } catch {
+            return .offline
+        }
+    }
+
+    /// Подсказка `FogChanged` (номера забега в ней нет): «+N га» своих завершённых забегов, у которых числа ещё нет.
+    /// Не пришла (забег ничего нового не открыл) — число спросит `refreshResults` при открытии итога.
+    @discardableResult
+    public func refreshFog() async -> SyncStop? {
+        do {
+            for run in try await ownRuns() where run.serverState == .started {
+                try await refreshFogNewCells(of: run)
+            }
+            return nil
+        } catch let stop as Stop {
+            return stop.reason
+        } catch {
+            return .offline
+        }
+    }
+
+    /// `GET /runs/{id}` за «+N га»: только у завершённого забега (завершение отправлено), пока числа нет и точки забега
+    /// ещё хранятся (`fogQueryDays`).
+    private func refreshFogNewCells(of run: LocalRun) async throws {
+        let limitMs = run.startedAtMs + Int64(Self.fogQueryDays * 86_400_000)
+        guard run.finishSent, run.fogNewCells == nil, nowMs() <= limitMs else { return }
+        let output = try await call { try await api.getRun(path: .init(runId: Self.string(run.id))) }
+        switch output {
+        case .ok(let response):
+            guard let cells = try response.body.json.fogNewCells else { return }  // туман ещё не открыт
+            var run = run
+            try await update(&run) { $0.fogNewCells = Int(cells) }
+        case .notFound:
+            return
+        case .undocumented(let status, _):
+            throw Self.stop(status)
         }
     }
 
@@ -612,7 +729,7 @@ public actor SyncEngine {
     static func outcome(_ capture: Components.Schemas.CaptureResponse) -> ClaimOutcome {
         ClaimOutcome(
             status: capture.status.rawValue, waitingFor: capture.waitingFor, rejectCode: capture.rejectCode,
-            areaSquareMeters: capture.areaSquareMeters)
+            areaSquareMeters: capture.areaSquareMeters, areaByOutcome: capture.areaByOutcome?.additionalProperties)
     }
 
     /// Диапазоны `[{firstSeq, lastSeq}]` из дополнительного поля ошибки (`overlaps`).
