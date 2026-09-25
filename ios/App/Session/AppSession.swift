@@ -21,6 +21,8 @@ final class AppSession {
     /// Сборка команды разрешает посмотреть вкладки без входа (`DebugAccess.buildAllows`): вход через Google ждёт
     /// Client ID (#4), а пробную установку смотреть нужно уже сейчас. Не сохраняется — после перезапуска снова онбординг.
     var browsingWithoutSignIn = false
+    /// Сообщение, которое корень показывает поверх любого экрана: например, выход стёр вход, но не все данные игрока.
+    var notice: String? = nil
 
     /// Показать вкладки, а не онбординг.
     var showsShell: Bool {
@@ -37,11 +39,12 @@ final class AppSession {
 }
 
 /// Кому открыто отладочное меню («Лаборатория», «Проверка установки»; PLAN.md, §5: «только роли demo и admin»).
-/// Сборки команды — Debug и бесплатная подпись (`FREE_SIGNING`: пробная установка через Sideloadly) — открывают его
-/// всем: игроков в них нет, а проверки на телефоне нужны до входа. Сборка для TestFlight (Paid) — только ролям.
+/// Сборки команды открывают его всем: Debug (Xcode, снимки) и пробная сборка IPA (`GORODKI_PROBE`: ipa.yml, запуск
+/// с галочкой «probe») — проверки на телефоне нужны до входа. IPA для игроков собирается без флага: Release-Free,
+/// который ставят через Sideloadly, и Release-Paid открывают меню только ролям.
 enum DebugAccess {
     static var buildAllows: Bool {
-        #if DEBUG || FREE_SIGNING
+        #if DEBUG || GORODKI_PROBE
             return true
         #else
             return false
@@ -49,6 +52,10 @@ enum DebugAccess {
     }
 
     static func isAvailable(role: String?) -> Bool {
+        isAvailable(role: role, buildAllows: buildAllows)
+    }
+
+    static func isAvailable(role: String?, buildAllows: Bool) -> Bool {
         buildAllows || role == "demo" || role == "admin"
     }
 }
