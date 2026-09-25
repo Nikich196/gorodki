@@ -88,6 +88,26 @@ public sealed class GeoOpsTests
     }
 
     [Fact]
+    public void Overlap_does_not_depend_on_how_the_shared_border_is_split()
+    {
+        // Issue #101: угол (…78; …93,7) лежит на стороне соседа, где у того вершины нет. Snap-rounding находит там точку
+        // пересечения не точно, и сторона соседа уходит к вершине (…77,8; …93,8): «наложение» 0,01 м², которого нет.
+        var corner = GeoOps.Factory.CreatePolygon(
+        [
+            new Coordinate(684077.8, 5775093.9), new Coordinate(684078, 5775093.7), new Coordinate(684077.8, 5775093.8),
+            new Coordinate(684077.8, 5775093.9),
+        ]);
+        var neighbour = GeoOps.Factory.CreatePolygon(
+        [
+            new Coordinate(684077.8, 5775093.9), new Coordinate(684098.1, 5775079), new Coordinate(684078.1, 5775093.6),
+            new Coordinate(684077.8, 5775093.9),
+        ]);
+
+        Assert.Equal(0.01, GeoOps.Intersection(corner, neighbour).Area, 6);
+        Assert.Equal(0, GeoOps.OverlapArea(corner, neighbour));
+    }
+
+    [Fact]
     public void Shared_boundary_of_neighbours_is_their_common_edge()
     {
         var left = TestGeometry.RectanglePolygon(0, 0, 50, 30);

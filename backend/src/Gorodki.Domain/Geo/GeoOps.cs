@@ -224,6 +224,43 @@ public static class GeoOps
     public static double SharedBoundaryLength(Geometry a, Geometry b) =>
         OverlayNG.Overlay(a.Boundary, b.Boundary, SpatialFunction.Intersection, Grid).Length;
 
+    /// <summary>
+    /// Площадь наложения двух многоугольников на сетке, как их видит движок, — при любом разбиении общей границы на вершины,
+    /// м². Для проверок: куски так не строятся.
+    /// </summary>
+    /// <remarks>
+    /// Угол одного куска может лежать на стороне другого, где у того вершины нет (нетронутый кусок не переписывается, новый
+    /// хранится без вершин на прямых). Snap-rounding находит там точку пересечения не точно, отрезок от неё задевает клетку
+    /// соседней вершины, и сторона уходит к соседу — «наложение» 0,01 м², которого нет (issue #101). Поэтому сначала в
+    /// стороны каждого вставляются вершины другого, которые на них лежат (точно, в дециметрах сетки): общая граница записана
+    /// у обоих одинаково, и snap-rounding сдвигает её у обоих одинаково.
+    /// </remarks>
+    public static double OverlapArea(Geometry a, Geometry b) =>
+        Intersection(WithVerticesOf(a, b), WithVerticesOf(b, a)).Area;
+
+    /// <summary><paramref name="target"/> с вершинами <paramref name="source"/>, которые лежат на его сторонах.</summary>
+    private static Geometry WithVerticesOf(Geometry target, Geometry source)
+    {
+        var vertices = source.Coordinates.Where(c => target.EnvelopeInternal.Contains(c)).Distinct().ToList();
+        return new GeometryEditor(target.Factory).Edit(target, new InsertVertices(vertices));
+    }
+
+    private sealed class InsertVertices(List<Coordinate> vertices) : GeometryEditor.CoordinateOperation
+    {
+        public override Coordinate[] Edit(Coordinate[] coordinates, Geometry geometry)
+        {
+            var result = new List<Coordinate>(coordinates.Length) { coordinates[0] };
+            for (var i = 1; i < coordinates.Length; i++)
+            {
+                var (from, to) = (coordinates[i - 1], coordinates[i]);
+                result.AddRange(vertices.Where(v => IsStraightThrough(from, v, to)).OrderBy(v => v.Distance(from)).Select(v => v.Copy()));
+                result.Add(to);
+            }
+
+            return [.. result];
+        }
+    }
+
     /// <summary>Все вершины лежат на сетке 0,1 м (с допуском на представление чисел double).</summary>
     public static bool IsOnGrid(Geometry geometry) =>
         geometry.Coordinates.All(c => IsOnGrid(c.X) && IsOnGrid(c.Y));
