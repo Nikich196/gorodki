@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Разбор записанных забегов, половина сервера: контур шага A с другими A_min и R_min. Запуск — calibrate.sh,
+       описание — docs/guides/calibration-replay.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Gorodki.Domain\Gorodki.Domain.csproj" />
+  </ItemGroup>
+</Project>
