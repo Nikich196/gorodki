@@ -136,9 +136,12 @@ public actor RunRecorder {
 
     /// Закрыть незавершённые забеги (любого игрока), кроме `except`: конец — последняя записанная точка, последний
     /// номер — последний запечатанный. Вызывается при старте нового забега и при запуске приложения (`RunTracker.recover`).
-    public static func closeInterrupted(except kept: UUID?, store: any SyncStore) async throws {
+    /// - Parameter matching: какие забеги закрывать — при запуске только своего вида (пробные «Лаборатории» или игрока).
+    public static func closeInterrupted(
+        except kept: UUID?, store: any SyncStore, matching: (LocalRun) -> Bool = { _ in true }
+    ) async throws {
         for run in try await store.runs()
-        where run.id != kept && !run.isFinishedLocally && run.serverState != .rejected {
+        where run.id != kept && !run.isFinishedLocally && run.serverState != .rejected && matching(run) {
             let last = lastRecorded(run, try await store.chunks(of: run.id))
             try await store.updateRun(run.id) {
                 $0.recordedThroughSeq = last.seq

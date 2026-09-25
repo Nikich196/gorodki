@@ -110,6 +110,16 @@ public struct GRDBSyncStore: SyncStore {
         try await writer.write { db in try row.upsert(db) }
     }
 
+    public func removeRun(_ id: UUID) async throws {
+        // По столбцу, а не по прочитанному: так стираются и нечитаемые куски и заявки.
+        let key = id.uuidString
+        try await writer.write { db in
+            _ = try RunRow.deleteOne(db, key: key)
+            _ = try ChunkRow.filter(Column("runId") == key).deleteAll(db)
+            _ = try ClaimRow.filter(Column("runId") == key).deleteAll(db)
+        }
+    }
+
     public func removeAll() async throws {
         // По таблицам, а не по прочитанному: так стираются и нечитаемые строки.
         try await writer.write { db in

@@ -33,13 +33,14 @@ public struct RunHistory: Sendable {
     }
 
     /// Сохранить законченные забеги очереди, которых ещё нет в истории, — с точками их кусков. Забег, куски которого
-    /// очередь уже стёрла (сервер подтвердил его раньше), пропускается: точек уже нет.
+    /// очередь уже стёрла (сервер подтвердил его раньше), пропускается: точек уже нет. Пробные забеги «Лаборатории»
+    /// (`LocalRun.isLabProbe`) — тоже: история — забеги игрока.
     /// - Returns: сохранённые сейчас забеги.
     @discardableResult
     public func archiveEnded(from queue: any SyncStore) async throws -> [UUID] {
         let known = Set(try await entries().map(\.id))
         var archived: [UUID] = []
-        for run in try await queue.runs() where !known.contains(run.id) && !run.confirmedComplete {
+        for run in try await queue.runs() where !known.contains(run.id) && !run.confirmedComplete && !run.isLabProbe {
             guard let endedAtMs = run.endedAtMs else { continue }
             var points: [TrackPoint] = []
             for point in try await queue.chunks(of: run.id).flatMap(\.points).sorted(by: { $0.seq < $1.seq })

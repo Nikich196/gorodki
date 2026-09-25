@@ -52,6 +52,7 @@ actor FailingOnceStore: SyncStore {
         try fail(&failNextClaim)
         await inner.save(claim)
     }
+    func removeRun(_ id: UUID) async { await inner.removeRun(id) }
     func removeAll() async { await inner.removeAll() }
 }
 

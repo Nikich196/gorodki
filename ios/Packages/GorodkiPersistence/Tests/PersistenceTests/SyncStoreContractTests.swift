@@ -202,6 +202,30 @@ struct SyncStoreContractTests {
         #expect(try await store.lastClaimNo(of: run.id) == nil)
     }
 
+    @Test(
+        "Стирание забега убирает его куски и заявки, чужие остаются; нет забега — не ошибка",
+        arguments: StoreKind.allCases)
+    func removeRunWipesOnlyIt(kind: StoreKind) async throws {
+        let store = try kind.make()
+        let run = Sample.run()
+        let other = Sample.run()
+        for id in [run.id, other.id] {
+            try await store.insert(Sample.run(id))
+            try await store.save(Sample.chunk(id, firstSeq: 0))
+            try await store.save(Sample.claim(id, 0))
+        }
+
+        try await store.removeRun(run.id)
+        try await store.removeRun(UUID())
+
+        #expect(try await store.runs().map(\.id) == [other.id])
+        #expect(try await store.chunks(of: run.id).isEmpty)
+        #expect(try await store.claims(of: run.id).isEmpty)
+        #expect(try await store.lastClaimNo(of: run.id) == nil)
+        #expect(try await store.chunks(of: other.id).count == 1)
+        #expect(try await store.claims(of: other.id).count == 1)
+    }
+
     @Test("Заявки — по номеру; тот же номер заменяет", arguments: StoreKind.allCases)
     func claimsAreOrderedAndKeyed(kind: StoreKind) async throws {
         let store = try kind.make()

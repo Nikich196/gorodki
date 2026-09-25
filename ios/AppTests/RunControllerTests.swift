@@ -60,8 +60,27 @@ struct RunControllerTests {
         try await waitUntilIdle(controller)
     }
 
-    /// Продолжение после перезапуска держит `RunController` занятым, пока читает базу, а запускает его и сам запуск
-    /// приложения, в котором идут тесты. Ждём, пока «Старт» перестанет отвечать «уже идёт».
+    @Test("«Старт», пока пробный забег «Лаборатории» продолжается после перезапуска, отклоняется — трекер один за раз")
+    func startWhileProbeRunIsBusy() async throws {
+        let controller = RunController.shared
+        try await waitUntilIdle(controller)
+
+        // Без `await` между ними: продолжение пробного успевает только встать в очередь, а его флаг уже поднят.
+        ProbeRun.shared.resumeAtLaunch()
+        var rejection: (any Error)?
+        do {
+            try await controller.start(league: .run)
+        } catch {
+            rejection = error
+        }
+        #expect(rejection as? TrackerError == .alreadyRunning, "итог «Старта»: \(String(describing: rejection))")
+
+        // Пробный отпустил флаг — «Старт» снова доходит до проверки разрешений.
+        try await waitUntilIdle(controller)
+    }
+
+    /// Продолжение после перезапуска держит `RunController` (и пробный забег `ProbeRun`) занятым, пока читает базу,
+    /// а запускает его и сам запуск приложения, в котором идут тесты. Ждём, пока «Старт» перестанет отвечать «уже идёт».
     private func waitUntilIdle(_ controller: RunController) async throws {
         // С вошедшим игроком и разрешённой геопозицией «Старт» записал бы настоящий забег.
         let signedIn = await AppDependencies.shared.tokens.current()
