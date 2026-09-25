@@ -53,6 +53,29 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
         return new DateTimeOffset(edge - (edge % RevealStep.Ticks), TimeSpan.Zero);
     }
 
+    /// <summary>
+    /// Когда изменение, применённое в <paramref name="appliedAt"/>, станет публичным — первый момент, в который до него
+    /// доходит <see cref="PublicHorizon"/>: ближайшая граница по 5 минут не раньше него плюс задержка.
+    /// </summary>
+    public static DateTimeOffset PublicAt(DateTimeOffset appliedAt, TimeSpan delay)
+    {
+        var ticks = appliedAt.UtcTicks;
+        var boundary = ticks + ((RevealStep.Ticks - (ticks % RevealStep.Ticks)) % RevealStep.Ticks);
+        return new DateTimeOffset(boundary, TimeSpan.Zero) + delay;
+    }
+
+    /// <summary>
+    /// Записи журнала захватов, ещё скрытые от всех, кто не видит захват сразу (§3.16): применены позже
+    /// <paramref name="horizon"/>, не откачены (их земли уже нет) и не демо-аккаунта (на показе его захваты видны сразу).
+    /// Одно определение для карты (зритель вдобавок видит свои захваты сразу) и для визитов (<see cref="VisitProcessor"/>).
+    /// </summary>
+    public static IQueryable<CaptureJournalEntity> HiddenJournal(AppDbContext db, League league, DateTimeOffset horizon) =>
+        db.CaptureJournal.AsNoTracking()
+            .Where(j => j.League == league && j.AppliedAt > horizon
+                && db.Captures.Any(c => c.Id == j.CaptureId
+                    && c.RolledBackAt == null
+                    && !db.Users.Any(u => u.Id == c.UserId && u.Role == UserRole.Demo)));
+
     public async Task<TerritoryResponse> ReadAsync(
         League league,
         IReadOnlyList<(TileKey Tile, long? KnownVersion)> requested,
@@ -132,23 +155,20 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
     private sealed record HiddenCapture(Guid CaptureId, int TileX, int TileY, long AppliedSeq);
 
     /// <summary>
-    /// Чужие захваты в этих тайлах, ещё не публичные (применены позже <paramref name="horizon"/>). Не в счёт: свои,
-    /// откаченные (их земли уже нет) и захваты демо-аккаунта (на показе они видны сразу).
+    /// Чужие захваты в этих тайлах, ещё не публичные (<see cref="HiddenJournal"/>: применены позже
+    /// <paramref name="horizon"/>, не откачены, не демо-аккаунта). Свои зритель видит сразу.
     /// </summary>
     private async Task<List<HiddenCapture>> HiddenCapturesAsync(
         League league, Guid? viewerId, DateTimeOffset horizon, int minX, int maxX, int minY, int maxY, CancellationToken cancellationToken)
     {
-        var rows = await db.CaptureJournal.AsNoTracking()
-            .Where(j => j.League == league && j.AppliedAt > horizon
-                && j.TileX >= minX && j.TileX <= maxX && j.TileY >= minY && j.TileY <= maxY)
+        var rows = await HiddenJournal(db, league, horizon)
+            .Where(j => j.TileX >= minX && j.TileX <= maxX && j.TileY >= minY && j.TileY <= maxY)
             .Join(
                 db.Captures,
                 j => j.CaptureId,
                 c => c.Id,
-                (j, c) => new { j.CaptureId, j.TileX, j.TileY, c.UserId, c.AppliedSeq, c.RolledBackAt })
-            .Where(r => r.UserId != viewerId
-                && r.RolledBackAt == null
-                && !db.Users.Any(u => u.Id == r.UserId && u.Role == UserRole.Demo))
+                (j, c) => new { j.CaptureId, j.TileX, j.TileY, c.UserId, c.AppliedSeq })
+            .Where(r => r.UserId != viewerId)
             .ToListAsync(cancellationToken);
         return rows.Select(r => new HiddenCapture(r.CaptureId, r.TileX, r.TileY, r.AppliedSeq ?? 0)).ToList();
     }
@@ -159,14 +179,13 @@ public sealed class TerritoryReader(AppDbContext db, GameConfigStore configs, Ti
     /// поздние изменения зрителя остаются).
     /// </summary>
     /// <remarks>
-    /// Визиты забега засчитываются, когда публичен его конец, — а чужой захват той же земли, применённый в эти 20 минут, ещё
-    /// скрыт. У жертвы это обычная игра: она пробежала по своей земле, петля по её части пришла следом, и визиты ложатся на
-    /// треснувшую часть и на остаток куска; у автора — если захват применён позже конца забега (забег из офлайна), на
-    /// взятое. Такие визиты переносятся на прежнюю землю (<see cref="TerritoryMap.Restore"/> с <c>replayVisits</c>): иначе
-    /// земля «после захвата» осталась бы в проекции как есть — взятое, уровень −1 и осада видны раньше 20 минут. Шов по
-    /// линии петли при этом остаётся, если части куска получили разное время визита или остаток — никакого: откат по
-    /// граням видит только след захвата (docs/architecture/territory-map.md, остаток BE-01). Правила земли — действующего
-    /// конфига, как у визитов (<see cref="VisitProcessor"/>).
+    /// Визиты забега ждут раскрытия скрытого захвата в тайлах его пути, если в журнале захвата есть земля этого игрока
+    /// (<see cref="VisitProcessor"/>): иначе у жертвы они легли бы на треснувшую часть и остаток куска — у каждого своё
+    /// время и свой порог 50 м, — и откат по граням, который видит только след захвата, оставил бы шов по линии петли
+    /// (docs/architecture/territory-map.md). Поэтому визиты владельцев на землю скрытого захвата сюда обычно не доходят.
+    /// Перенос визитов (<see cref="TerritoryMap.Restore"/> с <c>replayVisits</c>) — страховка, если они всё же легли
+    /// (например, задержку в конфиге увеличили, и публичный захват снова скрыт): без него взятое, уровень −1 и осада были
+    /// бы видны раньше 20 минут. Правила земли — действующего конфига, как у визитов.
     /// </remarks>
     private async Task<List<(ParcelState State, Polygon Geometry)>> ProjectAsync(
         TileKey tile, List<ParcelEntity> stored, List<HiddenCapture> pending, TerritoryRules rules, CancellationToken cancellationToken)

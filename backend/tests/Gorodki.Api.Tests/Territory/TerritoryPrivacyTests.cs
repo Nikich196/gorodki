@@ -18,6 +18,21 @@ public sealed class TerritoryPrivacyTests
         Assert.Equal(DateTimeOffset.Parse(horizon), TerritoryReader.PublicHorizon(DateTimeOffset.Parse(now), Delay));
     }
 
+    [Theory]
+    [InlineData("2026-11-16T12:01:00Z", "2026-11-16T12:25:00Z")]
+    [InlineData("2026-11-16T12:05:00Z", "2026-11-16T12:25:00Z")]
+    [InlineData("2026-11-16T12:05:00.001Z", "2026-11-16T12:30:00Z")]
+    public void Change_becomes_public_at_the_first_moment_the_horizon_reaches_it(string appliedAt, string publicAt)
+    {
+        // Визиты, которые ждут раскрытия скрытого захвата, возвращаются в очередь ровно в этот момент (VisitProcessor).
+        var applied = DateTimeOffset.Parse(appliedAt);
+        var at = TerritoryReader.PublicAt(applied, Delay);
+
+        Assert.Equal(DateTimeOffset.Parse(publicAt), at);
+        Assert.True(TerritoryReader.PublicHorizon(at, Delay) >= applied);
+        Assert.True(TerritoryReader.PublicHorizon(at - TimeSpan.FromTicks(1), Delay) < applied);
+    }
+
     [Fact]
     public void Same_content_gives_the_same_id_and_any_visible_change_a_new_one()
     {
