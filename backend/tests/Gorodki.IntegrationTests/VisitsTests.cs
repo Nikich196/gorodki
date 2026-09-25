@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Territory;
+using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Geo;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using static Gorodki.IntegrationTests.RunRequests;
@@ -223,6 +225,63 @@ public sealed class VisitsTests(DatabaseFixture database)
         Assert.Equal(2, Assert.Single(await LandAsync(annaId)).Level);
     }
 
+    [Fact]
+    public async Task Hidden_capture_of_own_land_in_a_tile_the_path_does_not_enter_does_not_delay_visits()
+    {
+        // Борис взял часть квадрата Анны, захват ещё скрыт. Забег Анны идёт по диагонали мимо угла тайла с квадратом: тайл
+        // лежит в прямоугольнике вокруг пути, но путь в него не заходит. Визиты там не лягут, шва не будет — ждать нечего.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var home = TileKey.Of(WalkOrigin.X + area.X + 50, WalkOrigin.Y + area.Y + 150);
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 100, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(2));
+
+        // Путь y = x − 50 от правого нижнего угла тайла квадрата: левее угла он ниже тайла, выше угла — правее. Засчитанная
+        // часть (без 200 м с концов) проходит три соседних тайла, а не тайл квадрата. Забег из офлайна: конец давно публичен.
+        var corner = (X: ((home.X + 1) * TileKey.SizeMeters) - WalkOrigin.X, Y: (home.Y * TileKey.SizeMeters) - WalkOrigin.Y);
+        var run = await WalkAndFinishAsync(
+            Cancel, api, anna, [(corner.X - 400, corner.Y - 450), (corner.X + 450, corner.Y + 400)], startedAgo: TimeSpan.FromHours(1));
+        var claim = await WalkAndClaimAsync(Cancel, api, boris, Rectangle(area, 60, 90, 100, 120));
+        Assert.Equal(1, await Walks.ProcessAsync(api, claim.RunId));
+        await using (var db = database.CreateContext())
+        {
+            var journal = await db.CaptureJournal.AsNoTracking().Where(j => j.CaptureId == claim.CaptureId).ToListAsync(Cancel);
+            var horizon = TerritoryReader.PublicHorizon(api.Time.GetUtcNow(), TerritoryReader.PublicDelay);
+            Assert.All(journal, j => Assert.True(j.AppliedAt > horizon)); // захват ещё скрыт
+            Assert.Equal((home.X, home.Y), Assert.Single(journal.Select(j => (j.TileX, j.TileY)).Distinct())); // весь — в тайле квадрата
+            Assert.True(await db.CaptureJournalPieces.AnyAsync(p => p.CaptureId == claim.CaptureId && p.OwnerId == annaId, Cancel));
+        }
+
+        Assert.Contains(run.Id, await ReadyAsync(api));
+        Assert.Equal(0, await VisitAsync(api, run.Id)); // своей земли на пути нет — посчитан сразу, без ожидания
+    }
+
+    [Fact]
+    public async Task Capture_of_own_land_by_the_demo_account_does_not_delay_visits()
+    {
+        // Захваты демо-аккаунта видны всем сразу (показ, §11): скрытого захвата нет — визиты не ждут, остаток квадрата
+        // получает визит, как только публичен конец забега.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (demo, _) = await api.CreatePlayerClientAsync(UserRole.Demo);
+        var area = NewArea();
+        await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromHours(21));
+
+        var run = await WalkAndFinishAsync(Cancel, api, anna, [(area.X - 300, area.Y + 50), (area.X + 400, area.Y + 50)]);
+        var claim = await WalkAndClaimAsync(Cancel, api, demo, Rectangle(area, 60, -10, 100, 120));
+        Assert.Equal(1, await Walks.ProcessAsync(api, claim.RunId));
+        api.Time.Advance(TerritoryReader.PublicDelay);
+
+        Assert.Contains(run.Id, await ReadyAsync(api));
+        Assert.Equal(1, await VisitAsync(api, run.Id));
+        Assert.Equal(2, Assert.Single(await LandAsync(annaId)).Level);
+    }
+
     /// <summary>Прогулка с завершением, когда часы телефона сбиты на <paramref name="skew"/>: всё время в запросах — по ним.</summary>
     private async Task<StartRunRequest> WalkAndFinishWithSkewAsync(
         ApiFactory api, HttpClient client, IReadOnlyList<(double X, double Y)> vertices, TimeSpan skew)
@@ -259,7 +318,7 @@ public sealed class VisitsTests(DatabaseFixture database)
         return await scope.ServiceProvider.GetRequiredService<VisitProcessor>().ProcessRunAsync(runId, CancellationToken.None);
     }
 
-    private async Task<List<Gorodki.Api.Infrastructure.Persistence.ParcelEntity>> LandAsync(Guid userId)
+    private async Task<List<ParcelEntity>> LandAsync(Guid userId)
     {
         await using var db = database.CreateContext();
         return await db.Parcels.AsNoTracking().Where(p => p.OwnerId == userId).ToListAsync(Cancel);
