@@ -14,10 +14,10 @@
         init(screen: FixtureScreen, fixture: String?) {
             self.screen = screen
             _onboarding = State(initialValue: Fixtures.onboarding(screen, fixture: fixture))
-            let profile = Fixtures.profile(screen.isMap ? "player" : fixture)
+            let profile = Fixtures.profile(screen.isMap || screen.isRun ? "player" : fixture)
             _shell = State(
                 initialValue: ShellModel(
-                    tab: Fixtures.tab(screen), profile: profile,
+                    tab: Fixtures.tab(screen), profile: profile, run: RunFixture.model(screen, profile: profile),
                     map: Fixtures.map(screen, fixture: fixture, profile: profile)))
         }
 
@@ -25,8 +25,17 @@
             switch screen {
             case .intro, .invite, .age, .terms, .consent, .signIn:
                 OnboardingView(model: onboarding, browseWithoutSignIn: { @MainActor in })
-            case .map, .mapParcel, .mapExplore, .mapStart, .leaderboards, .clan, .profile:
+            case .map, .mapParcel, .mapExplore, .leaderboards, .clan, .profile, .hud, .hudCeremony, .hudCollapsed,
+                .runResult:
                 AppShell(model: shell)
+            case .runDetails:
+                NavigationStack {
+                    RunResultView(model: RunFixture.details())
+                }
+            case .runHistory:
+                NavigationStack {
+                    RunHistoryView(model: RunFixture.history())
+                }
             case .debug:
                 NavigationStack {
                     DebugMenuView()
@@ -37,8 +46,8 @@
 
     /// Данные режима фикстур. Имена `-GorodkiFixture`:
     /// - `player` — вошедший игрок: `me.json`, `fog-summary.json`, `seasons.json`;
-    /// - `player-map` — он же и карта с землёй и туманом (`MapFixture`); экраны `map-parcel`, `map-explore`
-    ///   и `map-start` берут её сами;
+    /// - `player-map` — он же и карта с землёй и туманом (`MapFixture`); экраны `map-parcel` и `map-explore`
+    ///   берут её сами;
     /// - `google-ready` — вход через Google настроен (кнопка активна, но никуда не ходит);
     /// - `offline`, `invite-invalid`, `google-rejected`, `account-deleting` — ошибка входа с текстом `SignInFailure`.
     @MainActor
@@ -94,9 +103,8 @@
         /// Карта: с землёй и туманом — для `player-map` и экранов карты, иначе пустая.
         static func map(_ screen: FixtureScreen, fixture: String?, profile: ProfileModel) -> MapModel {
             guard screen.isMap || fixture == "player-map" else { return MapModel(profile: profile) }
-            let permissions = FixtureRunPermissions()
             let model = MapModel(
-                profile: profile, names: FixturePlayerNames(), permissions: permissions,
+                profile: profile, names: FixturePlayerNames(),
                 initialWindow: MapFixture.window,
                 clock: { [now = MapFixture.nowMs] in Date(timeIntervalSince1970: Double(now) / 1_000) })
             model.apply(land: MapFixture.land())
@@ -106,8 +114,6 @@
                 model.select(at: MapFixture.parcelTap, tolerance: 5)
             case .mapExplore:
                 model.layer = .explore
-            case .mapStart:
-                model.start()
             default:
                 break
             }

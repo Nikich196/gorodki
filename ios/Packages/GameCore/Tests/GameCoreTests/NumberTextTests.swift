@@ -28,6 +28,23 @@ struct NumberTextTests {
         #expect(NumberText.integer(999) == "999")
     }
 
+    @Test("Часы забега: «17:42», с часа — «1:02:03»; секунды вниз, отрицательное и NaN — ноль")
+    func clock() {
+        #expect(NumberText.clock(seconds: 1_062.9) == "17:42")
+        #expect(NumberText.clock(seconds: 5) == "0:05")
+        #expect(NumberText.clock(seconds: 3_723) == "1:02:03")
+        #expect(NumberText.clock(seconds: -3) == "0:00")
+        #expect(NumberText.clock(seconds: .nan) == "0:00")
+    }
+
+    @Test("Темп: «5:32» до ближайшей секунды; «м» — целые метры")
+    func paceAndMeters() {
+        #expect(NumberText.pace(secondsPerKilometer: 331.6) == "5:32")
+        #expect(NumberText.pace(secondsPerKilometer: 59.6) == "1:00")
+        #expect(NumberText.pace(secondsPerKilometer: 725) == "12:05")
+        #expect(NumberText.meters(1_140) == "1\(space)140\(space)м")
+    }
+
     @Test("Секунды и дробь: ровно столько знаков, сколько просили")
     func fractionDigits() {
         #expect(NumberText.seconds(3.14, fractionDigits: 1) == "3,1\(space)с")

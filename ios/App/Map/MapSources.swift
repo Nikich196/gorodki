@@ -1,5 +1,3 @@
-import CoreLocation
-import CoreMotion
 import Foundation
 import GameCore
 import GorodkiAPI
@@ -91,44 +89,13 @@ struct APIPlayerNames: PlayerNames {
     }
 }
 
-/// Настоящие разрешения забега: состояние — у системы, запросы — те же, что у «Старта» забега (`RunController`).
-@MainActor
-final class SystemRunPermissions: RunPermissions {
-    init() {}
-
-    var location: PermissionState {
-        switch CLLocationManager().authorizationStatus {
-        case .notDetermined: .notDetermined
-        case .authorizedWhenInUse, .authorizedAlways: .allowed
-        default: .denied
-        }
-    }
-
-    var motion: PermissionState {
-        switch CMMotionActivityManager.authorizationStatus() {
-        case .notDetermined: CMMotionActivityManager.isActivityAvailable() ? .notDetermined : .denied
-        case .authorized: .allowed
-        default: .denied
-        }
-    }
-
-    func requestLocation() async {
-        _ = await RunController.shared.requestLocationAuthorization()
-    }
-
-    func requestMotion() async {
-        _ = await RunController.motionAuthorization()
-    }
-}
-
 extension MapModel {
-    /// Карта приложения: кэши и клиент API из `AppDependencies`, системные разрешения.
+    /// Карта приложения: кэши и клиент API из `AppDependencies`.
     static func live(profile: ProfileModel) -> MapModel {
         let dependencies = AppDependencies.shared
         return MapModel(
             profile: profile,
             data: CachedMapData(territory: dependencies.territory, fogCache: dependencies.fog),
-            names: dependencies.api.map { APIPlayerNames(api: $0) },
-            permissions: SystemRunPermissions())
+            names: dependencies.api.map { APIPlayerNames(api: $0) })
     }
 }

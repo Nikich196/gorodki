@@ -35,6 +35,12 @@ final class RunController {
     /// Разрешения «Движение и фитнес» нет: забег пишется, туман открывается, но захваты сервер не засчитает
     /// (`motion_not_authorized`) — экран предупреждает.
     private(set) var capturesNeedMotion = false
+    /// Чем кончился последний проход синхронизации — плашки HUD и Live Activity («сервер недоступен», «нужно войти»).
+    private(set) var syncHealth = SyncHealth()
+
+    /// Экран забега (`RunScreenModel`): каждый снимок трекера и каждый отчёт прохода синхронизации.
+    @ObservationIgnored var onState: ((TrackerState) -> Void)?
+    @ObservationIgnored var onReport: ((SyncReport) -> Void)?
 
     @ObservationIgnored private let tracker: RunTracker
     @ObservationIgnored private let location = RunLocationSource()
@@ -63,7 +69,9 @@ final class RunController {
             },
             onChange: { state in
                 Task { @MainActor in RunController.shared.apply(state) }
-            })
+            },
+            // «≈+N га тумана» — против своего тумана за всё время (docs/architecture/run-hud.md, «+N га тумана»).
+            fogTiles: AppDependencies.shared.fog.map(CachedAllTimeFog.init))
     }
 
     // MARK: - Экран
@@ -133,6 +141,22 @@ final class RunController {
         guard manager.accuracyAuthorization != .fullAccuracy else { return true }
         try? await manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: "RunTracking")
         return manager.accuracyAuthorization == .fullAccuracy
+    }
+
+    /// След идущего (или последнего законченного) забега в этом процессе — для карты HUD и итога.
+    func trail() async -> [[Coordinate]] {
+        await tracker.trail()
+    }
+
+    /// Кольцо заявленной петли — для церемонии и временного контура; `nil` — петля не из этого процесса.
+    func ring(claimNo: Int) async -> LoopRing? {
+        await tracker.ring(claimNo: claimNo)
+    }
+
+    /// Отчёт прохода синхронизации (`SyncScheduler(onReport:)`): «сервер недоступен» и вторая фаза церемоний.
+    func syncReported(_ report: SyncReport) {
+        syncHealth.lastStop = report.stop
+        onReport?(report)
     }
 
     /// «Финиш». Точки, пришедшие раньше, войдут в забег.
@@ -349,8 +373,9 @@ final class RunController {
         if wasRunning, !fresh.isRunning {
             ended()  // в том числе конец по пределу длины
         } else if fresh.isRunning {
-            updateLiveActivity(fresh.stats)
+            updateLiveActivity(fresh)
         }
+        onState?(fresh)
     }
 
     private func ended() {
@@ -389,18 +414,39 @@ final class RunController {
     }
 
     /// Не чаще раза в 5 секунд: чаще система всё равно не покажет.
-    private func updateLiveActivity(_ stats: RunStats) {
+    private func updateLiveActivity(_ fresh: TrackerState) {
         guard let activityID, Date.now.timeIntervalSince(lastActivityUpdate) >= 5 else { return }
         lastActivityUpdate = .now
-        let state = Self.activityContent(stats)
+        let state = Self.activityContent(
+            fresh, now: Date.now.timeIntervalSince1970, sync: syncHealth,
+            queueSurvivesRestart: AppDependencies.shared.queueSurvivesRestart)
         Task { await RunActivityController.update(id: activityID, state: state) }
     }
 
-    /// Текст плашки: «Забег · 1,23 км», «2 петли · туман 0,12 га» — по-русски при любом языке телефона.
-    nonisolated static func activityContent(_ stats: RunStats) -> RunActivityAttributes.ContentState {
-        RunActivityAttributes.ContentState(
-            title: "Забег · " + NumberText.kilometers(fromMeters: stats.distanceMeters, fractionDigits: 2),
-            detail: CountText.loops(stats.loops) + " · туман "
-                + NumberText.hectares(fromSquareMeters: stats.fogAreaSquareMeters, fractionDigits: 2))
+    /// Петля замкнута в кармане — Live Activity с оповещением (PLAN.md, §6.9: `AlertConfiguration` + голос). Числа
+    /// плашки — те же, что сейчас.
+    func alertLiveActivity(title: String, body: String) {
+        guard let activityID else { return }
+        lastActivityUpdate = .now
+        let state = Self.activityContent(
+            self.state, now: Date.now.timeIntervalSince1970, sync: syncHealth,
+            queueSurvivesRestart: AppDependencies.shared.queueSurvivesRestart)
+        Task { await RunActivityController.update(id: activityID, state: state, alert: (title, body)) }
+    }
+
+    /// Текст плашки — те же числа, что у HUD, строками (docs/architecture/run-hud.md, «Что нужно экрану»): «До замыкания
+    /// 140 м» без стрелки, «3,21 км · 5:32 /км · +0,12 га тумана» — по-русски при любом языке телефона.
+    nonisolated static func activityContent(
+        _ state: TrackerState, now: Double, sync: SyncHealth = SyncHealth(), queueSurvivesRestart: Bool = true
+    ) -> RunActivityAttributes.ContentState {
+        let readout = RunHUDReadout(state, now: now, sync: sync, queueSurvivesRestart: queueSurvivesRestart)
+        return RunActivityAttributes.ContentState(
+            title: RunActivityText.title(readout), detail: RunActivityText.detail(readout))
+    }
+}
+
+extension RunController: RunDriving {
+    func startRun(league: League) async throws {
+        try await start(league: league)
     }
 }

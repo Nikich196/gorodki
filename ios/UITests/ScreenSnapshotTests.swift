@@ -2,9 +2,10 @@ import XCTest
 
 /// Снимки экранов, которые открываются без сервера (PLAN.md, §8 и §13: «снимки и UI-тесты — информационно»):
 /// отладочное меню с «Проверкой установки» и «Лаборатория» — прогулка (S1), стенд карты (S4), сервер (S7), пробный
-/// забег, дизайн в обеих темах; онбординг, вкладки и карта (земля, лист участка, туман, подсказка разрешения) —
-/// в режиме фикстур (`-GorodkiScreen`, `-GorodkiFixture`, `-GorodkiTheme`; App/Fixtures), каждый экран днём и ночью. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest, workflow
-/// выгружает их из пакета результатов в PNG (артефакт запуска): так приложение можно посмотреть без Mac.
+/// забег, дизайн в обеих темах; онбординг, вкладки, карта (земля, лист участка, туман) и экраны забега (HUD, церемония,
+/// свёрнутый забег, итог, детали, история) — в режиме фикстур (`-GorodkiScreen`, `-GorodkiFixture`, `-GorodkiTheme`;
+/// App/Fixtures), каждый экран днём и ночью. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest,
+/// workflow выгружает их из пакета результатов в PNG (артефакт запуска): так приложение можно посмотреть без Mac.
 ///
 /// Каждый тест запускает приложение заново — сорвавшийся переход не утянет за собой остальные снимки. Снимок делается
 /// до проверки: и неудачный переход виден на картинке. Кнопки ищутся по части надписи («Карта:», «Сервер:»): хвост
@@ -204,14 +205,6 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen("map-explore", expecting: "Открыто", name: "26-map-explore", settle: 6)
     }
 
-    /// «Старт» без разрешений — подсказка перед системным запросом геопозиции (системного окна нет: фикстура).
-    @MainActor
-    func test26MapStartPrimer() {
-        snapshotScreen(
-            "map-start", expecting: "Геопозиция — на время забега", name: "27-map-start-location", settle: 2,
-            themes: ["day"])
-    }
-
     /// Режим «Отношения»: моё — своим цветом, соперники — красным. Переключатель — нажатием, только днём. Карта пишет
     /// в `accessibilityValue` (только Debug), каким цветом залита земля соперника: заливки L1–L3 цвета Red.
     @MainActor
@@ -236,7 +229,7 @@ final class ScreenSnapshotTests: XCTestCase {
 
     /// Смена слоя нажатием: «Захват» → «Исследование» — земли скрыты, туман виден (кроссфейд), только днём.
     @MainActor
-    func test28MapSwitchToExplore() {
+    func test26MapSwitchToExplore() {
         let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
         let segment = app.buttons["Исследование"].firstMatch
         let shown = segment.waitForExistence(timeout: Self.launchTimeout)
@@ -246,9 +239,64 @@ final class ScreenSnapshotTests: XCTestCase {
         }
         let card = waitForAny([text(in: app, containing: "Открыто")], timeout: Self.screenTimeout)
         pause(4)
-        snapshot("29-map-switch-explore-day")
+        snapshot("27-map-switch-explore-day")
         XCTAssertTrue(shown, "На карте нет переключателя «Исследование»")
         XCTAssertTrue(card, "После смены слоя нет карточки «Открыто …»")
+    }
+
+    // MARK: - Экраны забега (RunFixture: петля вокруг квартала и открытая петля; числа — как в макете)
+    // Номера 24–28 заняты снимками карты (ветка feat/map-screen), поэтому забег — с 29.
+
+    /// HUD: «До замыкания 140 м» со стрелкой и кольцом, три метрики, «+0,80 га тумана», след и временный контур петли.
+    /// Тайлы Apple Maps дорисовываются уже после открытия экрана.
+    @MainActor
+    func test29RunHUD() {
+        snapshotScreen("hud", expecting: "До замыкания", name: "29-run-hud", settle: 6)
+    }
+
+    /// Церемония захвата: контур залит от точки замыкания, «+1,25 га», «подтверждено · 12 480 м² · 125 соток».
+    @MainActor
+    func test30RunCeremony() {
+        snapshotScreen("hud-ceremony", expecting: "Продолжить забег", name: "30-run-ceremony", settle: 6)
+    }
+
+    /// Свёрнутый забег — плашка над таб-баром; «Старт» стал «Забег».
+    @MainActor
+    func test31RunCollapsed() {
+        snapshotScreen("hud-collapsed", expecting: "Забег", name: "31-run-collapsed", settle: 6)
+    }
+
+    /// Итог сразу после «Финиша»: до границы публичности — разбивка, визиты и туман сервера «позже».
+    @MainActor
+    func test32RunResult() {
+        snapshotScreen("run-result", expecting: "Итог забега", name: "32-run-result", settle: 3, pages: 2)
+    }
+
+    /// Детали из истории: карта следа, разбивка по видам, визиты, «Экспорт GPX».
+    @MainActor
+    func test33RunDetails() {
+        snapshotScreen("run-details", expecting: "Детали забега", name: "33-run-details", settle: 5, pages: 2)
+    }
+
+    @MainActor
+    func test34RunHistory() {
+        snapshotScreen("run-history", expecting: "Забеги", name: "34-run-history", settle: 2)
+    }
+
+    /// «Старт» на карте — лист «Новый забег»: «Бег», «Вело» с замком до Сезона 1. Только днём.
+    @MainActor
+    func test35RunStartSheet() {
+        let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player", "-GorodkiTheme", "day"])
+        let start = button(in: app, containing: "Старт")
+        let shown = start.waitForExistence(timeout: Self.launchTimeout)
+        if shown {
+            start.tap()
+        }
+        let sheet = waitForAny([text(in: app, containing: "Новый забег")], timeout: Self.screenTimeout)
+        pause(1.5)
+        snapshot("35-run-start-day")
+        XCTAssertTrue(shown, "На карте нет кнопки «Старт»")
+        XCTAssertTrue(sheet, "Лист «Новый забег» не открылся")
     }
 
     /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у

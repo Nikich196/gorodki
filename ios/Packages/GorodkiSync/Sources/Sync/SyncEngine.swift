@@ -560,7 +560,8 @@ public actor SyncEngine {
     // MARK: - Итог забега: перезапросы
 
     /// Итог забега по запросу экрана — открыт итог или детали (docs/architecture/run-hud.md, «Итог забега»): «+N га»
-    /// (`fogNewCells`), пока его нет у завершённого забега, и разбивка `areaByOutcome` применённых заявок, пока её нет
+    /// (`fogNewCells`) и визиты (`visitedParcels`), пока их нет у завершённого забега, и разбивка `areaByOutcome`
+    /// применённых заявок, пока её нет
     /// (сервер отдаёт её только после границы публичности). Что уже известно, больше не спрашивается.
     /// - Returns: почему остановились (нет сети и т. п.); `nil` — спрошено всё, что можно было спросить.
     @discardableResult
@@ -598,8 +599,8 @@ public actor SyncEngine {
         }
     }
 
-    /// Подсказка `FogChanged` (номера забега в ней нет): «+N га» своих завершённых забегов, у которых числа ещё нет.
-    /// Не пришла (забег ничего нового не открыл) — число спросит `refreshResults` при открытии итога.
+    /// Подсказка `FogChanged` (номера забега в ней нет): «+N га» своих завершённых забегов, у которых числа ещё нет
+    /// (заодно — визиты). Не пришла (забег ничего нового не открыл) — число спросит `refreshResults` при открытии итога.
     @discardableResult
     public func refreshFog() async -> SyncStop? {
         do {
@@ -614,17 +615,23 @@ public actor SyncEngine {
         }
     }
 
-    /// `GET /runs/{id}` за «+N га»: только у завершённого забега (завершение отправлено), пока числа нет и точки забега
-    /// ещё хранятся (`fogQueryDays`).
+    /// `GET /runs/{id}` за «+N га» и визитами: только у завершённого забега (завершение отправлено), пока одного из
+    /// чисел нет и точки забега ещё хранятся (`fogQueryDays`). Каждое число меняется один раз — пришедшее не затирается.
     private func refreshFogNewCells(of run: LocalRun) async throws {
         let limitMs = run.startedAtMs + Int64(Self.fogQueryDays * 86_400_000)
-        guard run.finishSent, run.fogNewCells == nil, nowMs() <= limitMs else { return }
+        guard run.finishSent, run.fogNewCells == nil || run.visitedParcels == nil, nowMs() <= limitMs else { return }
         let output = try await call { try await api.getRun(path: .init(runId: Self.string(run.id))) }
         switch output {
         case .ok(let response):
-            guard let cells = try response.body.json.fogNewCells else { return }  // туман ещё не открыт
+            let body = try response.body.json
+            let cells = body.fogNewCells.map(Int.init)  // `nil` — туман ещё не открыт
+            let visits = body.visitedParcels.map(Int.init)  // `nil` — визиты ещё не посчитаны
+            guard cells != nil && run.fogNewCells == nil || visits != nil && run.visitedParcels == nil else { return }
             var run = run
-            try await update(&run) { $0.fogNewCells = Int(cells) }
+            try await update(&run) {
+                $0.fogNewCells = $0.fogNewCells ?? cells
+                $0.visitedParcels = $0.visitedParcels ?? visits
+            }
         case .notFound:
             return
         case .undocumented(let status, _):

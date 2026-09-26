@@ -7,8 +7,8 @@ import Testing
 @testable import Gorodki
 
 /// Экран «Карта» (docs/architecture/ios-app.md, «Карта»): цвет по отношению, скрытие истёкших зон, касание,
-/// лист участка, «Старт» с подсказками, фикстура.
-@Suite("Карта: земля, зоны, касание, лист участка, «Старт»")
+/// лист участка, фикстура.
+@Suite("Карта: земля, зоны, касание, лист участка")
 @MainActor
 struct MapModelTests {
     private static let me = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"
@@ -54,9 +54,9 @@ struct MapModelTests {
     }
 
     private func model(
-        names: (any PlayerNames)? = nil, permissions: any RunPermissions = NoRunPermissions(), clock: Clock = Clock()
+        names: (any PlayerNames)? = nil, clock: Clock = Clock()
     ) -> MapModel {
-        MapModel(profile: Self.profile(), names: names, permissions: permissions, clock: { clock.date })
+        MapModel(profile: Self.profile(), names: names, clock: { clock.date })
     }
 
     // MARK: - Цвет
@@ -200,44 +200,6 @@ struct MapModelTests {
         #expect(expired.rows.map(\.title) == ["Последний визит"], "у призрака нет уровня, истёкший щит не показан")
     }
 
-    // MARK: - «Старт»
-
-    @MainActor
-    private final class Permissions: RunPermissions {
-        var location = PermissionState.notDetermined
-        var motion = PermissionState.notDetermined
-        private(set) var requests: [String] = []
-
-        func requestLocation() async {
-            requests.append("location")
-            location = .allowed
-        }
-
-        func requestMotion() async {
-            requests.append("motion")
-            motion = .denied
-        }
-    }
-
-    @Test("«Старт»: подсказка геопозиции → запрос → подсказка движения → запрос → «Забег — скоро»")
-    func startPrimers() async {
-        let permissions = Permissions()
-        let model = model(permissions: permissions)
-        model.start()
-        #expect(model.primer == .location)
-        #expect(permissions.requests.isEmpty, "до «Продолжить» система не спрашивает")
-        await model.primerContinue()
-        #expect(model.primer == .motion)
-        await model.primerContinue()
-        #expect(model.primer == nil)
-        #expect(permissions.requests == ["location", "motion"])
-        #expect(model.startNoticeShown)
-
-        model.startNoticeShown = false
-        model.start()
-        #expect(model.primer == nil && model.startNoticeShown, "всё уже спрошено — сразу дальше, даже при отказе")
-    }
-
     // MARK: - Данные
 
     private actor Source: MapDataSource {
@@ -298,7 +260,6 @@ struct MapModelTests {
         #expect(model.sheet?.title == "Бегун-1234")
         #expect(model.sheet?.rows.map(\.title).contains("Спорная") == true)
 
-        #expect(Fixtures.map(.mapStart, fixture: nil, profile: profile).primer == .location)
         #expect(Fixtures.map(.mapExplore, fixture: nil, profile: profile).layer == .explore)
         #expect(Fixtures.map(.map, fixture: "player", profile: profile).land.tiles.isEmpty)
     }

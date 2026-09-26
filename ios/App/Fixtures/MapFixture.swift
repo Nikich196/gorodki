@@ -4,7 +4,7 @@
     import GorodkiAPI
     import Networking
 
-    /// Карта режима фикстур (`-GorodkiFixture player-map`, `-GorodkiScreen map-parcel` и др.): образцы сервера
+    /// Карта режима фикстур (`-GorodkiFixture player-map`, `-GorodkiScreen map-parcel`, `map-explore`): образцы сервера
     /// `territory.json` и `fog.json` (как их пишет сервер, через те же типы API и перевод, что у живых данных) и вокруг
     /// образца — земля и туман, похожие на настоящие: куски по тайлам UTM, как их режет сервер (кромки должны сойтись
     /// без швов), свои и чужие участки всех уровней, призрак, щит, осада, зоны «спорная» — живая и истёкшая (истёкшую
@@ -212,17 +212,5 @@
         func name(of playerId: String) async throws -> String {
             MapFixture.names[playerId] ?? "Игрок #1000"
         }
-    }
-
-    /// Разрешения фикстуры: ничего не спрошено, запросы — без системы (снимок подсказки не вызывает окна iOS).
-    @MainActor
-    final class FixtureRunPermissions: RunPermissions {
-        var location = PermissionState.notDetermined
-        var motion = PermissionState.notDetermined
-
-        init() {}
-
-        func requestLocation() async { location = .allowed }
-        func requestMotion() async { motion = .allowed }
     }
 #endif

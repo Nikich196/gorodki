@@ -174,28 +174,6 @@ struct ParcelSheetContent: Equatable {
     }
 }
 
-/// Шаг подсказки перед системным разрешением (PLAN.md, §6.6: «в момент надобности», одна кнопка «Продолжить»,
-/// «Всегда» не просим; геопозиция — при «Старте», движение — сразу после).
-enum PermissionPrimer: String, Identifiable, Sendable {
-    case location, motion
-
-    var id: Self { self }
-}
-
-/// Разрешение глазами экрана.
-enum PermissionState: Sendable {
-    case notDetermined, allowed, denied
-}
-
-/// Системные разрешения забега — за протоколом: в режиме фикстур и в тестах настоящих запросов нет.
-@MainActor
-protocol RunPermissions: AnyObject {
-    var location: PermissionState { get }
-    var motion: PermissionState { get }
-    func requestLocation() async
-    func requestMotion() async
-}
-
 /// Данные карты: земля и туман видимых тайлов. Живые — кэши `TerritoryCache` и `FogCache` (`MapSources.swift`),
 /// в режиме фикстур — образцы.
 protocol MapDataSource: Sendable {
@@ -210,7 +188,7 @@ protocol PlayerNames: Sendable {
     func name(of playerId: String) async throws -> String
 }
 
-/// Экран «Карта»: слой, окраска, земля и туман видимых тайлов, выбранный участок, «Старт» с подсказками разрешений.
+/// Экран «Карта»: слой, окраска, земля и туман видимых тайлов, выбранный участок.
 /// Простые значения — их задают кэши или образцы в режиме фикстур; рисует `GameMapView`.
 @MainActor
 @Observable
@@ -233,15 +211,12 @@ final class MapModel {
     /// «Сейчас», мс Unix: по нему скрываются истёкшие зоны «спорная». Обновляется раз в минуту (`tick`).
     private(set) var nowMs: Int64
     var selection: ParcelSelection?
-    var primer: PermissionPrimer?
-    var startNoticeShown = false
     /// Окно, которое карта показывает при открытии.
     let initialWindow: MapWindow
     let profile: ProfileModel
 
     @ObservationIgnored private let data: (any MapDataSource)?
     @ObservationIgnored private let names: (any PlayerNames)?
-    @ObservationIgnored private let permissions: any RunPermissions
     @ObservationIgnored private let clock: @Sendable () -> Date
     @ObservationIgnored private var window: MapWindow?
     @ObservationIgnored private var loading: Task<Void, Never>?
@@ -252,13 +227,12 @@ final class MapModel {
 
     init(
         profile: ProfileModel, data: (any MapDataSource)? = nil, names: (any PlayerNames)? = nil,
-        permissions: any RunPermissions = NoRunPermissions(), initialWindow: MapWindow = MapModel.brest,
+        initialWindow: MapWindow = MapModel.brest,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.profile = profile
         self.data = data
         self.names = names
-        self.permissions = permissions
         self.initialWindow = initialWindow
         self.clock = clock
         self.nowMs = Self.milliseconds(clock())
@@ -387,41 +361,4 @@ final class MapModel {
     var sheet: ParcelSheetContent? {
         selection.map { ParcelSheetContent($0, viewer: viewerId, nowMs: nowMs) }
     }
-
-    // MARK: - «Старт»
-
-    /// «Старт»: сначала подсказки к разрешениям, которых ещё не спрашивали (PLAN.md, §6.6), потом — забег. Экрана
-    /// забега (HUD) ещё нет, поэтому вместо него — «Забег — скоро».
-    func start() {
-        if permissions.location == .notDetermined {
-            primer = .location
-        } else if permissions.motion == .notDetermined {
-            primer = .motion
-        } else {
-            startNoticeShown = true
-        }
-    }
-
-    /// «Продолжить» на подсказке: системный запрос, затем следующий шаг «Старта».
-    func primerContinue() async {
-        guard let step = primer else { return }
-        primer = nil
-        switch step {
-        case .location: await permissions.requestLocation()
-        case .motion: await permissions.requestMotion()
-        }
-        start()
-    }
-}
-
-/// Разрешения без системы: всё уже решено — «Старт» сразу говорит «Забег — скоро». Для тестов и экранов без забега.
-@MainActor
-final class NoRunPermissions: RunPermissions {
-    var location = PermissionState.allowed
-    var motion = PermissionState.allowed
-
-    init() {}
-
-    func requestLocation() async {}
-    func requestMotion() async {}
 }

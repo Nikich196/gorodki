@@ -58,15 +58,23 @@ enum FixtureScreen: String, CaseIterable, Sendable {
     case intro, invite, age, terms, consent, signIn = "sign-in"
     // Вкладки.
     case map, leaderboards, clan, profile
-    /// Карта: лист участка по касанию, слой «Исследование», подсказка перед разрешением геопозиции у «Старта».
-    case mapParcel = "map-parcel", mapExplore = "map-explore", mapStart = "map-start"
+    /// Карта: лист участка по касанию, слой «Исследование».
+    case mapParcel = "map-parcel", mapExplore = "map-explore"
+    /// Экраны забега: HUD, церемония захвата, свёрнутый забег (плашка над таб-баром), итог, детали, история.
+    case hud, hudCeremony = "hud-ceremony", hudCollapsed = "hud-collapsed"
+    case runResult = "run-result", runDetails = "run-details", runHistory = "run-history"
     /// Отладочное меню: «Проверка установки» и «Лаборатория».
     case debug
 }
 
 extension FixtureScreen {
+    /// Экран забега с образцами `RunFixture` — поверх оболочки.
+    var isRun: Bool {
+        [.hud, .hudCeremony, .hudCollapsed, .runResult].contains(self)
+    }
+
     /// Экран карты с данными фикстуры (`MapFixture`).
     var isMap: Bool {
-        self == .mapParcel || self == .mapExplore || self == .mapStart
+        self == .mapParcel || self == .mapExplore
     }
 }

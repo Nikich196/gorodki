@@ -2,14 +2,12 @@ import DesignSystem
 import GameCore
 import SwiftUI
 
-/// Вкладка «Карта» (PLAN.md, §5, экраны 3–5; docs/design/tokens.md, §8): слой «Захват | Исследование» и окраска земли
-/// на стекле сверху, «Старт» — единственная цветная кнопка внизу, лист участка по касанию, подсказки перед системными
-/// разрешениями. Экрана забега (HUD) ещё нет — «Старт» после подсказок говорит «Забег — скоро».
+/// Вкладка «Карта» (PLAN.md, §5, экраны 4–5; docs/design/tokens.md, §8): слой «Захват | Исследование» и окраска земли
+/// на стекле сверху, «Старт» — единственная цветная кнопка внизу (`RunStartButton`: лист «Новый забег» с подсказками
+/// к разрешениям, затем HUD), лист участка по касанию.
 struct MapScreen: View {
     @Bindable var model: MapModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Нажатия «Старта» — для хаптики `.start`, как в «Лаборатории → Дизайн».
-    @State private var starts = 0
 
     var body: some View {
         GameMapView(model: model)
@@ -20,22 +18,9 @@ struct MapScreen: View {
                     .padding(.top, 8)
             }
             .safeAreaInset(edge: .bottom) {
-                StartButton(player: model.player) {
-                    starts += 1
-                    model.selection = nil
-                    model.start()
-                } label: {
-                    Label("Старт", systemImage: "figure.run")
-                }
-                .frame(width: 200)
-                .padding(.bottom, 12)
-                .sensoryFeedback(.start, trigger: starts)
-                .sheet(item: $model.primer) { step in
-                    PermissionPrimerView(step: step) {
-                        Task { await model.primerContinue() }
-                    }
-                    .presentationDetents([.medium])
-                }
+                // «Старт» — экраны забега: лист «Новый забег» с подсказками к разрешениям, HUD (`RunStartButton`).
+                RunStartButton(player: model.player)
+                    .padding(.bottom, 12)
             }
             .sheet(item: $model.selection) { _ in
                 if let sheet = model.sheet, let selection = model.selection {
@@ -48,11 +33,6 @@ struct MapScreen: View {
                     .presentationBackground(Palette.uiBackground.color)
                 }
             }
-            .alert("Забег — скоро", isPresented: $model.startNoticeShown) {
-                Button("Понятно", role: .cancel) {}
-            } message: {
-                Text(startNotice)
-            }
             .onChange(of: model.layer) { model.layerChanged() }
             .sensoryFeedback(.selection, trigger: model.selection?.id)
             .task {
@@ -63,11 +43,6 @@ struct MapScreen: View {
                     model.tick()
                 }
             }
-    }
-
-    private var startNotice: String {
-        let hud = "Экран забега появится следующим шагом."
-        return DebugAccess.buildAllows ? hud + " Пробный забег без сервера — в «Профиль → Отладка → Лаборатория»." : hud
     }
 }
 
@@ -197,60 +172,6 @@ struct ParcelSheet: View {
             }
             .padding(20)
             .animation(animation, value: content)
-        }
-    }
-}
-
-/// Подсказка перед системным запросом (PLAN.md, §5, экран 3; §6.6): зачем разрешение и одна кнопка «Продолжить».
-/// Тексты — по смыслу строк Info.plist, которые покажет сама система.
-struct PermissionPrimerView: View {
-    let step: PermissionPrimer
-    let onContinue: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: symbol)
-                .font(.system(size: 40, weight: .semibold))
-                .foregroundStyle(Palette.uiInk.color)
-                .accessibilityHidden(true)
-            Text(verbatim: title)
-                .font(.title2.bold())
-                .foregroundStyle(Palette.uiInk.color)
-            Text(verbatim: text)
-                .font(.body)
-                .foregroundStyle(Palette.uiInk2.color)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button("Продолжить", action: onContinue)
-                .buttonStyle(.neutral)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.uiBackground.color)
-    }
-
-    private var symbol: String {
-        switch step {
-        case .location: "location.fill"
-        case .motion: "figure.walk.motion"
-        }
-    }
-
-    private var title: String {
-        switch step {
-        case .location: "Геопозиция — на время забега"
-        case .motion: "Движение и фитнес"
-        }
-    }
-
-    private var text: String {
-        switch step {
-        case .location:
-            "Городки записывают твой след во время забега: так засчитывается захваченная земля и открывается туман. "
-                + "Выбери «При использовании» — разрешение «Всегда» игре не нужно."
-        case .motion:
-            "Датчики движения отличают бег от поездки на транспорте — так игра остаётся честной. Без них забег "
-                + "запишется и туман откроется, но захваты сервер не засчитает."
         }
     }
 }
