@@ -114,7 +114,6 @@ final class CalendarModel {
 struct CalendarView: View {
     @State private var model: CalendarModel
     @Environment(\.openURL) private var openURL
-    private let ru = Locale(identifier: "ru_RU")
 
     init(model: CalendarModel = .live()) {
         _model = State(initialValue: model)
@@ -204,10 +203,9 @@ struct CalendarView: View {
 
     /// «16 ноября — 29 ноября»: последний день — тот, что перед концом в полночь.
     private func dates(_ season: SeasonInfo) -> String {
-        let style = Date.FormatStyle.dateTime.day().month(.wide).locale(ru)
-        let start = Date(unix: Double(season.startsAtMs) / 1_000).formatted(style)
+        let start = SeasonTime.text(Double(season.startsAtMs) / 1_000)
         guard let end = season.endsAt else { return "с \(start), конец ещё не назначен" }
-        return "\(start) — \(Date(unix: end - 1).formatted(style))"
+        return "\(start) — \(SeasonTime.text(end - 1))"
     }
 }
 

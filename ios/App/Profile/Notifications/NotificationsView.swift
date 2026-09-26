@@ -170,9 +170,7 @@ struct NotificationsView: View {
 
     private var seasonDetail: String {
         guard let reminder = model.seasonReminder else { return "Конца сезона впереди пока не видно." }
-        let date = Date(unix: reminder.fireAt).formatted(
-            .dateTime.day().month(.wide).hour().minute().locale(Locale(identifier: "ru_RU")))
-        return "Накануне последнего дня: \(date)."
+        return "Накануне последнего дня: \(SeasonTime.text(reminder.fireAt, withTime: true))."
     }
 
     @ViewBuilder

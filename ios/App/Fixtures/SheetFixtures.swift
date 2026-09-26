@@ -29,7 +29,7 @@
             case .backup: BackupView(model: SheetFixtures.backup())
             case .files: FilesView(model: SheetFixtures.files())
             case .calendar: CalendarView(model: SheetFixtures.calendar())
-            case .invite: InviteView(model: SheetFixtures.invite())
+            case .inviteFriend: InviteView(model: SheetFixtures.invite())
             case .myQR:
                 MyQRView(
                     playerId: SheetFixtures.me?.id, playerName: SheetFixtures.me?.displayName,
@@ -109,7 +109,8 @@
                 lastSuccessAtMs: nowMs - 52 * 60_000)
             return BackupModel(
                 source: BackupSource(
-                    summary: { summary }, queue: { BackupQueue(unsentRuns: 1, unsettledClaims: 2) }, log: { log },
+                    summary: { summary }, queue: { BackupQueue(unsentRuns: 1, unsentChunks: 3, unsettledClaims: 2) },
+                    log: { log },
                     syncNow: { true }))
         }
 

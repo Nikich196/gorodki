@@ -19,6 +19,8 @@ struct BackupServerSummary: Equatable, Sendable {
 /// Что ещё не дошло до сервера.
 struct BackupQueue: Equatable, Sendable {
     var unsentRuns = 0
+    /// Куски точек (по ~60 точек), которые ещё не ушли на сервер.
+    var unsentChunks = 0
     var unsettledClaims = 0
 }
 
@@ -46,8 +48,11 @@ struct BackupSource: Sendable {
             let dependencies = AppDependencies.shared
             var queue = BackupQueue(unsentRuns: await dependencies.unsentRunCount())
             if let owner = await dependencies.tokens.current()?.playerId {
-                queue.unsettledClaims =
-                    (try? await SyncBacklog.of(dependencies.syncStore, ownerId: owner).unsettledClaims) ?? 0
+                let store = dependencies.syncStore
+                queue.unsettledClaims = (try? await SyncBacklog.of(store, ownerId: owner).unsettledClaims) ?? 0
+                for run in (try? await store.runs()) ?? [] where run.ownerId == owner && run.serverState != .rejected {
+                    queue.unsentChunks += ((try? await store.chunks(of: run.id)) ?? []).filter { !$0.sent }.count
+                }
             }
             return queue
         },
@@ -161,6 +166,9 @@ struct BackupView: View {
             ValueRow(title: "Последняя удачная", value: lastSuccessText, systemImage: "checkmark.icloud")
             ValueRow(
                 title: "Ждут отправки", value: CountText.runs(model.queue.unsentRuns), systemImage: "tray.and.arrow.up")
+            ValueRow(
+                title: "Куски точек не отправлены", value: NumberText.integer(model.queue.unsentChunks),
+                systemImage: "point.3.connected.trianglepath.dotted")
             ValueRow(
                 title: "Петли ждут итога", value: NumberText.integer(model.queue.unsettledClaims),
                 systemImage: "hourglass")

@@ -61,6 +61,6 @@ enum FixtureScreen: String, CaseIterable, Sendable {
     /// Отладочное меню: «Проверка установки» и «Лаборатория».
     case debug
     /// Экраны пунктов листика из «Профиля» (`ProfileFeature`) и «Отладка → Пункты задания».
-    case gallery, replay, storage, backup, files, calendar, invite
+    case gallery, replay, storage, backup, files, calendar, inviteFriend = "invite-friend"
     case myQR = "my-qr", scanner, notifications, assignment
 }

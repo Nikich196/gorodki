@@ -242,7 +242,7 @@ final class ScreenSnapshotTests: XCTestCase {
         if shown {
             tile.tap()
         }
-        let opened = waitForAny([text(in: app, containing: "геотег")], timeout: Self.screenTimeout)
+        let opened = waitForAny([text(in: app, containing: "Без геотега")], timeout: Self.screenTimeout)
         pause(1.5)
         snapshot("62-gallery-detail-day")
         XCTAssertTrue(shown, "В галерее нет плитки фото")
@@ -278,7 +278,7 @@ final class ScreenSnapshotTests: XCTestCase {
 
     @MainActor
     func test68Invite() {
-        snapshotScreen("invite", expecting: "Код приглашения", name: "68-invite", settle: 1.5, pages: 2)
+        snapshotScreen("invite-friend", expecting: "Код приглашения", name: "68-invite-friend", settle: 1.5, pages: 2)
     }
 
     /// «Мой QR»: карточка с бликом — снимок после него.

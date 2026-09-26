@@ -94,6 +94,22 @@ enum SeasonsSource {
     }
 }
 
+/// Сезоны начинаются и кончаются в полночь по Минску (PLAN.md, §3.4): их даты показываются по Минску, где бы ни был
+/// телефон (и на симуляторе CI с UTC).
+enum SeasonTime {
+    static let zone = TimeZone(identifier: "Europe/Minsk") ?? .current
+
+    /// «16 ноября», «28 ноября, 19:00».
+    static func text(_ seconds: Double, withTime: Bool = false) -> String {
+        var style = Date.FormatStyle.dateTime.day().month(.wide).locale(Locale(identifier: "ru_RU"))
+        if withTime {
+            style = style.hour().minute()
+        }
+        style.timeZone = zone
+        return Date(unix: seconds).formatted(style)
+    }
+}
+
 /// Системные Настройки приложения — туда ведут все «разрешить можно только в Настройках».
 enum SystemSettings {
     static var appURL: URL? { URL(string: UIApplication.openSettingsURLString) }
