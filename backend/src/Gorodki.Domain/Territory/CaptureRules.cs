@@ -28,6 +28,14 @@ public sealed record ParcelState
 
     /// <summary>Кто уже снял с куска уровень в текущем окне: каждый — не больше одного, все вместе — не больше двух.</summary>
     public AttackerSet LossAttackers { get; init; }
+
+    /// <summary>
+    /// Когда владелец последний раз взял кусок или освежил его <b>своим</b> забегом (захват, повторная петля, визит) — время
+    /// петли или визита. По нему удержание решает, «касались ли участка в этом сезоне» (PLAN.md, §3.4): касание — не раньше
+    /// начала сезона. Освежение соклановцем, сдвиг «последнего визита» при смене сезона (<see cref="SeasonReset"/>) и
+    /// будущая поправка угасания при откате его не меняют — поэтому это отдельное поле, а не <see cref="LastVisitAt"/>.
+    /// </summary>
+    public DateTimeOffset TouchedAt { get; init; }
 }
 
 /// <summary>Кто и когда захватывает.</summary>
@@ -43,8 +51,17 @@ public sealed record ParcelState
 /// Ничью землю она берёт, свою и соклановцев освежает, а чужую не трогает вовсе: пометка «спорная» — отдельный слой
 /// карты (<see cref="CaptureResult.Contested"/>), не состояние куска.
 /// </param>
+/// <param name="ResetSeasonStart">
+/// Начало идущего сезона, если смена на него уже прошла (<c>seasons.reset_at</c>); <c>null</c> — смена ещё впереди или сезоны
+/// не начались. Петля, замкнутая раньше, опоздала к смене: изменённые ею куски проходят мягкий сброс (<see cref="SeasonReset.Late"/>).
+/// </param>
 public sealed record CaptureContext(
-    Guid CapturerId, DateTimeOffset At, IReadOnlySet<Guid> ClanMates, bool CanRemoveLevels = true, bool BigLoop = false);
+    Guid CapturerId,
+    DateTimeOffset At,
+    IReadOnlySet<Guid> ClanMates,
+    bool CanRemoveLevels = true,
+    bool BigLoop = false,
+    DateTimeOffset? ResetSeasonStart = null);
 
 /// <summary>Числа правил земли. Хранятся в игровом конфиге.</summary>
 public sealed record TerritoryRules
@@ -130,7 +147,20 @@ public enum PieceOutcome
 /// </remarks>
 public static class CaptureRules
 {
+    /// <summary>
+    /// Судьба куска внутри петли. Петля, опоздавшая к смене сезона (<see cref="CaptureContext.ResetSeasonStart"/>), решается
+    /// так же, а изменённый ею кусок проходит мягкий сброс (<see cref="SeasonReset.Late"/>).
+    /// </summary>
     public static (ParcelState? State, PieceOutcome Outcome) Decide(
+        ParcelState? current,
+        CaptureContext context,
+        TerritoryRules rules)
+    {
+        var (state, outcome) = DecideAt(current, context, rules);
+        return (SeasonReset.Late(current, state, context.At, context.ResetSeasonStart, rules), outcome);
+    }
+
+    private static (ParcelState? State, PieceOutcome Outcome) DecideAt(
         ParcelState? current,
         CaptureContext context,
         TerritoryRules rules)
@@ -153,6 +183,7 @@ public static class CaptureRules
 
         if (context.ClanMates.Contains(current.OwnerId))
         {
+            // Освежение соклановцем угасание сбрасывает, но «касанием в этом сезоне» не считается (§3.4): TouchedAt прежний.
             var visited = current with { LastVisitAt = Max(current.LastVisitAt, now), Level = effective };
             return (visited, PieceOutcome.RefreshedForClanMate);
         }
@@ -225,6 +256,7 @@ public static class CaptureRules
             LastVisitAt = Max(current.LastVisitAt, at),
             Level = canLevelUp ? effective + 1 : effective,
             LastLevelUpAt = canLevelUp ? at : current.LastLevelUpAt,
+            TouchedAt = Max(current.TouchedAt, at),
         };
     }
 
@@ -236,5 +268,6 @@ public static class CaptureRules
         Level = 1,
         LastVisitAt = now,
         LastLevelUpAt = now,
+        TouchedAt = now,
     };
 }

@@ -71,6 +71,12 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         }
 
         var versionBefore = await TileVersionAsync(tile);
+        await using (var db = database.CreateContext())
+        {
+            // У Анны есть и очки за захват (score_events): проверка полноты ниже видит и эту таблицу.
+            Assert.True(await db.ScoreEvents.AnyAsync(e => e.UserId == annaId, Cancel));
+        }
+
         Assert.True(await DeleteRequestedAsync(api) >= 1);
 
         // Полнота: номер Анны остался только в журнале чужого захвата — «земля до» захвата Бориса.

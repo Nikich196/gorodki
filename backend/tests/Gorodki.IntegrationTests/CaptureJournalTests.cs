@@ -148,6 +148,7 @@ public sealed class CaptureJournalTests(DatabaseFixture database)
                     SiegeUntil = p.SiegeUntil,
                     LossWindowSince = p.LossWindowSince,
                     LossAttackers = AttackerSet.Of(p.LossAttackers),
+                    TouchedAt = p.TouchedAt,
                 })));
         return map;
     }

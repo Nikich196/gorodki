@@ -21,6 +21,9 @@ public sealed record GameConfig
 
     public PrivacyConfig Privacy { get; init; } = new();
 
+    /// <summary>Очки сезона (§3.5). Раздел добавлен до первого выпуска — версия 1, как и остальные числа.</summary>
+    public ScoringConfig Scoring { get; init; } = new();
+
     public static GameConfig Default { get; } = new();
 
     /// <summary>Как конфиг хранится в базе и в контракте: имена в camelCase, как в API.</summary>

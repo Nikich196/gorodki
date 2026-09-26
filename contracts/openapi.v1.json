@@ -1180,6 +1180,15 @@
             "items": {
               "$ref": "#/components/schemas/ExportRanking"
             }
+          },
+          "scores": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExportScore"
+            }
           }
         }
       },
@@ -1830,6 +1839,56 @@
           }
         }
       },
+      "ExportScore": {
+        "required": [
+          "league",
+          "day",
+          "kind",
+          "points",
+          "effectiveAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "season": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "day": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "points": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "captureId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "runId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "effectiveAtMs": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ExportSession": {
         "required": [
           "createdAtMs",
@@ -2001,7 +2060,8 @@
           "territory",
           "leagues",
           "exploration",
-          "privacy"
+          "privacy",
+          "scoring"
         ],
         "type": "object",
         "properties": {
@@ -2019,6 +2079,9 @@
           },
           "privacy": {
             "$ref": "#/components/schemas/PrivacyConfig"
+          },
+          "scoring": {
+            "$ref": "#/components/schemas/ScoringConfig"
           }
         }
       },
@@ -2078,6 +2141,28 @@
           "gameDay": {
             "type": "string",
             "format": "date"
+          }
+        }
+      },
+      "LandValueConfig": {
+        "required": [
+          "city",
+          "rural",
+          "arenaMultiplier"
+        ],
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "number",
+            "format": "double"
+          },
+          "rural": {
+            "type": "number",
+            "format": "double"
+          },
+          "arenaMultiplier": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -2728,6 +2813,79 @@
           "abandoned"
         ],
         "type": "string"
+      },
+      "ScoreTier": {
+        "required": [
+          "rate"
+        ],
+        "type": "object",
+        "properties": {
+          "upToSotki": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "rate": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "ScoringConfig": {
+        "required": [
+          "pointsPerSotka",
+          "captureTiers",
+          "dailyTiers",
+          "enemyLandBonus",
+          "levelRemovedBonus",
+          "landValue",
+          "distancePointsPerKm",
+          "distanceDailyCapKm",
+          "distanceFactor"
+        ],
+        "type": "object",
+        "properties": {
+          "pointsPerSotka": {
+            "type": "number",
+            "format": "double"
+          },
+          "captureTiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreTier"
+            }
+          },
+          "dailyTiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreTier"
+            }
+          },
+          "enemyLandBonus": {
+            "type": "number",
+            "format": "double"
+          },
+          "levelRemovedBonus": {
+            "type": "number",
+            "format": "double"
+          },
+          "landValue": {
+            "$ref": "#/components/schemas/LandValueConfig"
+          },
+          "distancePointsPerKm": {
+            "type": "number",
+            "format": "double"
+          },
+          "distanceDailyCapKm": {
+            "type": "number",
+            "format": "double"
+          },
+          "distanceFactor": {
+            "$ref": "#/components/schemas/PerLeagueOfdouble"
+          }
+        }
       },
       "SeasonsResponse": {
         "required": [
