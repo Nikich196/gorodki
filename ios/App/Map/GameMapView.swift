@@ -201,8 +201,7 @@ struct GameMapView: UIViewRepresentable {
                 landOverlays.append(multi)
             }
             #if DEBUG
-                // Что нарисовано: окраска и число слоёв — снимок «Отношения» проверяет, что карта перекрасилась.
-                map.accessibilityValue = "\(model.coloring.rawValue) \(fills.count)"
+                rebuilds += 1
             #endif
             for style in Self.ordered(edges.keys) {
                 guard let lines = edges[style] else { continue }
@@ -211,7 +210,24 @@ struct GameMapView: UIViewRepresentable {
                 landOverlays.append(multi)
             }
             map.addOverlays(landOverlays, level: .aboveRoads)
+            #if DEBUG
+                report(on: map)
+            #endif
         }
+
+        #if DEBUG
+            /// Сколько раз перестраивались слои земли и сколько рендереров земли MapKit попросил — для снимков.
+            private var rebuilds = 0
+            private var renderersMade = 0
+
+            /// Что нарисовано: окраска, слои, перестройки и рендереры — снимок «Отношения» проверяет, что карта
+            /// перекрасилась (`accessibilityValue` карты, только Debug).
+            private func report(on map: MKMapView) {
+                map.accessibilityValue =
+                    "\(model.coloring.rawValue) слоёв=\(landOverlays.count) на карте=\(map.overlays.count) "
+                    + "перестроек=\(rebuilds) рендереров=\(renderersMade)"
+            }
+        #endif
 
         /// Порядок слоёв — от призраков к своей: куски не перекрываются, но кромка своей должна быть сверху.
         /// При равном отношении — по цвету и уровню: одинаковые данные дают одинаковую карту.
@@ -244,6 +260,10 @@ struct GameMapView: UIViewRepresentable {
             guard let entry = styles[ObjectIdentifier(overlay)] else {
                 return MKOverlayRenderer(overlay: overlay)
             }
+            #if DEBUG
+                renderersMade += 1
+                report(on: mapView)
+            #endif
             let style = entry.style
             let isEdge = entry.isEdge
             if !isEdge, let multi = overlay as? MKMultiPolygon {

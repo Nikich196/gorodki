@@ -224,9 +224,14 @@ final class ScreenSnapshotTests: XCTestCase {
         pause(6)
         snapshot("28-map-relations-day")
         XCTAssertTrue(shown, "На карте нет переключателя «Отношения»")
-        // Карта пишет в `accessibilityValue`, чем окрашены нарисованные слои (только Debug).
+        // Карта пишет в `accessibilityValue`, чем окрашены нарисованные слои и сколько рендереров MapKit попросил
+        // (только Debug); второй снимок — позже: успела ли карта перерисоваться.
         let map = app.descendants(matching: .any).matching(identifier: "game-map").firstMatch
         let drawn = map.value as? String ?? ""
+        print("Карта после «Отношений»: \(drawn)")
+        pause(8)
+        snapshot("28-map-relations-day-later")
+        print("Карта ещё через 8 с: \(map.value as? String ?? "")")
         XCTAssertTrue(drawn.hasPrefix("relations"), "Карта не перекрасилась: «\(drawn)»")
     }
 
