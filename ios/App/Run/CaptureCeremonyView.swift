@@ -69,7 +69,9 @@ struct CaptureCeremonyView: View {
                 CeremonyCard(item: item, decisions: decisions, play: play, reduceMotion: reduceMotion) {
                     withAnimation(Motion.captureCardDismiss.unlessReduceMotion(reduceMotion)) { leaving = true }
                     Task {
-                        if !reduceMotion { try? await Task.sleep(for: .seconds(MotionSpec.Capture.cardDismissDuration)) }
+                        if !reduceMotion {
+                            try? await Task.sleep(for: .seconds(MotionSpec.Capture.cardDismissDuration))
+                        }
                         onContinue()
                     }
                 }

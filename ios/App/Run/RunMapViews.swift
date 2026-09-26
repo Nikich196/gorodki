@@ -47,7 +47,8 @@ struct RunMapView: View {
                     .stroke(
                         Palette.gapInk.color,
                         style: StrokeStyle(
-                            lineWidth: TrailStyle.gapWidth, lineCap: .round, dash: TrailStyle.gapDash.map { CGFloat($0) }))
+                            lineWidth: TrailStyle.gapWidth, lineCap: .round,
+                            dash: TrailStyle.gapDash.map { CGFloat($0) }))
                 Annotation("Точка замыкания", coordinate: target.location, anchor: .center) {
                     TargetMarker()
                 }

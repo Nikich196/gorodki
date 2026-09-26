@@ -160,6 +160,12 @@ struct ProfileTab: View {
 
     private var actions: some View {
         VStack(spacing: 0) {
+            NavigationLink {
+                RunHistoryView(model: RunHistoryModel.live())
+            } label: {
+                ProfileRow(title: "Забеги", systemImage: "figure.run")
+            }
+            Divider().padding(.leading, 52)
             if model.debugMenuAvailable {
                 NavigationLink {
                     DebugMenuView()

@@ -160,9 +160,12 @@ private struct TrackCard: View {
                         Palette.uiInk.color,
                         style: StrokeStyle(lineWidth: TrailStyle.width - 1.5, lineCap: .round, lineJoin: .round))
             } else {
-                Label("След появится, когда забег сохранится", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.uiInk2.color)
+                Label(
+                    "След появится, когда забег сохранится",
+                    systemImage: "point.topleft.down.to.point.bottomright.curvepath"
+                )
+                .font(.subheadline)
+                .foregroundStyle(Palette.uiInk2.color)
             }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 1.4), value: appeared)
@@ -364,7 +367,8 @@ private struct ServerCard: View {
                 if readout.breakdownPending {
                     Text(
                         "Разбивка — позже: сервер покажет её, когда захват станет виден всем (20–25 минут после "
-                            + "петли).")
+                            + "петли)."
+                    )
                     .font(.footnote)
                     .foregroundStyle(Palette.uiInk2.color)
                 }

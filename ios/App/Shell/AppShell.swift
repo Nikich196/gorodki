@@ -51,13 +51,26 @@ struct AppShell: View {
 
 extension View {
     /// Плашка свёрнутого забега над таб-баром — только пока забег идёт, а HUD закрыт.
+    /// С iOS 26.1 плашка включается флагом — вкладки не пересоздаются; на 26.0 модификатор ставится, только пока забег
+    /// идёт (`tabViewBottomAccessory` без флага показал бы пустую плашку).
     @ViewBuilder
     fileprivate func runAccessory(_ run: RunScreenModel) -> some View {
-        if #available(iOS 26.1, *) {
-            tabViewBottomAccessory(isEnabled: run.isRunning && !run.hudPresented) {
-                RunAccessory(model: run)
+        #if compiler(>=6.2.1)
+            if #available(iOS 26.1, *) {
+                tabViewBottomAccessory(isEnabled: run.isRunning && !run.hudPresented) {
+                    RunAccessory(model: run)
+                }
+            } else {
+                legacyRunAccessory(run)
             }
-        } else if run.isRunning {
+        #else
+            legacyRunAccessory(run)
+        #endif
+    }
+
+    @ViewBuilder
+    private func legacyRunAccessory(_ run: RunScreenModel) -> some View {
+        if run.isRunning {
             tabViewBottomAccessory {
                 RunAccessory(model: run)
             }
