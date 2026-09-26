@@ -32,6 +32,9 @@
   репозитория (`/mnt/c/Users/nikic/gorodki-osm/osm-preview-1.html`), имя в подсказке CLI — `osm-preview-N.html`,
   `.gitignore` ловит `osm-preview*.html`. Проверил: `git check-ignore` видит `backend/osm-preview-1.html`, `preview` по
   новому гайду на живом наборе — карта вне репозитория, `git status` чистый.
+- В чек-листе «Перед включением» ([гайд](guides/osm-pipeline-run.md), раздел 6) — пункт 5: атрибуция OSM, ссылка на
+  релиз набора и текст ODbL в «О приложении» у игроков, пункт OSM в соглашении снят с «в разработке»; без этого
+  `osm.setVersion` не включать (включение только серверное, приложение с ним не обновляется). То же — в описании PR.
 
 **01:32 — конвейер OSM v1 (C6): маски, «достижимое», районы, Арена — предложение.** [osm-pipeline.md](architecture/osm-pipeline.md), [как запускать](guides/osm-pipeline-run.md).
 - Инструмент `backend/tools/Gorodki.OsmPipeline` (вариант B: osmium → C#/NTS на сетке 0,1 м через `GeoOps`): `extract`
