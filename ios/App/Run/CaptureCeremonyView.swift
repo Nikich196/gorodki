@@ -18,42 +18,41 @@ struct CaptureCeremonyView: View {
     let onContinue: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var camera: MapCameraPosition = .automatic
-    /// Кольцо в точках экрана карты (`MapProxy.convert`); пусто — ещё не пересчитано.
-    @State private var points: [CGPoint] = []
-    /// Запуск чисел — при появлении; запуск контура — когда готовы экранные точки.
+    /// Видимая часть карты (`onMapCameraChange`): по ней кольцо переводится в точки экрана — веб-меркатор линеен,
+    /// карта не повёрнута. `nil` — карта ещё не встала на петлю. `MapProxy.convert` из задачи не годится: вызов во время
+    /// обновления графа SwiftUI роняет приложение (снимок 30, ночь).
+    @State private var visible: MKMapRect?
+    /// Запуск чисел — при появлении; запуск контура — когда карта встала на петлю.
     @State private var play = 0
     @State private var loopPlay = 0
     @State private var leaving = false
 
     var body: some View {
         ZStack {
-            MapReader { proxy in
-                Map(position: $camera, interactionModes: []) {
-                    if points.count < 3, ring.count >= 3 {
-                        // Пока экранные точки не готовы — контур средствами MapKit, без анимации.
-                        MapPolygon(coordinates: ring.map(\.location))
-                            .foregroundStyle(player.fillColor(.three))
-                            .stroke(player.edgeColor, lineWidth: 3)
+            Map(position: $camera, interactionModes: []) {
+                if visible == nil, ring.count >= 3 {
+                    // Пока карта не встала на петлю — контур средствами MapKit, без анимации.
+                    MapPolygon(coordinates: ring.map(\.location))
+                        .foregroundStyle(player.fillColor(.three))
+                        .stroke(player.edgeColor, lineWidth: 3)
+                }
+            }
+            .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
+            .mapControlVisibility(.hidden)
+            .overlay {
+                GeometryReader { proxy in
+                    if let visible, ring.count >= 3 {
+                        CeremonyLoop(
+                            points: Self.project(ring, visible: visible, size: proxy.size), player: player,
+                            play: loopPlay, reduceMotion: reduceMotion)
                     }
                 }
-                .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
-                .mapControlVisibility(.hidden)
-                .overlay {
-                    if points.count >= 3 {
-                        CeremonyLoop(points: points, player: player, play: loopPlay, reduceMotion: reduceMotion)
-                    }
-                }
-                .onMapCameraChange(frequency: .onEnd) { _ in
-                    convert(proxy)
-                }
-                .task(id: ring) {
-                    frame()
-                    // Экранные точки появляются, когда карта разложена: несколько попыток, пока `convert` не ответит.
-                    for _ in 0..<15 where points.count < 3 {
-                        try? await Task.sleep(for: .milliseconds(120))
-                        convert(proxy)
-                    }
-                }
+            }
+            .onMapCameraChange(frequency: .onEnd) { context in
+                visible = context.rect
+            }
+            .task(id: ring) {
+                frame()
             }
             .ignoresSafeArea()
 
@@ -82,7 +81,7 @@ struct CaptureCeremonyView: View {
             }
         }
         .background(Palette.mapLand.color)
-        .onChange(of: points.count >= 3) { _, ready in
+        .onChange(of: visible != nil) { _, ready in
             if ready, loopPlay == 0 { loopPlay = 1 }
         }
         .onAppear { play = 1 }
@@ -91,15 +90,18 @@ struct CaptureCeremonyView: View {
     /// Камера — на петлю, с запасом; контур выше карточки.
     private func frame() {
         guard let region = TrackGeometry.region(ring, padding: 2.0, shiftDown: 0.3) else { return }
+        visible = nil
         camera = .region(region)
-        points = []
     }
 
-    private func convert(_ proxy: MapProxy) {
-        guard ring.count >= 3 else { return }
-        let converted = ring.compactMap { proxy.convert($0.location, to: .local) }
-        if converted.count == ring.count {
-            points = converted
+    /// Кольцо в точках экрана карты: доля видимого прямоугольника веб-меркатора × размер карты.
+    static func project(_ ring: [Coordinate], visible: MKMapRect, size: CGSize) -> [CGPoint] {
+        guard visible.width > 0, visible.height > 0 else { return [] }
+        return ring.map { coordinate in
+            let point = MKMapPoint(coordinate.location)
+            return CGPoint(
+                x: (point.x - visible.minX) / visible.width * size.width,
+                y: (point.y - visible.minY) / visible.height * size.height)
         }
     }
 }

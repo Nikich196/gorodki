@@ -12,17 +12,21 @@ struct RunResultView: View {
     /// «Готово» у итога сразу после «Финиша»; у деталей из истории — `nil` (назад — системной кнопкой).
     var done: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.runScreens) private var run
     @State private var appeared = false
+
+    /// След — кромкой цвета игрока (tokens.md, §3); вне оболочки (фикстуры деталей) — нейтральным.
+    private var trailColor: Color { run?.player.edgeColor ?? Palette.uiInk.color }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 if model.justFinished {
-                    TrackCard(track: model.track, appeared: appeared, reduceMotion: reduceMotion)
+                    TrackCard(track: model.track, color: trailColor, appeared: appeared, reduceMotion: reduceMotion)
                         .resultCard()
                 } else {
-                    TrackMapCard(track: model.track)
+                    TrackMapCard(track: model.track, color: trailColor)
                         .resultCard()
                 }
                 if let readout = model.readout {
@@ -145,6 +149,7 @@ extension View {
 /// След без карты — рисуется `trim`-ом, как будто его пробегают заново.
 private struct TrackCard: View {
     let track: [Coordinate]
+    let color: Color
     let appeared: Bool
     let reduceMotion: Bool
 
@@ -159,8 +164,7 @@ private struct TrackCard: View {
                 TrackShape(coordinates: track)
                     .trim(from: 0, to: appeared ? 1 : 0)
                     .stroke(
-                        Palette.uiInk.color,
-                        style: StrokeStyle(lineWidth: TrailStyle.width - 1.5, lineCap: .round, lineJoin: .round))
+                        color, style: StrokeStyle(lineWidth: TrailStyle.width - 1.5, lineCap: .round, lineJoin: .round))
             } else {
                 Label(
                     "След появится, когда забег сохранится",
@@ -173,7 +177,7 @@ private struct TrackCard: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 1.4), value: appeared)
         .frame(maxWidth: .infinity)
         .frame(height: 200)
-        .background(Palette.uiCell2.color, in: .rect(cornerRadius: Radius.card))
+        .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
         .accessibilityHidden(true)
     }
 }
@@ -181,6 +185,7 @@ private struct TrackCard: View {
 /// След на карте — детали забега.
 private struct TrackMapCard: View {
     let track: [Coordinate]
+    let color: Color
 
     var body: some View {
         Group {
@@ -192,8 +197,7 @@ private struct TrackMapCard: View {
                             style: StrokeStyle(lineWidth: TrailStyle.caseWidth, lineCap: .round, lineJoin: .round))
                     MapPolyline(coordinates: track.map(\.location))
                         .stroke(
-                            Palette.uiInk.color,
-                            style: StrokeStyle(lineWidth: TrailStyle.width, lineCap: .round, lineJoin: .round))
+                            color, style: StrokeStyle(lineWidth: TrailStyle.width, lineCap: .round, lineJoin: .round))
                 }
                 .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
             } else {
