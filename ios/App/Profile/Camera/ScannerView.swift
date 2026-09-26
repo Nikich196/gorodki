@@ -103,7 +103,7 @@ struct ScannerView: View {
         .sensoryFeedback(.success, trigger: model.scans)
         .task {
             await model.start()
-            withAnimation(Animation(Motion.captureEstimate).unlessReduceMotion(reduceMotion)) { framed = true }
+            withAnimation(Animation.spring(Motion.captureEstimate).unlessReduceMotion(reduceMotion)) { framed = true }
         }
         .onDisappear { model.stop() }
     }
@@ -117,7 +117,7 @@ struct ScannerView: View {
             .scaleEffect(framed ? (locked ? 0.9 : 1) : 1.25)
             .opacity(framed ? 1 : 0)
             .shadow(color: .black.opacity(0.35), radius: 8)
-            .animation(Animation(Motion.captureEstimate).unlessReduceMotion(reduceMotion), value: locked)
+            .animation(Animation.spring(Motion.captureEstimate).unlessReduceMotion(reduceMotion), value: locked)
             .accessibilityHidden(true)
     }
 
