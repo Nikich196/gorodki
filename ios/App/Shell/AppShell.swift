@@ -18,7 +18,7 @@ struct AppShell: View {
         @Bindable var run = model.run
         TabView(selection: $model.tab) {
             Tab("Карта", systemImage: "map", value: AppTab.map) {
-                MapTab(player: model.profile.playerColor)
+                MapScreen(model: model.map)
             }
             Tab("Рейтинги", systemImage: "trophy", value: AppTab.leaderboards) {
                 LeaderboardsTab()
@@ -83,24 +83,29 @@ extension View {
     }
 }
 
-/// Состояние оболочки: выбранная вкладка, профиль (из него же цвет «Старта») и экраны забега.
+/// Состояние оболочки: выбранная вкладка, профиль (из него же цвет «Старта» и свой номер для карты), карта
+/// и экраны забега.
 @MainActor
 @Observable
 final class ShellModel {
     var tab: AppTab
     let profile: ProfileModel
     let run: RunScreenModel
+    let map: MapModel
 
-    /// - Parameter run: `nil` — экраны забега без трекера (режим фикстур, тесты).
-    init(tab: AppTab = .map, profile: ProfileModel, run: RunScreenModel? = nil) {
+    /// - Parameters:
+    ///   - run: `nil` — экраны забега без трекера (режим фикстур, тесты).
+    ///   - map: `nil` — карта без данных (экраны без сервера).
+    init(tab: AppTab = .map, profile: ProfileModel, run: RunScreenModel? = nil, map: MapModel? = nil) {
         self.tab = tab
         self.profile = profile
         self.run = run ?? RunScreenModel(profile: profile)
+        self.map = map ?? MapModel(profile: profile)
     }
 
-    /// Оболочка приложения: забег — `RunController`.
+    /// Оболочка приложения: забег — `RunController`, земля и туман карты — кэши `AppDependencies`.
     static func live() -> ShellModel {
         let profile = ProfileModel()
-        return ShellModel(profile: profile, run: .live(profile: profile))
+        return ShellModel(profile: profile, run: .live(profile: profile), map: .live(profile: profile))
     }
 }

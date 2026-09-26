@@ -2,10 +2,10 @@ import XCTest
 
 /// Снимки экранов, которые открываются без сервера (PLAN.md, §8 и §13: «снимки и UI-тесты — информационно»):
 /// отладочное меню с «Проверкой установки» и «Лаборатория» — прогулка (S1), стенд карты (S4), сервер (S7), пробный
-/// забег, дизайн в обеих темах; онбординг, вкладки и экраны забега (HUD, церемония, свёрнутый забег, итог, детали,
-/// история) — в режиме фикстур (`-GorodkiScreen`, `-GorodkiFixture`, `-GorodkiTheme`; App/Fixtures), каждый экран днём
-/// и ночью. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest, workflow
-/// выгружает их из пакета результатов в PNG (артефакт запуска): так приложение можно посмотреть без Mac.
+/// забег, дизайн в обеих темах; онбординг, вкладки, карта (земля, лист участка, туман) и экраны забега (HUD, церемония,
+/// свёрнутый забег, итог, детали, история) — в режиме фикстур (`-GorodkiScreen`, `-GorodkiFixture`, `-GorodkiTheme`;
+/// App/Fixtures), каждый экран днём и ночью. Идут в ios-snapshots.yml на симуляторе iPhone; снимки — вложения XCTest,
+/// workflow выгружает их из пакета результатов в PNG (артефакт запуска): так приложение можно посмотреть без Mac.
 ///
 /// Каждый тест запускает приложение заново — сорвавшийся переход не утянет за собой остальные снимки. Снимок делается
 /// до проверки: и неудачный переход виден на картинке. Кнопки ищутся по части надписи («Карта:», «Сервер:»): хвост
@@ -182,6 +182,66 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen(
             "sign-in", fixture: "account-deleting", expecting: "Этот аккаунт удаляется",
             name: "23-onboarding-sign-in-account-deleting", themes: ["day"])
+    }
+
+    // MARK: - Карта (MapFixture: образцы territory.json и fog.json и земля вокруг)
+
+    /// «Захват»: земли по отношению и уровню, кромки, муравьи на спорном, «Старт». Тайлы Apple Maps дорисовываются
+    /// уже после открытия экрана.
+    @MainActor
+    func test23MapCapture() {
+        snapshotScreen("map", fixture: "player-map", expecting: "Отношения", name: "24-map-capture", settle: 6)
+    }
+
+    /// Лист участка по касанию: свой кусок образца, щит и живая зона «спорная».
+    @MainActor
+    func test24MapParcel() {
+        snapshotScreen("map-parcel", expecting: "Твоя земля", name: "25-map-parcel", settle: 6)
+    }
+
+    /// «Исследование»: туман с кромкой открытого, земли скрыты, сводка тумана.
+    @MainActor
+    func test25MapExplore() {
+        snapshotScreen("map-explore", expecting: "Открыто", name: "26-map-explore", settle: 6)
+    }
+
+    /// Режим «Отношения»: моё — своим цветом, соперники — красным. Переключатель — нажатием, только днём. Карта пишет
+    /// в `accessibilityValue` (только Debug), каким цветом залита земля соперника: заливки L1–L3 цвета Red.
+    @MainActor
+    func test27MapRelations() {
+        let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
+        let segment = app.buttons["Отношения"].firstMatch
+        let shown = segment.waitForExistence(timeout: Self.launchTimeout)
+        if shown {
+            segment.tap()
+        }
+        pause(6)
+        snapshot("28-map-relations-day")
+        let map = app.descendants(matching: .any).matching(identifier: "game-map").firstMatch
+        let drawn = map.value as? String ?? ""
+        print("Карта после «Отношений»: \(drawn)")
+        XCTAssertTrue(shown, "На карте нет переключателя «Отношения»")
+        let redFills = ["#B14D4E", "#C33840", "#D30931"]
+        XCTAssertTrue(
+            drawn.hasPrefix("relations") && redFills.contains { drawn.contains("соперник=" + $0) },
+            "Карта не перекрасилась: «\(drawn)»")
+    }
+
+    /// Смена слоя нажатием: «Захват» → «Исследование» — земли скрыты, туман виден (кроссфейд), только днём.
+    @MainActor
+    func test26MapSwitchToExplore() {
+        let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
+        let segment = app.buttons["Исследование"].firstMatch
+        let shown = segment.waitForExistence(timeout: Self.launchTimeout)
+        if shown {
+            pause(4)  // земля успевает нарисоваться до смены слоя
+            segment.tap()
+        }
+        let card = waitForAny([text(in: app, containing: "Открыто")], timeout: Self.screenTimeout)
+        pause(4)
+        snapshot("27-map-switch-explore-day")
+        XCTAssertTrue(shown, "На карте нет переключателя «Исследование»")
+        XCTAssertTrue(card, "После смены слоя нет карточки «Открыто …»")
     }
 
     // MARK: - Экраны забега (RunFixture: петля вокруг квартала и открытая петля; числа — как в макете)
