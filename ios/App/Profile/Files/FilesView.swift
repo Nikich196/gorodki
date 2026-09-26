@@ -148,8 +148,13 @@ final class FilesModel {
 
 struct FilesView: View {
     @State private var model: FilesModel
-    @State private var folderPickerShown = false
-    @State private var gpxPickerShown = false
+    /// Что выбирается в «Файлах»: один `fileImporter` на экран — два на одном экране SwiftUI показывает не всегда.
+    @State private var importKind = ImportKind.gpx
+    @State private var importerShown = false
+
+    private enum ImportKind {
+        case folder, gpx
+    }
     private let ru = Locale(identifier: "ru_RU")
 
     init(model: FilesModel = .live()) {
@@ -179,6 +184,14 @@ struct FilesView: View {
         ) { result in
             model.exported(result)
         }
+        .fileImporter(
+            isPresented: $importerShown, allowedContentTypes: importKind == .folder ? [.folder] : [.gpx, .xml]
+        ) { result in
+            switch importKind {
+            case .folder: model.chooseFolder(result.map { [$0] })
+            case .gpx: model.importGPX(result.map { [$0] })
+            }
+        }
         .refreshable { await model.load() }
         .task {
             if !model.loaded { await model.load() }
@@ -199,12 +212,10 @@ struct FilesView: View {
                 }
             }
             Button {
-                folderPickerShown = true
+                importKind = .folder
+                importerShown = true
             } label: {
                 Label(model.autoFolderName == nil ? "Выбрать папку" : "Сменить папку", systemImage: "folder.badge.plus")
-            }
-            .fileImporter(isPresented: $folderPickerShown, allowedContentTypes: [.folder]) { result in
-                model.chooseFolder(result.map { [$0] })
             }
         } header: {
             Text("Автоэкспорт каждого забега")
@@ -255,12 +266,10 @@ struct FilesView: View {
     private var importSection: some View {
         Section {
             Button {
-                gpxPickerShown = true
+                importKind = .gpx
+                importerShown = true
             } label: {
                 Label("Открыть GPX из «Файлов»", systemImage: "doc.badge.plus")
-            }
-            .fileImporter(isPresented: $gpxPickerShown, allowedContentTypes: [.gpx, .xml]) { result in
-                model.importGPX(result.map { [$0] })
             }
             if let track = model.imported {
                 NavigationLink {

@@ -186,7 +186,7 @@ struct ScannerView: View {
 
 /// Четыре уголка рамки видоискателя.
 struct ViewfinderCorners: Shape {
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         let arm = min(rect.width, rect.height) * 0.18
         var path = Path()
         for (corner, dx, dy) in [

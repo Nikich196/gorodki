@@ -172,8 +172,8 @@ struct InviteView: View {
             } else {
                 TextField("Имя друга в Контактах", text: Bindable(model).friendQuery)
                     .autocorrectionDisabled()
-                ContactAccessButton(queryString: model.friendQuery) { identifiers in
-                    Task { await model.picked(identifiers) }
+                ContactAccessButton(queryString: model.friendQuery) { [model] identifiers in
+                    Task { @MainActor in await model.picked(identifiers) }
                 }
                 .frame(minHeight: 44)
             }

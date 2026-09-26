@@ -73,7 +73,10 @@ final class CameraController: NSObject, CameraControlling {
     }
 
     func capturePhoto() async -> Data? {
-        guard configured, photoContinuation == nil else { return nil }
+        // Сессия запускается на своей очереди: снимок до её старта бросил бы исключение «нет активного видео».
+        guard configured, photoContinuation == nil, photo.connection(with: .video)?.isActive == true else {
+            return nil
+        }
         return await withCheckedContinuation { continuation in
             photoContinuation = continuation
             photo.capturePhoto(with: AVCapturePhotoSettings(), delegate: self)

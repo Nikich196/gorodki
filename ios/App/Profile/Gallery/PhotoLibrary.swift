@@ -202,7 +202,7 @@ final class SystemPhotoLibrary: PhotoLibraryProviding {
         let resumed = OnceFlag()
         return await withCheckedContinuation { continuation in
             manager.requestImage(for: asset, targetSize: size, contentMode: .aspectFill, options: options) {
-                image, info in
+                @Sendable image, info in
                 // Сначала может прийти черновик низкого качества — ждём окончательную картинку (или ошибку).
                 let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
                 guard !degraded || image == nil, resumed.claim() else { return }
@@ -226,7 +226,8 @@ final class SystemPhotoLibrary: PhotoLibraryProviding {
         let options = PHVideoRequestOptions()
         options.isNetworkAccessAllowed = true
         return await withCheckedContinuation { continuation in
-            PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in
+            // Ответ приходит на произвольной очереди — замыкание не должно наследовать главный актор.
+            PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { @Sendable item, _ in
                 continuation.resume(returning: item.map(AVPlayerItemBox.init))
             }
         }
@@ -235,7 +236,7 @@ final class SystemPhotoLibrary: PhotoLibraryProviding {
     func manageLimitedSelection() async {
         guard let controller = TopViewController.current else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller) { _ in
+            PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller) { @Sendable _ in
                 continuation.resume()
             }
         }
