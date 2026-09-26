@@ -28,6 +28,9 @@
                 NavigationStack {
                     DebugMenuView()
                 }
+            case .gallery, .replay, .storage, .backup, .files, .calendar, .invite, .myQR, .scanner, .notifications,
+                .assignment:
+                SheetFixtureScreen(screen: screen)
             }
         }
     }
