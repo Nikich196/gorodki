@@ -24,7 +24,9 @@ struct SystemContacts: ContactsReading {
 
     /// `CNContactStore` не `Sendable` — живёт внутри одной функции.
     @concurrent
-    private static func fetch(_ identifiers: [String]) async -> [FriendContact] {
+    nonisolated
+        private static func fetch(_ identifiers: [String]) async -> [FriendContact]
+    {
         let keys: [CNKeyDescriptor] = [
             CNContactGivenNameKey as CNKeyDescriptor, CNContactFamilyNameKey as CNKeyDescriptor,
             CNContactPhoneNumbersKey as CNKeyDescriptor,
@@ -82,7 +84,8 @@ final class InviteModel {
         components.scheme = "sms"
         components.path = digits
         guard let base = components.string,
-            let body = message.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(["&", "=", "+"]))
+            let body = message.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed.subtracting(["&", "=", "+"]))
         else { return nil }
         return URL(string: base + "&body=" + body)
     }

@@ -161,7 +161,9 @@ struct FilesView: View {
             Section {
                 SheetIntro(
                     systemImage: "folder", title: "Файлы — наружу и внутрь",
-                    text: "Выгрузки лежат в «Файлах»: «На iPhone» → «Городки» → Exports. Оттуда их можно отправить куда угодно.")
+                    text:
+                        "Выгрузки лежат в «Файлах»: «На iPhone» → «Городки» → Exports. Оттуда их можно отправить куда угодно."
+                )
             }
             autoExportSection
             runsSection
@@ -223,12 +225,17 @@ struct FilesView: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(Date(unix: Double(run.startedAtMs) / 1_000).formatted(
-                                .dateTime.day().month(.wide).hour().minute().locale(ru)))
-                                .foregroundStyle(Palette.uiInk.color)
-                            Text(run.league == .run ? "Бег · точек: \(run.pointCount)" : "Вело · точек: \(run.pointCount)")
-                                .font(.caption)
-                                .foregroundStyle(Palette.uiInk2.color)
+                            Text(
+                                Date(unix: Double(run.startedAtMs) / 1_000).formatted(
+                                    .dateTime.day().month(.wide).hour().minute().locale(ru))
+                            )
+                            .foregroundStyle(Palette.uiInk.color)
+                            Text(
+                                run.league == .run
+                                    ? "Бег · точек: \(run.pointCount)" : "Вело · точек: \(run.pointCount)"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(Palette.uiInk2.color)
                         }
                         Spacer()
                         Image(systemName: "square.and.arrow.down")

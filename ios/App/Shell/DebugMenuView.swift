@@ -4,11 +4,16 @@ import SwiftUI
 /// защиты), «Проверка установки» (спайк S2) и «Лаборатория» — то, что раньше было стартовым экраном. Открывается из
 /// «Профиль → Отладка» и кнопкой «Отладка» на онбординге.
 struct DebugMenuView: View {
+    /// Игрок — для экранов из «Пунктов задания» (цвет видео-повтора, свой QR); `nil` — меню с онбординга.
+    var profile: ProfileModel?
+
     var body: some View {
         List {
             Section {
                 NavigationLink {
-                    AssignmentSheetView()
+                    AssignmentSheetView(
+                        player: profile?.playerColor ?? .blue, playerId: profile?.playerId,
+                        playerName: profile?.displayName)
                 } label: {
                     Label("Пункты задания", systemImage: "checklist")
                 }

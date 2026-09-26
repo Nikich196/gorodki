@@ -54,10 +54,12 @@ final class SystemNotifications: LocalNotifying {
 }
 
 /// Уведомления видны и в открытом приложении: пробное уведомление («через 5 секунд») иначе молча пропало бы.
-final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate, Sendable {
+/// Назначается делегатом при запуске (`AppDelegate`).
+@MainActor
+final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationPresenter()
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         [.banner, .list, .sound]

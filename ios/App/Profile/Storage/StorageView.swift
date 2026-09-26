@@ -126,7 +126,9 @@ struct StorageView: View {
                     legendRow(kind)
                 }
             } footer: {
-                Text("Кэш лежит в Library/Caches: iOS может очистить его сама, когда мало места. База и выгрузки — не кэш.")
+                Text(
+                    "Кэш лежит в Library/Caches: iOS может очистить его сама, когда мало места. База и выгрузки — не кэш."
+                )
             }
             Section {
                 Button(role: .destructive) {

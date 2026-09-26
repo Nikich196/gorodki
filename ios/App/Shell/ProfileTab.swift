@@ -9,6 +9,8 @@ import Sync
 @MainActor
 @Observable
 final class ProfileModel {
+    /// Номер игрока (`GET /me`, UUID) — по нему карта отличает свою землю.
+    var playerId: String? = nil
     var displayName: String? = nil
     /// Номер цвета с сервера (`colorIndex`); `nil` — ещё не знаем.
     var colorIndex: Int? = nil
@@ -35,6 +37,7 @@ final class ProfileModel {
     }
 
     func apply(_ me: Components.Schemas.MeResponse) {
+        playerId = me.id
         displayName = me.displayName
         colorIndex = Int(me.colorIndex)
         role = me.role
@@ -97,6 +100,7 @@ struct ProfileTab: View {
                         StatTile(title: "Открыто тумана", value: area(model.exploredSquareMeters))
                         StatTile(title: model.seasonName ?? "Сезон", value: area(model.seasonExploredSquareMeters))
                     }
+                    ProfileFeatures(model: model)
                     actions
                 }
                 .padding(20)
@@ -162,7 +166,7 @@ struct ProfileTab: View {
         VStack(spacing: 0) {
             if model.debugMenuAvailable {
                 NavigationLink {
-                    DebugMenuView()
+                    DebugMenuView(profile: model)
                 } label: {
                     ProfileRow(title: "Отладка", systemImage: "ladybug")
                 }
@@ -253,7 +257,7 @@ private struct StatTile: View {
     }
 }
 
-private struct ProfileRow: View {
+struct ProfileRow: View {
     let title: String
     let systemImage: String
 

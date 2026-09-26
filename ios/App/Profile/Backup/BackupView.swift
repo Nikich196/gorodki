@@ -93,7 +93,8 @@ final class BackupModel {
         let ran = await source.syncNow()
         await load()
         syncing = false
-        message = ran ? log.last?.summary : "Синхронизация начнётся после входа: адрес сервера или вход ещё не настроены."
+        message =
+            ran ? log.last?.summary : "Синхронизация начнётся после входа: адрес сервера или вход ещё не настроены."
     }
 }
 

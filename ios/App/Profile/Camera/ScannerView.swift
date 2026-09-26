@@ -172,7 +172,9 @@ struct ScannerView: View {
             Text("Наведи камеру на QR друга или код приглашения")
                 .multilineTextAlignment(.center)
         case .game(.player(_, let name)):
-            Label("Игрок \(name ?? "без ника") — друзья появятся с кланами", systemImage: "person.crop.circle.badge.checkmark")
+            Label(
+                "Игрок \(name ?? "без ника") — друзья появятся с кланами",
+                systemImage: "person.crop.circle.badge.checkmark")
         case .game(.invite(let code)):
             Label("Код приглашения \(code) — впиши его при регистрации", systemImage: "ticket")
         case .text(let text):

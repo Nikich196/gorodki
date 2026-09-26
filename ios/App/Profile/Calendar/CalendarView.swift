@@ -25,7 +25,9 @@ struct EventKitCalendar: CalendarWriting {
     /// Хранилище событий создаётся и живёт внутри одной функции: `EKEventStore` не `Sendable`, между акторами его
     /// не передать.
     @concurrent
-    private static func save(_ draft: CalendarEventDraft) async -> CalendarWriteResult {
+    nonisolated
+        private static func save(_ draft: CalendarEventDraft) async -> CalendarWriteResult
+    {
         let store = EKEventStore()
         do {
             guard try await store.requestWriteOnlyAccessToEvents() else { return .denied }

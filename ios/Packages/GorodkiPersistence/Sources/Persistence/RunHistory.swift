@@ -13,6 +13,17 @@ public struct RunHistoryEntry: Codable, Sendable, Hashable, Identifiable {
     public var endedAtMs: Int64
     /// Сколько принятых точек сохранено.
     public var pointCount: Int
+
+    public init(
+        id: UUID, league: League, source: LocalRun.Source, startedAtMs: Int64, endedAtMs: Int64, pointCount: Int
+    ) {
+        self.id = id
+        self.league = league
+        self.source = source
+        self.startedAtMs = startedAtMs
+        self.endedAtMs = endedAtMs
+        self.pointCount = pointCount
+    }
 }
 
 /// История забегов (GRDB): итог и принятые точки каждого законченного забега. Очередь синхронизации стирает куски, как

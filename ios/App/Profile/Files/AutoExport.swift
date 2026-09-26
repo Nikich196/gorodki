@@ -16,9 +16,9 @@ final class AutoExport {
         var error: String?
     }
 
-    private static let bookmarkKey = "autoExport.bookmark"
-    private static let folderNameKey = "autoExport.folderName"
-    private static let recordKey = "autoExport.last"
+    static let bookmarkKey = "autoExport.bookmark"
+    static let folderNameKey = "autoExport.folderName"
+    static let recordKey = "autoExport.last"
 
     private let defaults: UserDefaults
 
@@ -39,7 +39,8 @@ final class AutoExport {
         defer {
             if accessing { url.stopAccessingSecurityScopedResource() }
         }
-        let bookmark = try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+        let bookmark = try url.bookmarkData(
+            options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
         defaults.set(bookmark, forKey: Self.bookmarkKey)
         defaults.set(url.lastPathComponent, forKey: Self.folderNameKey)
     }
