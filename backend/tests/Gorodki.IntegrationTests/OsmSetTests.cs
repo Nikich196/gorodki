@@ -153,13 +153,19 @@ public sealed class OsmSetTests(DatabaseFixture database)
 
     // ── Маски по тайлам ──────────────────────────────────────────────────────
 
+    /// <remarks>
+    /// Маски — внутри тайла места теста, а не через его край: место (<see cref="Walks.NewArea"/>) по номеру в общем
+    /// счётчике всей сборки ложится то в середину тайла, то ровно на границу километра (остаток от деления на 1000 — 0 или
+    /// 500). Прямоугольник через край разрезался бы на два ряда тайлов, и запрос по квадрату места читал бы один из них —
+    /// тест зависел бы от числа и порядка остальных тестов.
+    /// </remarks>
     [Fact]
     public async Task Mask_store_unions_the_masks_of_the_covered_tiles()
     {
         database.RequireDatabase();
         var version = NewSetVersion();
         var area = NewArea();
-        await ImportAsync(Content(version, Set([.. Pieces(MaskKind.Water, area, 40, -50, 60, 150), .. Pieces(MaskKind.Rail, area, 50, -50, 70, 150)])));
+        await ImportAsync(Content(version, Set([.. Pieces(MaskKind.Water, area, 40, 0, 60, 200), .. Pieces(MaskKind.Rail, area, 50, 0, 70, 200)])));
         await using var api = new ApiFactory(database);
         await using var scope = api.Services.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<IMaskStore>();
@@ -172,7 +178,9 @@ public sealed class OsmSetTests(DatabaseFixture database)
         Assert.Equal(30 * 200, masks.Area, 1); // вода и ж/д накладываются — объединение, а не сумма
         Assert.True(masks.EqualsExact(again!));
         Assert.NotSame(masks, again); // каждый вызов — новые объекты
-        Assert.Null(await store.CoveringAsync(new Envelope(ox + 500, ox + 600, oy + 500, oy + 600), version, Cancel));
+        var tile = TileKey.Of(ox + 50, oy + 50);
+        var neighbour = new Envelope(((tile.X + 1) * 1_000) + 100, ((tile.X + 1) * 1_000) + 200, (tile.Y * 1_000) + 100, (tile.Y * 1_000) + 200);
+        Assert.Null(await store.CoveringAsync(neighbour, version, Cancel)); // в соседнем тайле масок нет
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.CoveringAsync(new Envelope(ox, ox + 1, oy, oy + 1), 999_999, Cancel));
     }
 
