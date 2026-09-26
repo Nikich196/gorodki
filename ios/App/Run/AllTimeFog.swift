@@ -8,7 +8,7 @@ import Sync
 struct CachedAllTimeFog: AllTimeFogProvider {
     let cache: FogCache
 
-    func allTimeTile(_ key: FogTileKey, league: League) async -> FogTileBits? {
+    func allTimeTile(_ key: FogTileKey, league: GameCore.League) async -> FogTileBits? {
         guard league == .run else { return nil }
         let ref = FogTileRef(x: key.x, y: key.y)
         _ = try? await cache.refresh(visible: [ref])
