@@ -174,18 +174,20 @@ flowchart LR
    ложится одной транзакцией рядом со старым, прежний не трогается.
 8. **Включение** — новой версией игрового конфига (ниже, «Маски в обработке захвата»).
 
-Набросок команд (флаги сверить с документацией osmium при реализации):
+Как запускать — [osm-pipeline-run.md](../guides/osm-pipeline-run.md): из папки `backend` команды `extract`,
+`build --work <папка> --version N --out osm-set-N.zip`, `import` и `preview`. Шаги osmium выполняет `extract`
+(`Extract.cs`), вручную их набирать не нужно. Для справки — что он запускает:
 
 ```bash
-curl -LO https://download.geofabrik.de/europe/belarus-latest.osm.pbf
-osmium fileinfo -g header.option.osmosis_replication_timestamp belarus-latest.osm.pbf
-osmium --version   # версии osmium и libosmium — в metadata.json
 osmium extract -s smart -S types=multipolygon,boundary -b "$WEST,$SOUTH,$EAST,$NORTH" \
-    belarus-latest.osm.pbf -o brest.osm.pbf
-osmium getid -r belarus-latest.osm.pbf "r$BELARUS_ID" "r$CITY_ID" -o borders.osm.pbf   # границы — по id
-osmium tags-filter brest.osm.pbf wr/highway wr/place=square -o paths.osm.pbf
-osmium export paths.osm.pbf -f geojsonseq -a type,id --show-errors -o paths.geojsonseq 2> paths.errors.txt
-dotnet run -c Release --project backend/tools/Gorodki.OsmPipeline -- build --params osm-pipeline.json --out osm-set/
+    belarus-latest.osm.pbf -O -o brest.osm.pbf
+osmium getid -r belarus-latest.osm.pbf "r$CITY_ID" "r$COUNTRY_ID" "r$DISTRICT_ID"… -O -o borders.osm.pbf  # по id
+osmium tags-filter brest.osm.pbf w/highway w/railway -O -o lines.osm.pbf   # и так для areas, buildings, memorials
+osmium export lines.osm.pbf -f geojsonseq -a type,id -x print_record_separator=false --show-errors \
+    -O -o lines.geojsonseq   # вывод (журнал ошибок) — в lines.errors.txt
+osmium cat lines.osm.pbf -t relation -f opl   # → lines.relations.opl; у площадей ещё -t way → areas.ways.opl
+osmium fileinfo -g header.option.osmosis_replication_timestamp belarus-latest.osm.pbf
+osmium --version   # версии osmium и libosmium — в source.json и metadata.json
 ```
 
 ## Координаты и хранение — как у движка участков

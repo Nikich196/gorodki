@@ -42,6 +42,10 @@
   (1 игрок, 2 туман, 3 устройство, 4 сутки, 5 набор OSM, 100 + лига тайлы): ADR 0005 — запись на момент решения, в ней
   ни 4, ни 5, а osm-pipeline.md ссылался на неё как на полный список. Архитектурный тест `LockSpacesTests` сверяет номера
   `pg_advisory_xact_lock` в коде со списком. Проверил: без строки «5» и на прежнем jobs.md тест красный.
+- [captures.md](architecture/captures.md): шаг A на схеме — контур минус маски набора `osm.setVersion`; незагруженный
+  набор в конфиге → `too_many_attempts` после 5 аренд; «маски OSM» ушли из «Что ещё впереди» (там — показ масок на
+  карте). В osm-pipeline.md устаревший набросок команд (`build --params … --out osm-set/` падал) заменён ссылкой на
+  гайд и тем, что на деле запускает `extract`; команды гайда `extract`, `build`, `preview` прогнаны на живой выгрузке.
 
 **01:32 — конвейер OSM v1 (C6): маски, «достижимое», районы, Арена — предложение.** [osm-pipeline.md](architecture/osm-pipeline.md), [как запускать](guides/osm-pipeline-run.md).
 - Инструмент `backend/tools/Gorodki.OsmPipeline` (вариант B: osmium → C#/NTS на сетке 0,1 м через `GeoOps`): `extract`
