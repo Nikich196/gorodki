@@ -37,6 +37,18 @@ public sealed class FogTileBits
         return total;
     }
 
+    /// <summary>Сколько клеток открыто и здесь, и в <paramref name="other"/>: popcount(this &amp; other).</summary>
+    public int CountAnd(FogTileBits other)
+    {
+        var total = 0;
+        for (var i = 0; i < WordCount; i++)
+        {
+            total += BitOperations.PopCount(_words[i] & other._words[i]);
+        }
+
+        return total;
+    }
+
     public void UnionWith(FogTileBits other)
     {
         for (var i = 0; i < WordCount; i++)

@@ -10,6 +10,7 @@ using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Health;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
+using Gorodki.Api.Features.Osm;
 using Gorodki.Api.Features.Players;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
@@ -111,6 +112,13 @@ if (withDatabase)
     builder.Services.AddScoped<FogProcessor>();
     builder.Services.AddScoped<FogHistory>();
     builder.Services.AddScoped<TerritoryReader>();
+
+    // Набор конвейера OSM (docs/architecture/osm-pipeline.md): маски для шага A захвата и «достижимое» для «% Бреста».
+    // Наборы не меняются после загрузки — кэши живут весь процесс.
+    builder.Services.AddSingleton<MaskCache>();
+    builder.Services.AddScoped<IMaskStore, MaskStore>();
+    builder.Services.AddSingleton<ReachableCache>();
+    builder.Services.AddScoped<ReachableStore>();
     if (builder.Configuration.GetValue(CaptureWorker.EnabledSetting, defaultValue: true))
     {
         builder.Services.AddHostedService<CaptureWorker>();
