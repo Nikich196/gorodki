@@ -51,6 +51,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<LeaderboardSnapshotEntity> LeaderboardSnapshots => Set<LeaderboardSnapshotEntity>();
 
+    public DbSet<OsmSetEntity> OsmSets => Set<OsmSetEntity>();
+
+    public DbSet<MaskEntity> Masks => Set<MaskEntity>();
+
+    public DbSet<ReachableTileEntity> ReachableTiles => Set<ReachableTileEntity>();
+
+    public DbSet<DistrictEntity> Districts => Set<DistrictEntity>();
+
+    public DbSet<DistrictTileEntity> DistrictTiles => Set<DistrictTileEntity>();
+
+    public DbSet<LandZoneEntity> LandZones => Set<LandZoneEntity>();
+
     public DbSet<ScoreEventEntity> ScoreEvents => Set<ScoreEventEntity>();
 
     /// <summary>
@@ -347,6 +359,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             snapshot.HasOne<UserEntity>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        ConfigureOsm(model);
+
         model.Entity<ScoreEventEntity>(score =>
         {
             score.HasKey(e => e.Id);
@@ -377,6 +391,87 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             zone.HasOne<UserEntity>().WithMany().HasForeignKey(z => z.UserId).OnDelete(DeleteBehavior.Cascade);
             zone.ToTable(t => t.HasCheckConstraint(
                 "ck_privacy_zones_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180"));
+        });
+    }
+
+    /// <summary>
+    /// Таблицы конвейера OSM (docs/architecture/osm-pipeline.md): наборы, куски масок, «достижимое», районы, ценность земли.
+    /// Строки набора удаляются вместе с ним (каскад); пишет их только инструмент конвейера.
+    /// </summary>
+    private static void ConfigureOsm(ModelBuilder model)
+    {
+        model.Entity<OsmSetEntity>(set =>
+        {
+            set.HasKey(s => s.Version);
+            set.Property(s => s.Version).ValueGeneratedNever();
+            set.Property(s => s.Fingerprint).HasMaxLength(64);
+            set.Property(s => s.SourceSha256).HasMaxLength(64);
+            set.Property(s => s.Metadata).HasColumnType("jsonb");
+            set.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_osm_sets_version", "version >= 1");
+                t.HasCheckConstraint("ck_osm_sets_frame", "frame_min_x <= frame_max_x AND frame_min_y <= frame_max_y");
+                t.HasCheckConstraint("ck_osm_sets_play_zone", "play_zone BETWEEN 0 AND 2");
+            });
+        });
+
+        model.Entity<MaskEntity>(mask =>
+        {
+            mask.HasKey(m => m.Id);
+            mask.Property(m => m.Id).UseIdentityAlwaysColumn();
+            mask.Property(m => m.Geometry).HasColumnType($"geometry(Polygon, {Utm34.Srid})");
+            mask.HasOne<OsmSetEntity>().WithMany().HasForeignKey(m => m.SetVersion).OnDelete(DeleteBehavior.Cascade);
+            mask.HasIndex(m => new { m.SetVersion, m.TileX, m.TileY });
+            mask.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_masks_kind", "kind BETWEEN 1 AND 8");
+                // Как у участков: неправильная геометрия в базу не попадает.
+                t.HasCheckConstraint("ck_masks_geometry_valid", "extensions.st_isvalid(geometry)");
+            });
+        });
+
+        model.Entity<ReachableTileEntity>(tile =>
+        {
+            tile.HasKey(t => new { t.SetVersion, t.TileX, t.TileY });
+            tile.HasOne<OsmSetEntity>().WithMany().HasForeignKey(t => t.SetVersion).OnDelete(DeleteBehavior.Cascade);
+            tile.ToTable(t => t.HasCheckConstraint("ck_reachable_tiles_cells", "cell_count BETWEEN 1 AND 65536"));
+        });
+
+        model.Entity<DistrictEntity>(district =>
+        {
+            district.HasKey(d => d.Id);
+            district.Property(d => d.Id).UseIdentityAlwaysColumn();
+            district.Property(d => d.Key).HasMaxLength(64);
+            district.Property(d => d.Name).HasMaxLength(100);
+            district.Property(d => d.Geometry).HasColumnType($"geometry(MultiPolygon, {Utm34.Srid})");
+            district.HasOne<OsmSetEntity>().WithMany().HasForeignKey(d => d.SetVersion).OnDelete(DeleteBehavior.Cascade);
+            district.HasIndex(d => new { d.SetVersion, d.Key }).IsUnique();
+            district.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_districts_kind", "kind BETWEEN 1 AND 4");
+                t.HasCheckConstraint("ck_districts_geometry_valid", "extensions.st_isvalid(geometry)");
+            });
+        });
+
+        model.Entity<DistrictTileEntity>(tile =>
+        {
+            tile.HasKey(t => new { t.DistrictId, t.TileX, t.TileY });
+            tile.HasOne<DistrictEntity>().WithMany().HasForeignKey(t => t.DistrictId).OnDelete(DeleteBehavior.Cascade);
+            tile.ToTable(t => t.HasCheckConstraint("ck_district_tiles_cells", "cell_count BETWEEN 1 AND 65536"));
+        });
+
+        model.Entity<LandZoneEntity>(zone =>
+        {
+            zone.HasKey(z => z.Id);
+            zone.Property(z => z.Id).UseIdentityAlwaysColumn();
+            zone.Property(z => z.Geometry).HasColumnType($"geometry(Polygon, {Utm34.Srid})");
+            zone.HasOne<OsmSetEntity>().WithMany().HasForeignKey(z => z.SetVersion).OnDelete(DeleteBehavior.Cascade);
+            zone.HasIndex(z => new { z.SetVersion, z.TileX, z.TileY });
+            zone.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_land_zones_kind", "kind = 1");
+                t.HasCheckConstraint("ck_land_zones_geometry_valid", "extensions.st_isvalid(geometry)");
+            });
         });
     }
 }

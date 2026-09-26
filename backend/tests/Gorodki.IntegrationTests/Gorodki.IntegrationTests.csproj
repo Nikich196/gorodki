@@ -22,5 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Gorodki.Api\Gorodki.Api.csproj" />
+    <!-- Загрузка набора OSM (SetImporter) проверяется на настоящей базе. -->
+    <ProjectReference Include="..\..\tools\Gorodki.OsmPipeline\Gorodki.OsmPipeline.csproj" />
   </ItemGroup>
 </Project>

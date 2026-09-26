@@ -1,0 +1,86 @@
+// Параметры конвейера OSM v1 (docs/architecture/osm-pipeline.md). Числа и теги — из решений 25.09
+// (docs/decisions/osm-questions.md) и PLAN.md §3.3, §3.6, §3.10; id объектов проверены на выгрузке Geofabrik от 24.09.2026.
+// Чего в решениях нет, остаётся пустым: погранполоса, мемориалы, пути «тротуар есть, а тега нет».
+{
+  // Рамка вырезки: город (23.5654–23.8544 в. д., 52.0238–52.1510 с. ш.) с запасом ~1 км.
+  "frame": { "west": 23.54, "south": 52.01, "east": 23.88, "north": 52.165 },
+
+  // boundary=administrative: Брэст (admin_level=6), Беларусь (admin_level=2), районы Ленінскі и Маскоўскі (admin_level=9).
+  "cityRelationId": 72615,
+  "countryRelationId": 59065,
+  "districtRelationIds": [3626404, 3626405],
+
+  // Вопрос 2, вариант Б; cycleway и service — в списке (решено 25.09). Буфер = радиус открытия тумана, 25 м.
+  "pedestrian": {
+    "highways": ["footway", "path", "pedestrian", "steps", "living_street", "residential", "service", "unclassified",
+      "tertiary", "secondary", "primary", "track", "cycleway"],
+    "highwaysWithAccess": ["trunk", "trunk_link"],
+    "bufferMeters": 25
+  },
+
+  // Вопрос 1.2, вариант А, 12 м. sidewalkWayIds — пути, где тротуар есть, а тега нет: решает Никита по карте.
+  "majorRoads": {
+    "always": ["motorway", "motorway_link"],
+    "withoutPedestrianAccess": ["trunk", "trunk_link"],
+    "halfWidthMeters": 12,
+    "sidewalkWayIds": []
+  },
+
+  // Вопрос 1.1, вариант А, 10 м.
+  "rail": { "railways": ["rail", "light_rail", "narrow_gauge"], "halfWidthMeters": 10 },
+
+  "areas": {
+    "water": ["natural=water", "waterway=riverbank", "landuse=reservoir", "landuse=basin"],
+    "railAreas": ["landuse=railway"],
+    "military": ["landuse=military", "military=*"],
+    "cemetery": ["landuse=cemetery", "amenity=grave_yard"],
+    "pedestrianAreas": ["highway=pedestrian", "place=square"],
+    // Вопрос 6.8 (в v1): стартовый список — теги из текста вопроса; окончательный утверждает Никита.
+    "lowValueLand": ["landuse=farmland", "landuse=forest", "landuse=industrial", "natural=wood"]
+  },
+
+  // Вопрос 1.3: ширина — из официальных правил пограничного режима; пока её нет — слоя нет.
+  "borderStripMeters": null,
+
+  // Вопрос 6.6: список утверждает Никита по карте-артефакту (кандидаты — там); точечный памятник — круг 50 м.
+  "memorials": { "objects": [], "pointRadiusMeters": 50 },
+
+  // Вопрос 6.4: А (весь Брест) — если к 04.11 закрыта погранполоса; иначе Б (только Арена). Граница города доходит до
+  // госграницы (проверено на данных), ширины полосы и временной линии Никиты пока нет — решает ведущий при включении набора.
+  "playZone": "city",
+
+  "quadrantSegments": 8,
+  "maskSimplifyMeters": 0,
+  // Исключения из «все площади собраны» (osm-pipeline.md, «Проверка»): отношения и замкнутые пути — { "id", "reason" };
+  // разобранный непустой журнал areas.errors.txt — { "sha256", "reason" } (SHA-256 — из сообщения build).
+  "knownBrokenRelations": [],
+  "knownBrokenWays": [],
+  "knownAreaErrors": null,
+
+  // Вопрос 3 — ПРЕДЛОЖЕНИЕ Claude (26.09), Никита ещё не утвердил: здания, разрез и названия правит он.
+  // Якоря — корпуса 1–6, спортивный корпус, галерея, корпус 267Д и общежития № 1–4 на кампусе (ул. Московская, 267).
+  // Корпус 7 (ул. Дзержинского, 22, way/60962138) — в 4,6 км от кампуса, в якоря не взят: Никите решить.
+  // Граница и кварталы — по улицам: Янки Купалы, Пионерская, 28 Июля, Октябрьской Революции, пр. Республики (с мостами
+  // через Мухавец без имени), Гаврилова; внутри — Московская, Партизанский пр., Советской Конституции, Орловская,
+  // Васнецова, Богданчука.
+  "arena": {
+    "proposal": true,
+    "anchors": ["way/991635473", "way/991643362", "way/991643363", "way/991643364", "way/991635484", "way/171846884",
+      "way/1232100402", "way/1232100397", "way/1230124818", "way/1230124812", "way/1230124823", "way/1230124815",
+      "way/1230124822"],
+    "radiusMeters": 1500,
+    "minShareInside": 0.5,
+    "cutStreets": ["вуліца Янкі Купалы", "Піянерская вуліца", "вуліца 28 Ліпеня", "вуліца Кастрычніцкай Рэвалюцыі",
+      "праспект Рэспублікі", "вуліца Гаўрылава", "Маскоўская вуліца", "Партызанскі праспект",
+      "вуліца Савецкай Канстытуцыі", "Арлоўская вуліца", "вуліца Васняцова", "вуліца Багданчука"],
+    "cutWayIds": [28510037, 60796508],
+    "quarters": [
+      { "name": "Заводской", "lat": 52.102289, "lon": 23.741814 },
+      { "name": "Молодогвардейский", "lat": 52.103537, "lon": 23.755751 },
+      { "name": "Ленинградский", "lat": 52.10909, "lon": 23.766207 },
+      { "name": "Партизанский", "lat": 52.103492, "lon": 23.769088 },
+      { "name": "Кампус", "lat": 52.09491, "lon": 23.761322 },
+      { "name": "Мухавец", "lat": 52.088371, "lon": 23.752797 }
+    ]
+  }
+}

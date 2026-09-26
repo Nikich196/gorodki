@@ -171,6 +171,9 @@
         "run": 1,
         "bike": 0.33
       }
+    },
+    "osm": {
+      "setVersion": null
     }
   }
 }

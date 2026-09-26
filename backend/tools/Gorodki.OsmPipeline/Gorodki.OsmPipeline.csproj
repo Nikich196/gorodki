@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Конвейер OSM v1: osmium → C#/NTS (тот же GeoOps, что у участков) → набор osm-set-N → загрузка в базу.
+       Проект — docs/architecture/osm-pipeline.md, запуск — docs/guides/osm-pipeline-run.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Gorodki.Domain\Gorodki.Domain.csproj" />
+    <!-- Только ради import: те же таблицы и настройки подключения, что у сервера (AppDbContext). -->
+    <ProjectReference Include="..\..\src\Gorodki.Api\Gorodki.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="osm-pipeline.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
