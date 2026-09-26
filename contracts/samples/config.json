@@ -123,6 +123,54 @@
       "publicEventDelayMinutes": 20,
       "zoneRadiusMeters": 400,
       "maxZones": 3
+    },
+    "scoring": {
+      "pointsPerSotka": 1,
+      "captureTiers": [
+        {
+          "upToSotki": 100,
+          "rate": 1
+        },
+        {
+          "upToSotki": 500,
+          "rate": 0.5
+        },
+        {
+          "upToSotki": 2000,
+          "rate": 0.25
+        },
+        {
+          "upToSotki": null,
+          "rate": 0.05
+        }
+      ],
+      "dailyTiers": [
+        {
+          "upToSotki": 1000,
+          "rate": 1
+        },
+        {
+          "upToSotki": 3000,
+          "rate": 0.5
+        },
+        {
+          "upToSotki": null,
+          "rate": 0.25
+        }
+      ],
+      "enemyLandBonus": 0.5,
+      "levelRemovedBonus": 0.5,
+      "landValue": {
+        "city": 1,
+        "rural": 0.5,
+        "arenaMultiplier": 2
+      },
+      "distancePointsPerKm": 10,
+      "distanceDailyCapKm": 20,
+      "distanceFactor": {
+        "run": 1,
+        "bike": 0.33
+      }
     }
   }
 }

@@ -448,5 +448,6 @@ public sealed class CaptureRollbackTests(DatabaseFixture database)
         SiegeUntil = p.SiegeUntil,
         LossWindowSince = p.LossWindowSince,
         LossAttackers = AttackerSet.Of(p.LossAttackers),
+        TouchedAt = p.TouchedAt,
     };
 }

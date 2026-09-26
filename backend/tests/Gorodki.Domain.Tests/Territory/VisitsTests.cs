@@ -209,6 +209,7 @@ public sealed class VisitsTests
         Level = level,
         LastVisitAt = visited,
         LastLevelUpAt = leveledUp,
+        TouchedAt = visited,
     };
 
     private static JudgeVerdict[] Accepted(int count) => [.. Enumerable.Repeat(JudgeVerdict.Accepted, count)];

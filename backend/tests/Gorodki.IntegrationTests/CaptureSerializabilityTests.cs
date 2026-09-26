@@ -139,6 +139,7 @@ public sealed class CaptureSerializabilityTests(DatabaseFixture database)
                 SiegeUntil = p.SiegeUntil,
                 LossWindowSince = p.LossWindowSince,
                 LossAttackers = AttackerSet.Of(p.LossAttackers),
+                TouchedAt = p.TouchedAt,
             })));
         var layers = parcels
             .GroupBy(p => (Owner: owners[p.OwnerId], p.Level, Shield: p.ShieldUntil is not null, Siege: p.SiegeUntil is not null))
