@@ -79,9 +79,10 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
         context.setFillColor(Self.cgColor(snapshot.haze))
         context.fill(rect(for: mapRect))
 
-        // Кромка шириной 1,8 pt на экране — в точках карты это 1,8 / zoomScale; мягкий край — до `margin` клеток
-        // (по 64 точки карты). Тайл, чей край заходит в эту часть карты, рисуется, даже если сам он за её краем.
-        let band = FogStyle.edgeBandWidth / Double(zoomScale)
+        // Кромка шириной 1,8 pt на экране — в точках карты это 1,8 · contentScaleFactor / zoomScale (`zoomScale` MapKit
+        // считает в пикселях растра); мягкий край — до `margin` клеток (по 64 точки карты). Тайл, чей край заходит
+        // в эту часть карты, рисуется, даже если сам он за её краем.
+        let band = FogStyle.edgeBandWidth * Double(contentScaleFactor) / Double(zoomScale)
         let reach = max(band, Double(Self.margin) * Self.tileSize / Double(Self.side))
         let minX = Int(((mapRect.minX - reach) / Self.tileSize).rounded(.down))
         let maxX = Int(((mapRect.maxX + reach) / Self.tileSize).rounded(.down))

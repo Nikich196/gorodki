@@ -403,14 +403,15 @@ final class LandLayerOverlay: NSObject, MKOverlay, @unchecked Sendable {
 
 /// Рисует слой земли. Заливка — все куски **одним путём** с правилом чёт-нечет: общий край соседних кусков одного
 /// участка (сервер режет землю по тайлам) не закрашивается дважды наполовину, и по линии тайла нет светлой нити, как
-/// у `MKMultiPolygonRenderer`. Кромка — линии с толщиной и пунктиром в экранных pt (в точках карты — / `zoomScale`),
-/// своя ночью — со свечением (тень того же цвета).
+/// у `MKMultiPolygonRenderer`. Кромка — линии с толщиной и пунктиром в экранных pt, своя ночью — со свечением (тень
+/// того же цвета). Экранный pt в точках карты — `contentScaleFactor / zoomScale`: `zoomScale` MapKit считает в пикселях
+/// растра (без множителя линии выходили втрое тоньше, чем у `MKPolylineRenderer`, — снимок 24).
 final class LandLayerRenderer: MKOverlayRenderer, @unchecked Sendable {
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
         guard let layer = overlay as? LandLayerOverlay else { return }
         let content = layer.content.withLock { $0 }
         guard content.visible, content.color.alpha > 0 else { return }
-        let scale = Double(zoomScale)
+        let scale = Double(zoomScale) / Double(contentScaleFactor)  // экранных pt в точке карты
         // Линия и сглаженный край заходят за кусок — берём куски и чуть за краем части карты.
         let margin = (content.lineWidth + 2 * content.glow + 2) / scale
         let area = mapRect.insetBy(dx: -margin, dy: -margin)
