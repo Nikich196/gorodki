@@ -6,7 +6,7 @@ using static Gorodki.IntegrationTests.RunRequests;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// «Коллекция» — <c>GET /collection</c> (PLAN.md, §3.12). Задача #TBD-E15 для Егора: тесты со <c>Skip</c> снимаются вместе с
+/// «Коллекция» — <c>GET /collection</c> (PLAN.md, §3.12). Задача #145 для Егора: тесты со <c>Skip</c> снимаются вместе с
 /// реализацией. Тайники в базе и находки даёт C12 (задача Claude); когда они будут, сюда — тест находки («№ N нашедших»,
 /// золотая рамка первому) и тест «подсказка проясняется по своему туману».
 /// </summary>
@@ -15,7 +15,7 @@ public sealed class CollectionTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E15")]
+    [Fact(Skip = "ЗАДАЧА #145")]
     public async Task Collection_has_no_coordinates_and_unfound_caches_are_silhouettes()
     {
         database.RequireDatabase();

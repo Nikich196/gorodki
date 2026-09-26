@@ -84,19 +84,19 @@ public static class InboxEndpoints
     private static Task<Results<Ok<InboxResponse>, ProblemHttpResult>> GetInbox(
         string? cursor, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E10 (Егор): таблица событий (игрок, вид, текст, visible_at, прочитано). Только свои и только
+        // ЗАДАЧА #139 (Егор): таблица событий (игрок, вид, текст, visible_at, прочитано). Только свои и только
         // visible_at ≤ now; порядок — visible_at по убыванию, затем номер; курсор — (visible_at, номер) последнего на странице.
         // Номер события — Guid.NewGuid(), не CreateVersion7: в v7 зашито время создания. Тесты — InboxTests.
         _ = (cursor, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E10");
+        throw new NotImplementedException("ЗАДАЧА #139");
     }
 
     private static Task<NoContent> MarkInboxRead(
         InboxReadRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E10 (Егор): одна команда ExecuteUpdateAsync по своим событиям с visible_at ≤ min(upToAtMs, now) —
+        // ЗАДАЧА #139 (Егор): одна команда ExecuteUpdateAsync по своим событиям с visible_at ≤ min(upToAtMs, now) —
         // ещё скрытые не отмечаются. Повтор ничего не меняет, ответ — 204. Тесты — InboxTests.
         _ = (request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E10");
+        throw new NotImplementedException("ЗАДАЧА #139");
     }
 }

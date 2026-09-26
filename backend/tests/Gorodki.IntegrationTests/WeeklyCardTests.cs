@@ -13,7 +13,7 @@ using static Gorodki.IntegrationTests.RunRequests;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Карточка недели — <c>GET /me/weekly</c> (PLAN.md, §3.15). Задача #TBD-E12 для Егора: тесты со <c>Skip</c> снимаются вместе
+/// Карточка недели — <c>GET /me/weekly</c> (PLAN.md, §3.15). Задача #141 для Егора: тесты со <c>Skip</c> снимаются вместе
 /// с реализацией. Прирост «% Бреста» — после E9; «+га» и взятое — по забегам и заявкам недели.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
@@ -21,7 +21,7 @@ public sealed class WeeklyCardTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E12")]
+    [Fact(Skip = "ЗАДАЧА #141")]
     public async Task Week_without_runs_is_zeros_and_only_numbers()
     {
         database.RequireDatabase();
@@ -41,7 +41,7 @@ public sealed class WeeklyCardTests(DatabaseFixture database)
             json.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E12")]
+    [Fact(Skip = "ЗАДАЧА #141")]
     public async Task Week_is_a_past_or_current_monday()
     {
         database.RequireDatabase();
@@ -58,7 +58,7 @@ public sealed class WeeklyCardTests(DatabaseFixture database)
         Assert.Equal((400, "weekly_invalid"), await Problems.OfAsync(await anna.GetAsync("/me/weekly?week=вчера", Cancel), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E12")]
+    [Fact(Skip = "ЗАДАЧА #141")]
     public async Task Only_own_live_runs_of_that_week_count()
     {
         database.RequireDatabase();

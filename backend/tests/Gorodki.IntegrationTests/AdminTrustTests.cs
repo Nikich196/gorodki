@@ -8,7 +8,7 @@ namespace Gorodki.IntegrationTests;
 
 /// <summary>
 /// Оценка доверия и бан — <c>GET /admin/runs/suspicious</c>, <c>POST /admin/users/{id}/ban</c> (PLAN.md, §3.9). Задача
-/// #TBD-E13 для Егора: тесты со <c>Skip</c> снимаются вместе с реализацией. Признаки забега — <c>TrustSignalsTests</c> без
+/// #142 для Егора: тесты со <c>Skip</c> снимаются вместе с реализацией. Признаки забега — <c>TrustSignalsTests</c> без
 /// Docker (одинаковая точность, идеальные интервалы, нет шагов, &gt;60 км в день пешком).
 /// </summary>
 [Collection(DatabaseCollection.Name)]
@@ -16,7 +16,7 @@ public sealed class AdminTrustTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E13")]
+    [Fact(Skip = "ЗАДАЧА #142")]
     public async Task Only_an_admin_sees_suspicious_runs_and_bans()
     {
         database.RequireDatabase();
@@ -31,7 +31,7 @@ public sealed class AdminTrustTests(DatabaseFixture database)
         Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync("/admin/runs/suspicious", Cancel)).StatusCode);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E13")]
+    [Fact(Skip = "ЗАДАЧА #142")]
     public async Task Ban_needs_a_reason_and_closes_the_game_for_the_player()
     {
         database.RequireDatabase();

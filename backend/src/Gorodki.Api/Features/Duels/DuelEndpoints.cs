@@ -152,46 +152,46 @@ public static class DuelEndpoints
     private static Task<Ok<DuelsResponse>> ListDuels(
         ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E17 (Егор): дуэли, где спрашивающий — одна из сторон; Me — всегда он. Тесты — DuelsTests.
+        // ЗАДАЧА #147 (Егор): дуэли, где спрашивающий — одна из сторон; Me — всегда он. Тесты — DuelsTests.
         _ = (principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E17");
+        throw new NotImplementedException("ЗАДАЧА #147");
     }
 
     private static Task<Results<Created<DuelResponse>, ProblemHttpResult>> CreateDuel(
         CreateDuelRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E17 (Егор): таблица дуэлей; соперник — взаимный друг (E14a); лимиты — под блокировкой обоих игроков
+        // ЗАДАЧА #147 (Егор): таблица дуэлей; соперник — взаимный друг (E14a); лимиты — под блокировкой обоих игроков
         // (по порядку номеров — без взаимной блокировки). Фишка на кон — своя неактивированная (E11). Тесты — DuelsTests.
         _ = (request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E17");
+        throw new NotImplementedException("ЗАДАЧА #147");
     }
 
     private static Task<Results<Ok<DuelResponse>, ProblemHttpResult>> GetDuel(
         Guid id, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E17 (Егор): дуэль ищется с условием «спрашивающий — сторона» в том же запросе (чужая — 404). Счёт —
+        // ЗАДАЧА #147 (Егор): дуэль ищется с условием «спрашивающий — сторона» в том же запросе (чужая — 404). Счёт —
         // только видимое постороннему: площадь захватов — по заявкам, чья граница публичности прошла (как очки,
         // ScoreBook.Visible), дистанция и туман — по забегам с visits_processed_at. Тесты — DuelsTests; строка в
         // IdorTests.AwaitingTasks.
         _ = (id, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E17");
+        throw new NotImplementedException("ЗАДАЧА #147");
     }
 
     private static Task<Results<Ok<DuelResponse>, ProblemHttpResult>> AcceptDuel(
         Guid id, AcceptDuelRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E17 (Егор): вызов Pending, где спрашивающий — соперник (иначе 404); начало — сейчас, конец — через Days;
+        // ЗАДАЧА #147 (Егор): вызов Pending, где спрашивающий — соперник (иначе 404); начало — сейчас, конец — через Days;
         // ставки — одной транзакцией. Тесты — DuelsTests; строка в IdorTests.AwaitingTasks.
         _ = (id, request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E17");
+        throw new NotImplementedException("ЗАДАЧА #147");
     }
 
     private static Task<Results<NoContent, ProblemHttpResult>> DeclineDuel(
         Guid id, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E17 (Егор): вызов Pending, где спрашивающий — соперник (иначе 404) → Declined. Тесты — DuelsTests; строка
+        // ЗАДАЧА #147 (Егор): вызов Pending, где спрашивающий — соперник (иначе 404) → Declined. Тесты — DuelsTests; строка
         // в IdorTests.AwaitingTasks.
         _ = (id, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E17");
+        throw new NotImplementedException("ЗАДАЧА #147");
     }
 }

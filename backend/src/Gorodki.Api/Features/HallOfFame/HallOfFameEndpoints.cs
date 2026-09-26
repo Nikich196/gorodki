@@ -59,13 +59,13 @@ public static class HallOfFameEndpoints
     private static Task<Ok<HallOfFameResponse>> GetHallOfFame(
         ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E8 (Егор): таблица Зала славы (сезон, лига, вид, место 1–3, игрок — может быть пустым, клан, значение) и
+        // ЗАДАЧА #137 (Егор): таблица Зала славы (сезон, лига, вид, место 1–3, игрок — может быть пустым, клан, значение) и
         // её снимок: задача Hangfire, один раз на сезон, когда ScoreBook.FinalTotalsAsync не null (сезон закрыт) и смена на
         // следующий сезон выполнена (seasons.reset_at); повтор ничего не меняет. Не по reset_at и не по «сейчас» (карточка E8).
         // Удаление аккаунта — обезличить (игрок → null), строку не удалять. Имя — читать при запросе по правилу карточки
         // игрока (#115): согласие меняется. Значение топ-клана (например, сумма очков участников) — уточнит Никита.
         // Тесты — HallOfFameTests.
         _ = (principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E8");
+        throw new NotImplementedException("ЗАДАЧА #137");
     }
 }

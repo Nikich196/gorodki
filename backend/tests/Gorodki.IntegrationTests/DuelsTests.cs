@@ -10,7 +10,7 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Дуэли — <c>/duels</c> (PLAN.md, §3.14). Задача #TBD-E17 для Егора: тесты со <c>Skip</c> снимаются вместе с реализацией
+/// Дуэли — <c>/duels</c> (PLAN.md, §3.14). Задача #147 для Егора: тесты со <c>Skip</c> снимаются вместе с реализацией
 /// (друзья — из E14a). Итог и ставки — задача Hangfire, её тесты — вместе с ней (вызвать задачу напрямую, повтор ничего не
 /// меняет, фишки переходят одной транзакцией).
 /// </summary>
@@ -19,7 +19,7 @@ public sealed class DuelsTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E17")]
+    [Fact(Skip = "ЗАДАЧА #147")]
     public async Task Challenge_is_accepted_by_the_friend_and_a_pair_duels_once_a_week()
     {
         database.RequireDatabase();
@@ -44,7 +44,7 @@ public sealed class DuelsTests(DatabaseFixture database)
         Assert.Equal((409, "duel_pair_week"), await Problems.OfAsync(await ChallengeAsync(anna, borisId, days: 1), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E17")]
+    [Fact(Skip = "ЗАДАЧА #147")]
     public async Task Strangers_young_accounts_and_wrong_terms_are_refused()
     {
         database.RequireDatabase();
@@ -64,7 +64,7 @@ public sealed class DuelsTests(DatabaseFixture database)
         Assert.Equal((400, "duel_invalid"), await Problems.OfAsync(segmentless, Cancel)); // без отрезка
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E17")]
+    [Fact(Skip = "ЗАДАЧА #147")]
     public async Task At_most_two_duels_go_at_once_and_a_stranger_sees_none_of_them()
     {
         database.RequireDatabase();
@@ -91,7 +91,7 @@ public sealed class DuelsTests(DatabaseFixture database)
         Assert.Equal((404, "duel_not_found"), await Problems.OfAsync(await stranger.PostAsync($"/duels/{first}/decline", null, Cancel), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E17")]
+    [Fact(Skip = "ЗАДАЧА #147")]
     public async Task Live_score_shows_the_opponents_capture_only_after_the_public_boundary()
     {
         database.RequireDatabase();

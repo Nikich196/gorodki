@@ -72,37 +72,37 @@ public static class FriendEndpoints
     private static Task<Results<Ok<FriendsResponse>, NotFound>> ListFriends(
         ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14a (Егор): свой код дружбы (выдать при первом запросе, как InviteCodes.New()) и связи игрока. Имя —
+        // ЗАДАЧА #143 (Егор): свой код дружбы (выдать при первом запросе, как InviteCodes.New()) и связи игрока. Имя —
         // правило карточки игрока (#115); удаляемый аккаунт не показывать. Новые таблицы — миграция, удаление и выгрузка
         // (egor-server.md, 2.4). Тесты — FriendsTests.
         _ = (principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14a");
+        throw new NotImplementedException("ЗАДАЧА #143");
     }
 
     private static Task<Results<Ok<FriendResponse>, ProblemHttpResult>> AddFriend(
         AddFriendRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14a (Егор): код → игрок (нет, удаляется или заблокировал спрашивающего — 404 friend_code_invalid).
+        // ЗАДАЧА #143 (Егор): код → игрок (нет, удаляется или заблокировал спрашивающего — 404 friend_code_invalid).
         // Встречная заявка есть — сразу друзья. Повтор — тот же ответ. Тесты — FriendsTests.
         _ = (request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14a");
+        throw new NotImplementedException("ЗАДАЧА #143");
     }
 
     private static Task<Results<Ok<FriendResponse>, ProblemHttpResult>> AcceptFriend(
         Guid id, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14a (Егор): входящая заявка от id к спрашивающему — одним запросом (нет — 404
+        // ЗАДАЧА #143 (Егор): входящая заявка от id к спрашивающему — одним запросом (нет — 404
         // friend_request_not_found). Тесты — FriendsTests; строка в IdorTests.AwaitingTasks.
         _ = (id, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14a");
+        throw new NotImplementedException("ЗАДАЧА #143");
     }
 
     private static Task<Results<NoContent, ProblemHttpResult>> RemoveFriend(
         Guid id, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14a (Егор): связь спрашивающего с id в любую сторону (дружба или заявка) — удалить; нет — 404
+        // ЗАДАЧА #143 (Егор): связь спрашивающего с id в любую сторону (дружба или заявка) — удалить; нет — 404
         // friend_not_found. Тесты — FriendsTests; строка в IdorTests.AwaitingTasks.
         _ = (id, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14a");
+        throw new NotImplementedException("ЗАДАЧА #143");
     }
 }

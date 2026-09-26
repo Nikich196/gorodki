@@ -8,7 +8,7 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Зал славы — <c>GET /hall-of-fame</c> (PLAN.md, §3.4). Задача #TBD-E8 для Егора: тесты со <c>Skip</c> снимаются вместе с
+/// Зал славы — <c>GET /hall-of-fame</c> (PLAN.md, §3.4). Задача #137 для Егора: тесты со <c>Skip</c> снимаются вместе с
 /// реализацией. Тесты снимка (один раз по итогу закрытого сезона, повтор ничего не меняет, удаление аккаунта обезличивает
 /// строку) пишутся вместе с задачей Hangfire — опора: <c>ScoreBook.FinalTotalsAsync</c> и сезон с закрытием в
 /// <c>ScoringTests</c>.
@@ -18,7 +18,7 @@ public sealed class HallOfFameTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E8")]
+    [Fact(Skip = "ЗАДАЧА #137")]
     public async Task A_season_that_is_still_going_is_not_in_the_hall()
     {
         database.RequireDatabase();

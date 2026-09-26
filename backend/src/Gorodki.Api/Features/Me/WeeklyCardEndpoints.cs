@@ -43,12 +43,12 @@ public static class WeeklyCardEndpoints
     private static Task<Results<Ok<WeeklyCardResponse>, ProblemHttpResult>> GetWeeklyCard(
         string? week, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E12 (Егор): неделя по Минску (GameClock.GameDayOf). Км — AcceptedMeters своих живых забегов (Source = Live,
+        // ЗАДАЧА #141 (Егор): неделя по Минску (GameClock.GameDayOf). Км — AcceptedMeters своих живых забегов (Source = Live,
         // не Active), начатых в эту неделю; +га — сумма FogNewCells этих забегов × площадь клетки (как в GetSummary); взятое —
         // сумма AreaSquareMeters своих применённых заявок. Прирост % — разница «% Бреста» (E9) с началом недели по срезу
         // (osm-pipeline.md, «Как считается % Бреста»; какой процент и что в неделю смены набора — вопрос 6.10 там же).
         // Тесты — WeeklyCardTests.
         _ = (week, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E12");
+        throw new NotImplementedException("ЗАДАЧА #141");
     }
 }

@@ -34,22 +34,22 @@ public static class TrustEndpoints
     private static Task<Results<Ok<IReadOnlyList<SuspiciousRunResponse>>, ProblemHttpResult>> ListSuspiciousRuns(
         ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E13 (Егор): только админ (AdminEndpoints.AdminIdAsync; иначе 403 admin_only). TrustSignals — чистая
+        // ЗАДАЧА #142 (Егор): только админ (AdminEndpoints.AdminIdAsync; иначе 403 admin_only). TrustSignals — чистая
         // функция в Gorodki.Domain по признакам забега (§3.9, слой 3); оценка и флаги пишутся в забег после его приёма.
         // Тесты — TrustSignalsTests (без Docker), AdminTrustTests.
         _ = (principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E13");
+        throw new NotImplementedException("ЗАДАЧА #142");
     }
 
     /// <summary>Забанить игрока: вход и приём забегов закрыты.</summary>
     private static Task<Results<Ok<BanResponse>, ProblemHttpResult>> BanUser(
         Guid userId, BanRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E13 (Егор): только админ (иначе 403 admin_only); причина 3–200 символов (400 reason_required, как в
+        // ЗАДАЧА #142 (Егор): только админ (иначе 403 admin_only); причина 3–200 символов (400 reason_required, как в
         // RequestRollback); нет игрока — 404 user_not_found. Бан: вход и обновление токенов закрыты, refresh-токены стёрты
         // (как в DELETE /me), старт забега — 403 account_banned. Откат земли — отдельно, POST /admin/users/{id}/rollback. Тесты —
         // AdminTrustTests; строка в IdorTests.AwaitingTasks.
         _ = (userId, request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E13");
+        throw new NotImplementedException("ЗАДАЧА #142");
     }
 }

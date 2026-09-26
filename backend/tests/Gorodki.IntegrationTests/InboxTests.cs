@@ -9,7 +9,7 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// «Входящие» — <c>GET /inbox</c>, <c>POST /inbox/read</c> (PLAN.md, §3.17). Задача #TBD-E10 для Егора: тесты со <c>Skip</c>
+/// «Входящие» — <c>GET /inbox</c>, <c>POST /inbox/read</c> (PLAN.md, §3.17). Задача #139 для Егора: тесты со <c>Skip</c>
 /// снимаются вместе с реализацией. Тест о нападении ждёт ещё и C10 (события уведомлений после границы — задача Claude).
 /// Бюджет пушей — <c>NotificationBudgetTests</c> без Docker, когда появится <c>NotificationBudget</c>.
 /// </summary>
@@ -18,7 +18,7 @@ public sealed class InboxTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E10")]
+    [Fact(Skip = "ЗАДАЧА #139")]
     public async Task New_player_has_an_empty_inbox_and_marking_read_is_idempotent()
     {
         database.RequireDatabase();
@@ -33,7 +33,7 @@ public sealed class InboxTests(DatabaseFixture database)
         Assert.Equal(HttpStatusCode.NoContent, (await anna.PostAsJsonAsync("/inbox/read", read, Json, Cancel)).StatusCode);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E10")]
+    [Fact(Skip = "ЗАДАЧА #139")]
     public async Task Broken_cursor_is_rejected()
     {
         database.RequireDatabase();
@@ -45,7 +45,7 @@ public sealed class InboxTests(DatabaseFixture database)
         Assert.Equal((400, "inbox_cursor_invalid"), await Problems.OfAsync(response, Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E10 (и C10)")]
+    [Fact(Skip = "ЗАДАЧА #139 (и C10)")]
     public async Task An_attack_on_my_land_arrives_only_with_the_map_and_without_the_attackers_nickname()
     {
         database.RequireDatabase();

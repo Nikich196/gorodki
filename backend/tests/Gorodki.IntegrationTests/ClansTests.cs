@@ -8,7 +8,7 @@ using static Gorodki.IntegrationTests.RunRequests;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Кланы — <c>/clans</c> (PLAN.md, §3.3, §3.6). Задача #TBD-E5 для Егора (E5a–c): тесты со <c>Skip</c> снимаются вместе с
+/// Кланы — <c>/clans</c> (PLAN.md, §3.3, §3.6). Задача #135 для Егора (E5a–c): тесты со <c>Skip</c> снимаются вместе с
 /// реализацией (egor-server.md, раздел 3.2). Правила имени — ещё и в <c>ClanRulesTests</c> (без Docker), когда появится
 /// <c>ClanRules</c>.
 /// </summary>
@@ -17,7 +17,7 @@ public sealed class ClansTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E5")]
+    [Fact(Skip = "ЗАДАЧА #135")]
     public async Task Leader_creates_a_clan_and_others_join_by_its_code()
     {
         database.RequireDatabase();
@@ -44,7 +44,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Contains(seenByBoris.Members, m => m.PlayerId == borisId && m.Me);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E5")]
+    [Fact(Skip = "ЗАДАЧА #135")]
     public async Task Name_follows_the_rules_and_is_unique_ignoring_case()
     {
         database.RequireDatabase();
@@ -62,7 +62,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Equal((409, "clan_name_taken"), await Problems.OfAsync(await PostCreateAsync(boris, name.ToUpperInvariant()), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E5")]
+    [Fact(Skip = "ЗАДАЧА #135")]
     public async Task A_clan_holds_at_most_twelve_players()
     {
         database.RequireDatabase();
@@ -80,7 +80,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Equal((409, "clan_full"), await Problems.OfAsync(await JoinAsync(thirteenth, clan.InviteCode!), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E5")]
+    [Fact(Skip = "ЗАДАЧА #135")]
     public async Task After_leaving_a_player_waits_72_hours_to_join_again_and_the_leader_passes_on()
     {
         database.RequireDatabase();
@@ -109,7 +109,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Equal(HttpStatusCode.OK, (await JoinAsync(anna, after.InviteCode!)).StatusCode);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E5")]
+    [Fact(Skip = "ЗАДАЧА #135")]
     public async Task Only_the_clans_own_leader_or_officer_removes_members_and_a_stranger_gets_404()
     {
         database.RequireDatabase();
@@ -137,7 +137,7 @@ public sealed class ClansTests(DatabaseFixture database)
             (await anna.GetFromJsonAsync<ClanResponse>($"/clans/{clan.Id}", Json, Cancel))!.Members, m => m.PlayerId == borisId);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E5")]
+    [Fact(Skip = "ЗАДАЧА #135")]
     public async Task Members_are_named_only_with_their_consent_and_officers_are_at_most_two()
     {
         database.RequireDatabase();
@@ -168,7 +168,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Contains(LeaderboardEndpoints.Pseudonym(ids[0]), body);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E5")]
+    [Fact(Skip = "ЗАДАЧА #135")]
     public async Task Leader_renames_once_per_season_and_hues_come_from_the_palette()
     {
         database.RequireDatabase();

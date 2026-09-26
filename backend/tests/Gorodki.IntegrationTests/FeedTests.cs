@@ -10,7 +10,7 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Лента — <c>/feed</c>, блокировки — <c>/me/blocks</c> (PLAN.md, §3.8). Задача #TBD-E14b для Егора: тесты со <c>Skip</c>
+/// Лента — <c>/feed</c>, блокировки — <c>/me/blocks</c> (PLAN.md, §3.8). Задача #144 для Егора: тесты со <c>Skip</c>
 /// снимаются вместе с реализацией (друзья — из E14a). Главное здесь — граница публичности: пост о захвате появляется не
 /// раньше самого захвата на карте, без координат и без времени.
 /// </summary>
@@ -19,7 +19,7 @@ public sealed class FeedTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E14b")]
+    [Fact(Skip = "ЗАДАЧА #144")]
     public async Task A_friends_capture_appears_only_after_the_public_boundary_without_place_or_time()
     {
         database.RequireDatabase();
@@ -43,7 +43,7 @@ public sealed class FeedTests(DatabaseFixture database)
         Problems.HasNoCoordinates(await response.Content.ReadAsStringAsync(Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E14b")]
+    [Fact(Skip = "ЗАДАЧА #144")]
     public async Task Respect_counts_once_and_reports_need_a_visible_post()
     {
         database.RequireDatabase();
@@ -68,7 +68,7 @@ public sealed class FeedTests(DatabaseFixture database)
             $"/feed/{post.Id}/report", new ReportPostRequest("спам"), Json, Cancel)).StatusCode);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E14b")]
+    [Fact(Skip = "ЗАДАЧА #144")]
     public async Task Strangers_are_only_in_the_all_scope_and_blocking_hides_both_ways()
     {
         database.RequireDatabase();

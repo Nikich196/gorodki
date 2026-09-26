@@ -7,7 +7,7 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// «Припасы» и Рюкзак — <c>/me/inventory</c> (PLAN.md, §3.11). Задача #TBD-E11 для Егора: тесты со <c>Skip</c> снимаются
+/// «Припасы» и Рюкзак — <c>/me/inventory</c> (PLAN.md, §3.11). Задача #140 для Егора: тесты со <c>Skip</c> снимаются
 /// вместе с реализацией. Детерминированный тип и потолок «4 в сутки» удобнее проверять чистой функцией без Docker.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
@@ -15,7 +15,7 @@ public sealed class InventoryTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E11")]
+    [Fact(Skip = "ЗАДАЧА #140")]
     public async Task New_player_has_an_empty_backpack_of_twelve_slots()
     {
         database.RequireDatabase();
@@ -27,7 +27,7 @@ public sealed class InventoryTests(DatabaseFixture database)
         Assert.Equal((InventoryEndpoints.Slots, 0), (backpack.Slots, backpack.Items.Count));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E11")]
+    [Fact(Skip = "ЗАДАЧА #140")]
     public async Task Two_kilometres_give_one_item_that_lives_seven_days_and_is_not_activated_during_a_run()
     {
         database.RequireDatabase();
@@ -47,7 +47,7 @@ public sealed class InventoryTests(DatabaseFixture database)
         Assert.Equal((409, "run_active"), await Problems.OfAsync(during, Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E11")]
+    [Fact(Skip = "ЗАДАЧА #140")]
     public async Task Someone_elses_or_unknown_item_is_not_found()
     {
         database.RequireDatabase();

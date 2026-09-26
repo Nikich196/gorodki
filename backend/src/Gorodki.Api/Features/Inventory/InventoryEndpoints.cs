@@ -69,21 +69,21 @@ public static class InventoryEndpoints
     private static Task<Results<Ok<InventoryResponse>, NotFound>> GetInventory(
         ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E11 (Егор): таблица inventory_items (игрок, вид, получена, истекает, активирована, осталось метров,
+        // ЗАДАЧА #140 (Егор): таблица inventory_items (игрок, вид, получена, истекает, активирована, осталось метров,
         // забег-источник); миграция, удаление и выгрузка (egor-server.md, 2.4). Выдача «Припасов» — после подсчёта метров
         // забега (рядом с VisitProcessor): 1 за 2 км, до 4 в игровые сутки по Минску, не больше 12 ячеек, повтор (Replay) не
         // даёт, тип — детерминированно от номера забега. Здесь — свои неистёкшие фишки. Тесты — InventoryTests.
         _ = (principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E11");
+        throw new NotImplementedException("ЗАДАЧА #140");
     }
 
     private static Task<Results<Ok<InventoryItemResponse>, ProblemHttpResult>> ActivateItem(
         Guid id, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E11 (Егор): фишка ищется среди своих одним запросом (чужая — 404 item_not_found, egor-server.md,
+        // ЗАДАЧА #140 (Егор): фишка ищется среди своих одним запросом (чужая — 404 item_not_found, egor-server.md,
         // раздел 4, п. 5). Активный забег игрока (RunStatus.Active) — 409 run_active. Тесты — InventoryTests; строка в
         // IdorTests.AwaitingTasks.
         _ = (id, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E11");
+        throw new NotImplementedException("ЗАДАЧА #140");
     }
 }

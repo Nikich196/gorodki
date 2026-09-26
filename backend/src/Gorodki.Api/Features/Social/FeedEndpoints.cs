@@ -99,57 +99,57 @@ public static class FeedEndpoints
     private static Task<Results<Ok<FeedResponse>, ProblemHttpResult>> GetFeed(
         string? scope, string? cursor, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14b (Егор): таблица постов (автор, вид, лига, игровые сутки, число, visible_at) — пишется после границы
+        // ЗАДАЧА #144 (Егор): таблица постов (автор, вид, лига, игровые сутки, число, visible_at) — пишется после границы
         // или с visible_at от помощников границы (egor-server.md, раздел 4). Отбор: visible_at ≤ now, scope friends — свои,
         // друзей (E14a) и соклановцев (E5), all — все; без заблокированных в обе стороны. Номер поста — Guid.NewGuid().
         // Курсор — (visible_at, номер). Тесты — FeedTests.
         _ = (scope, cursor, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14b");
+        throw new NotImplementedException("ЗАДАЧА #144");
     }
 
     private static Task<Results<NoContent, ProblemHttpResult>> RespectPost(
         Guid id, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14b (Егор): пост ищется тем же отбором, что в ленте (visible_at ≤ now, без блокировок), — иначе 404
+        // ЗАДАЧА #144 (Егор): пост ищется тем же отбором, что в ленте (visible_at ≤ now, без блокировок), — иначе 404
         // post_not_found: по респекту нельзя проверить, есть ли ещё скрытый пост. Один респект от игрока на пост. Тесты —
         // FeedTests; строка в IdorTests.AwaitingTasks.
         _ = (id, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14b");
+        throw new NotImplementedException("ЗАДАЧА #144");
     }
 
     private static Task<Results<NoContent, ProblemHttpResult>> ReportPost(
         Guid id, ReportPostRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14b (Егор): как RespectPost; жалоба — строка для админа (кто, на что, причина, когда). Тесты —
+        // ЗАДАЧА #144 (Егор): как RespectPost; жалоба — строка для админа (кто, на что, причина, когда). Тесты —
         // FeedTests; строка в IdorTests.AwaitingTasks.
         _ = (id, request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14b");
+        throw new NotImplementedException("ЗАДАЧА #144");
     }
 
     private static Task<Ok<IReadOnlyList<PlayerResponse>>> ListBlocks(
         ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14b (Егор): заблокированные спрашивающим; карточка — как GET /players/{id} (#115). Тесты — FeedTests.
+        // ЗАДАЧА #144 (Егор): заблокированные спрашивающим; карточка — как GET /players/{id} (#115). Тесты — FeedTests.
         _ = (principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14b");
+        throw new NotImplementedException("ЗАДАЧА #144");
     }
 
     private static Task<Results<NoContent, ProblemHttpResult>> BlockPlayer(
         Guid id, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14b (Егор): запись блокировки (повтор — ничего) и снятие дружбы и заявок с этим игроком (E14a). Нет
+        // ЗАДАЧА #144 (Егор): запись блокировки (повтор — ничего) и снятие дружбы и заявок с этим игроком (E14a). Нет
         // такого игрока — тоже 204: блокировка не должна подтверждать, что номер существует. Тесты — FeedTests; строка в
         // IdorTests.AwaitingTasks.
         _ = (id, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14b");
+        throw new NotImplementedException("ЗАДАЧА #144");
     }
 
     private static Task<NoContent> UnblockPlayer(
         Guid id, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E14b (Егор): снять свою блокировку этого игрока; не было — тоже 204. Тесты — FeedTests; строка в
+        // ЗАДАЧА #144 (Егор): снять свою блокировку этого игрока; не было — тоже 204. Тесты — FeedTests; строка в
         // IdorTests.AwaitingTasks.
         _ = (id, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E14b");
+        throw new NotImplementedException("ЗАДАЧА #144");
     }
 }

@@ -34,11 +34,11 @@ public static class StreakEndpoints
     private static Task<Results<Ok<StreakResponse>, NotFound>> GetStreak(
         ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E22 (Егор): правило серии — чистая функция (Gorodki.Domain, например Streaks/StreakRules): по игровым
+        // ЗАДАЧА #148 (Егор): правило серии — чистая функция (Gorodki.Domain, например Streaks/StreakRules): по игровым
         // суткам своих забегов (GameClock.GameDayOf(StartedAt), Source = Live, Status != Active, AcceptedMeters > 0) и дням,
         // закрытым «Заморозкой серии» (фишка StreakFreeze из E11), — длина серии на сегодня. Вчерашний день ещё не пропущен,
         // пока идут сегодняшние сутки. Игрока нет — 404. Тесты — StreakRulesTests (без Docker) и StreakTests.
         _ = (principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E22");
+        throw new NotImplementedException("ЗАДАЧА #148");
     }
 }

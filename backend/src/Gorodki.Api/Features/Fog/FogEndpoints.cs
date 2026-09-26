@@ -169,7 +169,7 @@ public static class FogEndpoints
                 Math.Round(g.Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY))), 1)))
             .ToList();
 
-        // ЗАДАЧА #TBD-E9 (Егор): «% Бреста» и районов — новые поля BrestPercent, Districts, OsmSetVersion (сейчас null, как
+        // ЗАДАЧА #138 (Егор): «% Бреста» и районов — новые поля BrestPercent, Districts, OsmSetVersion (сейчас null, как
         // «набора нет»). ReachableStore.CurrentSetVersionAsync → LoadAsync(set) → OsmReach.SharesOf(explored) по своим тайлам
         // слоя и сезона (FogTileCodec.Decompress); только свои тайлы — процент выведен из карты исследования (§3.10). Набора
         // нет — поля null. Тесты — FogPercentTests (образец — OsmSetTests, ReachableAreaTests).

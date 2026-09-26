@@ -7,7 +7,7 @@ using static Gorodki.IntegrationTests.RunRequests;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Друзья по коду — <c>/friends</c> (PLAN.md, §3.8: только взаимные, QR или ссылка). Задача #TBD-E14a для Егора: тесты со
+/// Друзья по коду — <c>/friends</c> (PLAN.md, §3.8: только взаимные, QR или ссылка). Задача #143 для Егора: тесты со
 /// <c>Skip</c> снимаются вместе с реализацией.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
@@ -15,7 +15,7 @@ public sealed class FriendsTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E14a")]
+    [Fact(Skip = "ЗАДАЧА #143")]
     public async Task Friendship_is_mutual_by_code_and_names_follow_consent()
     {
         database.RequireDatabase();
@@ -36,7 +36,7 @@ public sealed class FriendsTests(DatabaseFixture database)
         Assert.Equal(FriendStatus.Friend, Assert.Single((await ListAsync(boris)).Friends).Status);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E14a")]
+    [Fact(Skip = "ЗАДАЧА #143")]
     public async Task Adding_each_other_makes_friends_at_once_and_removing_ends_it_for_both()
     {
         database.RequireDatabase();
@@ -53,7 +53,7 @@ public sealed class FriendsTests(DatabaseFixture database)
         Assert.Equal((404, "friend_not_found"), await Problems.OfAsync(await boris.DeleteAsync($"/friends/{annaId}", Cancel), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E14a")]
+    [Fact(Skip = "ЗАДАЧА #143")]
     public async Task Own_or_unknown_code_is_refused_and_a_stranger_cannot_accept()
     {
         database.RequireDatabase();

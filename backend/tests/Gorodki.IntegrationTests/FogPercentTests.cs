@@ -15,7 +15,7 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// «% Бреста» и районов в <c>GET /fog/summary</c> (PLAN.md, §3.10; osm-pipeline.md, «Как считается % Бреста»). Задача #TBD-E9
+/// «% Бреста» и районов в <c>GET /fog/summary</c> (PLAN.md, §3.10; osm-pipeline.md, «Как считается % Бреста»). Задача #138
 /// для Егора: тест со <c>Skip</c> снимается вместе с реализацией; тест «набора нет» — контракт, он зелёный уже сейчас.
 /// </summary>
 /// <remarks>
@@ -48,7 +48,7 @@ public sealed class FogPercentTests(DatabaseFixture database)
         Assert.All(summary.Layers, l => Assert.True(l.AreaSquareMeters > 0));
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E9")]
+    [Fact(Skip = "ЗАДАЧА #138")]
     public async Task Percent_is_the_share_of_the_reachable_cells_and_districts_follow_the_same_rule()
     {
         database.RequireDatabase();

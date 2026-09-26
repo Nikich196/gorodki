@@ -10,7 +10,7 @@ using static Gorodki.IntegrationTests.RunRequests;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Серия — <c>GET /me/streak</c> (PLAN.md, §3.7). Задача #TBD-E22 для Егора: тесты со <c>Skip</c> снимаются вместе с
+/// Серия — <c>GET /me/streak</c> (PLAN.md, §3.7). Задача #148 для Егора: тесты со <c>Skip</c> снимаются вместе с
 /// реализацией. Само правило (пропуск, «Заморозка серии», граница суток по Минску) — чистая функция, её тесты без Docker.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
@@ -18,7 +18,7 @@ public sealed class StreakTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E22")]
+    [Fact(Skip = "ЗАДАЧА #148")]
     public async Task New_player_has_no_streak()
     {
         database.RequireDatabase();
@@ -30,7 +30,7 @@ public sealed class StreakTests(DatabaseFixture database)
         Assert.Equal(new StreakResponse(0, TodayCounted: false, FreezeActive: false), streak);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E22")]
+    [Fact(Skip = "ЗАДАЧА #148")]
     public async Task Days_in_a_row_with_a_finished_live_run_make_a_streak_and_a_gap_breaks_it()
     {
         database.RequireDatabase();

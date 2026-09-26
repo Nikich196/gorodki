@@ -50,10 +50,10 @@ public static class CollectionEndpoints
     private static Task<Results<Ok<CollectionResponse>, NotFound>> GetCollection(
         ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E15 (Егор): тайники текущего сезона (таблицу и находки даёт C12) и находки игрока. Ни широты, ни долготы
+        // ЗАДАЧА #145 (Егор): тайники текущего сезона (таблицу и находки даёт C12) и находки игрока. Ни широты, ни долготы
         // в ответе — тест обязан это проверять (egor-server.md, раздел 4, п. 2). Ясность подсказки — по своему туману рядом
         // с тайником (правило уточнит заготовка C12). Игрока нет — 404. Тесты — CollectionTests.
         _ = (principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E15");
+        throw new NotImplementedException("ЗАДАЧА #145");
     }
 }

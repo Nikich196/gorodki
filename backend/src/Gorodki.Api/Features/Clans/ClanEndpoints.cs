@@ -178,98 +178,98 @@ public static class ClanEndpoints
     private static Task<Results<Created<ClanResponse>, ProblemHttpResult>> CreateClan(
         CreateClanRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5a): новые таблицы ClanEntity (имя, нормализованное имя, оттенок, код, лидер, сезон
+        // ЗАДАЧА #135 (Егор, E5a): новые таблицы ClanEntity (имя, нормализованное имя, оттенок, код, лидер, сезон
         // переименования) и ClanMemberEntity (роль, дата), у игрока — «можно вступать с»; миграция (egor-server.md, 2.4).
         // Правила имени — чистая функция Gorodki.Domain/Clans/ClanRules.cs. Строку игрока — под блокировку (FOR UPDATE, как
         // PrivacyZoneEndpoints.Create): два одновременных запроса не создадут два клана. Код — как InviteCodes.New().
         // Ответ — 201 и ClanResponse (создатель — Leader). Тесты — ClansTests.
         _ = (request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Results<Ok<MyClanResponse>, NotFound>> GetMyClan(
         ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5a): свой клан (ClanResponse, как в GetClan) или Clan = null и CanJoinAtMs — пока идут 72 ч
+        // ЗАДАЧА #135 (Егор, E5a): свой клан (ClanResponse, как в GetClan) или Clan = null и CanJoinAtMs — пока идут 72 ч
         // после выхода или исключения. Игрока нет — 404. Тесты — ClansTests.
         _ = (principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Ok<ClanHuesResponse>> GetClanHues(AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5c): оттенки 0–11, которых нет ни у одного клана. Строгой уникальности «в Арене» пока нет —
+        // ЗАДАЧА #135 (Егор, E5c): оттенки 0–11, которых нет ни у одного клана. Строгой уникальности «в Арене» пока нет —
         // она появится после границ Арены (egor-server.md, карточка E5). Тесты — ClansTests.
         _ = (db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Results<Ok<ClanResponse>, ProblemHttpResult>> GetClan(
         Guid id, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5a): клан и участники. Имя участника — правило карточки игрока (#115): ник, если согласие
+        // ЗАДАЧА #135 (Егор, E5a): клан и участники. Имя участника — правило карточки игрока (#115): ник, если согласие
         // (PublicProfile) или это сам спрашивающий, иначе LeaderboardEndpoints.Pseudonym(id). Аккаунт удаляется
         // (DeletionRequestedAt) — участника не показывать. InviteCode — только если спрашивающий здесь лидер или офицер.
         // Нет клана — 404 clan_not_found. Тесты — ClansTests; строка в IdorTests.AwaitingTasks.
         _ = (id, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Results<Ok<ClanResponse>, ProblemHttpResult>> JoinClan(
         JoinClanRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5a): код → клан (нет — 404 clan_code_invalid); потолок 12 — проверять под блокировкой строки
+        // ЗАДАЧА #135 (Егор, E5a): код → клан (нет — 404 clan_code_invalid); потолок 12 — проверять под блокировкой строки
         // клана, иначе двое одновременно вступят тринадцатым. Уже в клане, 72 ч не прошли — 409 (коды — в описании адреса).
         // Тесты — ClansTests.
         _ = (request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Results<NoContent, ProblemHttpResult>> LeaveClan(
         ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5b): убрать членство, «можно вступать с» = сейчас + 72 ч. Ушёл лидер — лидер: офицер (самый
+        // ЗАДАЧА #135 (Егор, E5b): убрать членство, «можно вступать с» = сейчас + 72 ч. Ушёл лидер — лидер: офицер (самый
         // давний из офицеров), иначе самый давний участник. Ушёл последний — клана больше нет (уточнит Никита, если нужно
         // иначе). Землю не трогать. Тесты — ClansTests.
         _ = (principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Results<NoContent, ProblemHttpResult>> RemoveClanMember(
         Guid userId, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5b): участник ищется в клане спрашивающего одним запросом (чужой — 404 clan_member_not_found,
+        // ЗАДАЧА #135 (Егор, E5b): участник ищется в клане спрашивающего одним запросом (чужой — 404 clan_member_not_found,
         // egor-server.md, раздел 4, п. 5). Лидер исключает любого, офицер — рядового (кто кого — уточнит Никита), иначе 403
         // clan_forbidden. Исключённому — 72 ч без вступления. Тесты — ClansTests; строка в IdorTests.AwaitingTasks.
         _ = (userId, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Results<Ok<ClanResponse>, ProblemHttpResult>> SetClanMemberRole(
         Guid userId, ClanRoleRequest request, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5b): только лидер; роль officer или member; офицеров не больше 2 (под блокировкой клана).
+        // ЗАДАЧА #135 (Егор, E5b): только лидер; роль officer или member; офицеров не больше 2 (под блокировкой клана).
         // Участник — в своём клане, иначе 404 clan_member_not_found. Ответ — клан. Тесты — ClansTests; строка в
         // IdorTests.AwaitingTasks.
         _ = (userId, request, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Results<Ok<ClanResponse>, ProblemHttpResult>> RenameClan(
         RenameClanRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5c): только лидер, раз в сезон (сезон — SeasonStore.CalendarAsync(…).At(now)); правила имени
+        // ЗАДАЧА #135 (Егор, E5c): только лидер, раз в сезон (сезон — SeasonStore.CalendarAsync(…).At(now)); правила имени
         // — ClanRules. Спорное название по жалобе переименовывает админ (§3.6) — это не здесь. Тесты — ClansTests.
         _ = (request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 
     private static Task<Results<Ok<ClanResponse>, ProblemHttpResult>> NewClanCode(
         ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E5 (Егор, E5c): лидер или офицер; новый код (как InviteCodes.New()), старый больше не действует. Ответ —
+        // ЗАДАЧА #135 (Егор, E5c): лидер или офицер; новый код (как InviteCodes.New()), старый больше не действует. Ответ —
         // клан с новым кодом. Тесты — ClansTests.
         _ = (principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E5");
+        throw new NotImplementedException("ЗАДАЧА #135");
     }
 }

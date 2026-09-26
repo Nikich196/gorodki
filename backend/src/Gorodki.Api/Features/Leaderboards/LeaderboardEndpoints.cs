@@ -84,14 +84,14 @@ public static class LeaderboardEndpoints
         TimeProvider time,
         CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E7 (Егор): копия GetExploration по доске LeaderboardBoard.Territory (новое значение перечисления):
+        // ЗАДАЧА #136 (Егор): копия GetExploration по доске LeaderboardBoard.Territory (новое значение перечисления):
         // лига — run или bike (без неё — run), сезон — номер от 0 (без него — текущий: seasons.CalendarAsync(…).At(now)),
         // иначе 400 leaderboard_invalid. Value среза — очки сезона (ScoreBook.SeasonTotalsAsync после записи удержания).
         // Final — сезон закрыт: now ≥ ScoreBook.ClosesAt(календарь, сезон) и итоговый проход (ScoreBook.FinalTotalsAsync) уже
         // сделан. Ник — как Entry в GetExploration. Сам срез — задача Hangfire в 00:00 (образец — LeaderboardSnapshots,
         // egor-server.md, карточка E7). Тесты — TerritoryLeaderboardTests.
         _ = (league, season, principal, db, seasons, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E7");
+        throw new NotImplementedException("ЗАДАЧА #136");
     }
 
     private static async Task<Results<Ok<ExplorationLeaderboardResponse>, ProblemHttpResult, UnauthorizedHttpResult>> GetExploration(

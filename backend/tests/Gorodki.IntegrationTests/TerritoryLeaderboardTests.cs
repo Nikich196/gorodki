@@ -7,7 +7,7 @@ using static Gorodki.IntegrationTests.RunRequests;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Рейтинг территории — <c>GET /leaderboards/territory</c> (PLAN.md, §3.5). Задача #TBD-E7 для Егора: тесты со <c>Skip</c>
+/// Рейтинг территории — <c>GET /leaderboards/territory</c> (PLAN.md, §3.5). Задача #136 для Егора: тесты со <c>Skip</c>
 /// снимаются вместе с реализацией. Тесты самого среза (удержание по видимой земле, повтор не начисляет дважды, захват до
 /// границы публичности не даёт очков в срезе, итоговый проход в 04:00) пишутся вместе с задачей Hangfire — по образцу
 /// <c>ScoringTests</c> и <c>LeaderboardTests</c>.
@@ -17,7 +17,7 @@ public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E7")]
+    [Fact(Skip = "ЗАДАЧА #136")]
     public async Task Wrong_league_or_season_is_rejected()
     {
         database.RequireDatabase();
@@ -31,7 +31,7 @@ public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
         }
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E7")]
+    [Fact(Skip = "ЗАДАЧА #136")]
     public async Task Season_without_a_snapshot_is_empty_and_preliminary()
     {
         database.RequireDatabase();
@@ -47,7 +47,7 @@ public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
         Assert.Null(board.Mine);
     }
 
-    [Fact(Skip = "ЗАДАЧА #TBD-E7")]
+    [Fact(Skip = "ЗАДАЧА #136")]
     public async Task Without_a_league_the_board_is_the_run_league()
     {
         database.RequireDatabase();

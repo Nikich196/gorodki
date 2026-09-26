@@ -84,28 +84,28 @@ public static class SegmentEndpoints
     private static Task<Results<Ok<SegmentListResponse>, ProblemHttpResult>> ListSegments(
         string? league, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E16 (Егор): отрезки (таблицы даёт C16) и корона сезона в лиге — лучший видимый проход сезона (видимый —
+        // ЗАДАЧА #146 (Егор): отрезки (таблицы даёт C16) и корона сезона в лиге — лучший видимый проход сезона (видимый —
         // конец его забега публичен). Имя — правило карточки игрока (#115). Тесты — SegmentsTests.
         _ = (league, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E16");
+        throw new NotImplementedException("ЗАДАЧА #146");
     }
 
     private static Task<Results<Ok<SegmentResponse>, ProblemHttpResult>> GetSegment(
         Guid id, string? league, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E16 (Егор): отрезок, короны сезона и всего времени, легенда за 30 дней (по видимым проходам) и своё лучшее
+        // ЗАДАЧА #146 (Егор): отрезок, короны сезона и всего времени, легенда за 30 дней (по видимым проходам) и своё лучшее
         // время. Свои проходы можно показывать сразу — как «взятое» у заявки. Тесты — SegmentsTests; строка в
         // IdorTests.AwaitingTasks.
         _ = (id, league, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E16");
+        throw new NotImplementedException("ЗАДАЧА #146");
     }
 
     private static Task<Results<Ok<SegmentLeaderboardResponse>, ProblemHttpResult>> GetSegmentLeaderboard(
         Guid id, string? league, int? season, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #TBD-E16 (Егор): лучшее видимое время каждого игрока в лиге (и сезоне), по возрастанию, до 50, плюс своё место
+        // ЗАДАЧА #146 (Егор): лучшее видимое время каждого игрока в лиге (и сезоне), по возрастанию, до 50, плюс своё место
         // (как Mine в GetExploration). Тесты — SegmentsTests; строка в IdorTests.AwaitingTasks.
         _ = (id, league, season, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #TBD-E16");
+        throw new NotImplementedException("ЗАДАЧА #146");
     }
 }
