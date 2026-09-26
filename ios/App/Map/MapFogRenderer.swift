@@ -22,6 +22,8 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
         var haze = FogStyle.haze.day
         var edge = FogStyle.edge.day
         var masks: [FogTileKey: Masks] = [:]
+        /// Туман виден только на «Исследовании»; оверлей остаётся на карте всегда.
+        var visible = false
     }
 
     /// Маски тайла: `CGImage` неизменяем, его можно отдавать потокам отрисовки MapKit.
@@ -60,8 +62,20 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
         setNeedsDisplay()
     }
 
+    /// Показать или скрыть туман — и перерисовать.
+    func setVisible(_ visible: Bool) {
+        let changed = state.withLock { state in
+            defer { state.visible = visible }
+            return state.visible != visible
+        }
+        if changed {
+            setNeedsDisplay()
+        }
+    }
+
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
         let snapshot = state.withLock { $0 }
+        guard snapshot.visible else { return }
         context.setFillColor(Self.cgColor(snapshot.haze))
         context.fill(rect(for: mapRect))
 

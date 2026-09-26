@@ -212,7 +212,8 @@ final class ScreenSnapshotTests: XCTestCase {
             themes: ["day"])
     }
 
-    /// Режим «Отношения»: моё — своим цветом, соперники — красным. Переключатель — нажатием, только днём.
+    /// Режим «Отношения»: моё — своим цветом, соперники — красным. Переключатель — нажатием, только днём. Карта пишет
+    /// в `accessibilityValue` (только Debug), каким цветом залита земля соперника: заливки L1–L3 цвета Red.
     @MainActor
     func test27MapRelations() {
         let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
@@ -223,16 +224,31 @@ final class ScreenSnapshotTests: XCTestCase {
         }
         pause(6)
         snapshot("28-map-relations-day")
-        XCTAssertTrue(shown, "На карте нет переключателя «Отношения»")
-        // Карта пишет в `accessibilityValue`, чем окрашены нарисованные слои и сколько рендереров MapKit попросил
-        // (только Debug); второй снимок — позже: успела ли карта перерисоваться.
         let map = app.descendants(matching: .any).matching(identifier: "game-map").firstMatch
         let drawn = map.value as? String ?? ""
         print("Карта после «Отношений»: \(drawn)")
-        pause(8)
-        snapshot("28-map-relations-day-later")
-        print("Карта ещё через 8 с: \(map.value as? String ?? "")")
-        XCTAssertTrue(drawn.hasPrefix("relations"), "Карта не перекрасилась: «\(drawn)»")
+        XCTAssertTrue(shown, "На карте нет переключателя «Отношения»")
+        let redFills = ["#B14D4E", "#C33840", "#D30931"]
+        XCTAssertTrue(
+            drawn.hasPrefix("relations") && redFills.contains { drawn.contains("соперник=" + $0) },
+            "Карта не перекрасилась: «\(drawn)»")
+    }
+
+    /// Смена слоя нажатием: «Захват» → «Исследование» — земли скрыты, туман виден (кроссфейд), только днём.
+    @MainActor
+    func test28MapSwitchToExplore() {
+        let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
+        let segment = app.buttons["Исследование"].firstMatch
+        let shown = segment.waitForExistence(timeout: Self.launchTimeout)
+        if shown {
+            pause(4)  // земля успевает нарисоваться до смены слоя
+            segment.tap()
+        }
+        let card = waitForAny([text(in: app, containing: "Открыто")], timeout: Self.screenTimeout)
+        pause(4)
+        snapshot("29-map-switch-explore-day")
+        XCTAssertTrue(shown, "На карте нет переключателя «Исследование»")
+        XCTAssertTrue(card, "После смены слоя нет карточки «Открыто …»")
     }
 
     /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у

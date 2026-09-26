@@ -51,20 +51,20 @@ struct LandStyle: Hashable, Sendable {
         relation.edgeColor(ownerEdge: color.edge[theme], theme: theme)
     }
 
-    /// Стиль кромки: уровень на неё не влияет, поэтому кромки куски разных уровней одного владельца — один слой.
-    var edgeStyle: LandStyle {
-        LandStyle(relation: relation, color: color, level: nil)
-    }
-
     /// Стиль куска для зрителя `viewer` цвета `player`.
     static func of(_ parcel: LandParcel, viewer: String?, player: PlayerColor, coloring: LandColoring) -> LandStyle {
+        of(LandGroup.of(parcel, viewer: viewer), player: player, coloring: coloring)
+    }
+
+    /// Стиль слоя земли для зрителя цвета `player`.
+    static func of(_ group: LandGroup, player: PlayerColor, coloring: LandColoring) -> LandStyle {
         let relation: TerritoryRelation =
-            switch parcel.relation(viewer: viewer) {
+            switch group.relation {
             case .mine: .mine
             case .rival: .rival
             case .lost: .lost
             }
-        let level = parcel.fillLevel.flatMap(TerritoryLevel.init(rawValue:))
+        let level = group.level.flatMap(TerritoryLevel.init(rawValue:))
         if relation == .lost {
             // У призрака свои цвета темы — цвет владельца не виден; один стиль на всех: один слой на карте.
             return LandStyle(relation: .lost, color: .red, level: nil)
@@ -72,12 +72,35 @@ struct LandStyle: Hashable, Sendable {
         let color: PlayerColor
         switch coloring {
         case .players:
-            color = PlayerColor(index: parcel.colorIndex)
+            color = PlayerColor(index: group.colorIndex)
         case .relations:
             // «Отношения»: моё — мой цвет, соперники — Red; если мой цвет и есть Red, соперники — соседний в палитре.
             color = relation == .mine ? player : (player == .red ? .orange : .red)
         }
         return LandStyle(relation: relation, color: color, level: level)
+    }
+}
+
+/// Слой земли на карте — куски с одинаковыми отношением, цветом владельца и уровнем, как их отдал сервер. От окраски
+/// и темы не зависит: «Игроки | Отношения» и смена темы перекрашивают готовые слои, а не пересобирают тысячи кусков.
+struct LandGroup: Hashable, Sendable {
+    var relation: LandRelation
+    /// Номер цвета владельца 0–11; у призрака — 0: его цвет не виден.
+    var colorIndex: Int
+    /// 1…3; у призрака и у кромки — `nil`.
+    var level: Int?
+
+    static func of(_ parcel: LandParcel, viewer: String?) -> LandGroup {
+        let relation = parcel.relation(viewer: viewer)
+        guard relation != .lost else { return LandGroup(relation: .lost, colorIndex: 0, level: nil) }
+        let count = PlayerColor.allCases.count
+        return LandGroup(
+            relation: relation, colorIndex: (parcel.colorIndex % count + count) % count, level: parcel.fillLevel)
+    }
+
+    /// Слой кромки: уровень на неё не влияет.
+    var edge: LandGroup {
+        LandGroup(relation: relation, colorIndex: colorIndex, level: nil)
     }
 }
 
@@ -255,6 +278,16 @@ final class MapModel {
     /// Стиль куска для этого зрителя и режима окраски.
     func style(of parcel: LandParcel) -> LandStyle {
         LandStyle.of(parcel, viewer: viewerId, player: player, coloring: coloring)
+    }
+
+    /// Слой земли куска для этого зрителя.
+    func group(of parcel: LandParcel) -> LandGroup {
+        LandGroup.of(parcel, viewer: viewerId)
+    }
+
+    /// Стиль слоя для режима окраски и цвета игрока.
+    func style(of group: LandGroup) -> LandStyle {
+        LandStyle.of(group, player: player, coloring: coloring)
     }
 
     /// Неистёкшие зоны «спорная» — только на «Захвате»: на «Исследовании» земли скрыты.

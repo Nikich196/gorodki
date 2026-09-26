@@ -89,6 +89,20 @@ struct MapModelTests {
         #expect(model.style(of: Self.parcel(owner: Self.rival, color: 4)).color == .orange)
     }
 
+    @Test("Слой карты не зависит от окраски — «Отношения» перекрашивают готовые слои; кромка — без уровня")
+    func groupsSurviveColoring() {
+        let model = model()
+        let rival = Self.parcel(owner: Self.rival, color: 16, level: 2)
+        let group = model.group(of: rival)
+        #expect(group == LandGroup(relation: .rival, colorIndex: 4, level: 2), "номер цвета — по модулю 12")
+        #expect(group.edge.level == nil)
+        #expect(model.style(of: group).color == .forest)
+        model.coloring = .relations
+        #expect(model.group(of: rival) == group)
+        #expect(model.style(of: group).color == .red)
+        #expect(model.group(of: Self.parcel(owner: Self.rival, level: 0, ghost: true)).colorIndex == 0)
+    }
+
     // MARK: - Зоны
 
     @Test("Истёкшая зона скрывается по таймеру, хотя тайл не менялся; на «Исследовании» зон нет")

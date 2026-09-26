@@ -2,14 +2,16 @@ import DesignSystem
 import GameCore
 import MapKit
 import SwiftUI
+import os
 
 /// Карта игры: подложка Apple Maps как у игры (PLAN.md, D4: плоская, `.muted`, без POI), над ней земля, туман
 /// и «бегущие муравьи» на спорной земле (docs/design/tokens.md, §3.1).
 ///
-/// - **Земля** — один `MKMultiPolygon` на стиль (отношение, цвет, уровень) из кусков всех тайлов, без обводки: куски
-///   одного стиля — один контур, и на краях тайлов нет швов. Над заливками — кромки (`LandBorders`) отдельным слоем
-///   линий: толщина и пунктир — от отношения, ночью у своей — свечение.
-/// - **Туман** — `MapFogRenderer` только на «Исследовании»; земли там скрыты.
+/// - **Земля** — слой MapKit на группу кусков (`LandGroup`: отношение, цвет владельца, уровень) из всех тайлов;
+///   кромки (`LandBorders`) — своими слоями над заливками. Слои **создаются один раз** и дальше только меняют
+///   содержимое (новые тайлы), цвет (окраска, тема) и видимость (слой карты) с перерисовкой: снимки показали, что после
+///   `removeOverlays` и `addOverlays` MapKit оставлял на экране прежнюю картинку.
+/// - **Туман** — `MapFogRenderer`, виден только на «Исследовании»; земли там скрыты.
 /// - **Спорное** — `CAShapeLayer` над картой, только неистёкшие зоны: подложка и пунктир, который ползёт
 ///   (перерисовка тайлов MapKit 15 раз в секунду мерцала бы). «Уменьшить движение» — пунктир стоит.
 /// - **Касание** — `UITapGestureRecognizer` → координата и допуск в метрах → `MapModel.select`.
@@ -58,13 +60,14 @@ struct GameMapView: UIViewRepresentable {
         let ants = ContestedAntsView()
         private let fogOverlay: FogOverlay
         private let fogRenderer: MapFogRenderer
-        private var landOverlays: [any MKOverlay] = []
-        /// Стиль каждого слоя земли: заливка или кромка.
-        private var styles: [ObjectIdentifier: (style: LandStyle, isEdge: Bool)] = [:]
+        /// Слои земли по группам — живут, пока жива карта.
+        private var layers: [LandLayerOverlay.Key: LandLayerOverlay] = [:]
         /// Тема и «Уменьшить движение» — из `updateUIView`.
         var environment = Environment(theme: .day, reduceMotion: false)
         private var theme: Theme { environment.theme }
         private var appliedLand: LandKey?
+        private var appliedPaint: PaintKey?
+        private var appliedLayer: MapLayer?
         private var appliedFog: FogKey?
         private var appliedZones: ZonesKey?
 
@@ -73,19 +76,21 @@ struct GameMapView: UIViewRepresentable {
             var reduceMotion: Bool
         }
 
-        /// Что сейчас нарисовано из земли: меняется ключ — слои перестраиваются.
+        /// Какая земля в слоях: меняется — у слоёв новое содержимое (новые тайлы, другой зритель).
         private struct LandKey: Equatable {
             var revision: Int
-            var visible: Bool
-            var coloring: LandColoring
             var viewer: String?
+        }
+
+        /// Чем окрашена земля: меняется — слои перекрашиваются.
+        private struct PaintKey: Equatable {
+            var coloring: LandColoring
             var player: PlayerColor
             var theme: Theme
         }
 
         private struct FogKey: Equatable {
             var revision: Int
-            var visible: Bool
             var theme: Theme
         }
 
@@ -111,8 +116,7 @@ struct GameMapView: UIViewRepresentable {
         }
 
         /// Следить за моделью: `sync` читает её внутри `withObservationTracking`, изменение — снова `sync` на следующем
-        /// витке главного потока. `updateUIView` для этого не годится: на снимке «Отношения» он не пришёл, и карта
-        /// осталась с прежними цветами.
+        /// витке главного потока. `updateUIView` для этого не годится: на смену окраски он не пришёл.
         func observe(_ map: MKMapView) {
             withObservationTracking {
                 sync(map)
@@ -127,22 +131,39 @@ struct GameMapView: UIViewRepresentable {
         func sync(_ map: MKMapView) {
             let theme = environment.theme
             let reduceMotion = environment.reduceMotion
-            let land = LandKey(
-                revision: model.landRevision, visible: model.layer == .capture, coloring: model.coloring,
-                viewer: model.viewerId, player: model.player, theme: theme)
-            let fog = FogKey(revision: model.fogRevision, visible: model.layer == .explore, theme: theme)
-            let fogTiles = model.fog
-            // Сменился слой — карта переходит кроссфейдом (снимок старой картинки растворяется в новой), а не мигает.
-            let layerSwitched = appliedLand.map { $0.visible != land.visible } ?? false
-            if layerSwitched, !reduceMotion {
-                UIView.transition(
-                    with: map, duration: MotionSpec.LayerSwitch.duration,
-                    options: [.transitionCrossDissolve, .allowUserInteraction]
-                ) {
-                    self.apply(land: land, fog: fog, fogTiles: fogTiles, on: map)
+            if appliedFog == nil {
+                map.addOverlay(fogOverlay, level: .aboveRoads)  // один раз; виден только на «Исследовании»
+            }
+            let land = LandKey(revision: model.landRevision, viewer: model.viewerId)
+            let paint = PaintKey(coloring: model.coloring, player: model.player, theme: theme)
+            let fog = FogKey(revision: model.fogRevision, theme: theme)
+            let layer = model.layer
+            if land != appliedLand {
+                refill(on: map)
+                appliedLand = land
+                appliedPaint = nil  // у новых слоёв цвет задаёт `repaint`
+            }
+            if paint != appliedPaint {
+                repaint(on: map)
+                appliedPaint = paint
+            }
+            if fog != appliedFog {
+                fogRenderer.update(model.fog, theme: theme)
+                appliedFog = fog
+            }
+            if layer != appliedLayer {
+                // Смена слоя — кроссфейдом (снимок прежней картинки растворяется в новой), а не миганием.
+                if appliedLayer != nil, !reduceMotion {
+                    UIView.transition(
+                        with: map, duration: MotionSpec.LayerSwitch.duration,
+                        options: [.transitionCrossDissolve, .allowUserInteraction]
+                    ) {
+                        self.show(layer, on: map)
+                    }
+                } else {
+                    show(layer, on: map)
                 }
-            } else {
-                apply(land: land, fog: fog, fogTiles: fogTiles, on: map)
+                appliedLayer = layer
             }
             let zones = ZonesKey(zones: model.visibleZones, theme: theme, reduceMotion: reduceMotion)
             if zones != appliedZones {
@@ -150,105 +171,143 @@ struct GameMapView: UIViewRepresentable {
                 ants.layout(on: map)
                 appliedZones = zones
             }
-        }
-
-        /// Земля и туман — по ключам: перестраивается только то, что изменилось.
-        private func apply(land: LandKey, fog: FogKey, fogTiles: [FogTileKey: FogTileBits], on map: MKMapView) {
-            if land != appliedLand {
-                rebuildLand(on: map, visible: land.visible)
-                appliedLand = land
-            }
-            if fog != appliedFog {
-                let shown = map.overlays.contains { $0 === fogOverlay }
-                if fog.visible, !shown {
-                    map.addOverlay(fogOverlay, level: .aboveRoads)
-                } else if !fog.visible, shown {
-                    map.removeOverlay(fogOverlay)
-                }
-                if fog.visible {
-                    fogRenderer.update(fogTiles, theme: fog.theme)
-                }
-                appliedFog = fog
-            }
-        }
-
-        /// Слои земли заново: заливки, над ними кромки. Порядок: земля, туман над ней (когда он есть, земли нет).
-        private func rebuildLand(on map: MKMapView, visible: Bool) {
-            // Прежние слои живы, пока не добавлены новые: иначе новый объект занял бы адрес только что освобождённого,
-            // и MapKit взял бы для него прежний рендерер — «Отношения» оставались с цветами «Игроков» (снимок 28).
-            let previous = landOverlays
-            defer { map.removeOverlays(previous) }
-            landOverlays = []
-            styles = [:]
-            guard visible else { return }
-            var fills: [LandStyle: [MKPolygon]] = [:]
-            var edges: [LandStyle: [MKPolyline]] = [:]
-            for parcel in model.land.parcels {
-                let style = model.style(of: parcel)
-                fills[style, default: []].append(Self.polygon(parcel.shape))
-                for line in parcel.borders {
-                    var coordinates = line.map {
-                        CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-                    }
-                    edges[style.edgeStyle, default: []]
-                        .append(MKPolyline(coordinates: &coordinates, count: coordinates.count))
-                }
-            }
-            for style in Self.ordered(fills.keys) {
-                guard let polygons = fills[style] else { continue }
-                let multi = MKMultiPolygon(polygons)
-                styles[ObjectIdentifier(multi)] = (style, false)
-                landOverlays.append(multi)
-            }
-            #if DEBUG
-                rebuilds += 1
-            #endif
-            for style in Self.ordered(edges.keys) {
-                guard let lines = edges[style] else { continue }
-                let multi = MKMultiPolyline(lines)
-                styles[ObjectIdentifier(multi)] = (style, true)
-                landOverlays.append(multi)
-            }
-            map.addOverlays(landOverlays, level: .aboveRoads)
             #if DEBUG
                 report(on: map)
             #endif
         }
 
-        #if DEBUG
-            /// Сколько раз перестраивались слои земли и сколько рендереров земли MapKit попросил — для снимков.
-            private var rebuilds = 0
-            private var renderersMade = 0
+        /// «Захват» — земли, «Исследование» — туман.
+        private func show(_ layer: MapLayer, on map: MKMapView) {
+            fogRenderer.setVisible(layer == .explore)
+            let visible = layer == .capture
+            for overlay in layers.values {
+                update(overlay, on: map) { $0.visible = visible }
+            }
+        }
 
-            /// Что нарисовано: окраска, слои, перестройки и рендереры — снимок «Отношения» проверяет, что карта
-            /// перекрасилась (`accessibilityValue` карты, только Debug).
+        /// Новое содержимое слоёв: куски по группам. Нет слоя для группы — он добавляется на своё место в порядке;
+        /// группа исчезла — её слой пустеет (не снимается с карты).
+        private func refill(on map: MKMapView) {
+            var fills: [LandGroup: [[[MKMapPoint]]]] = [:]
+            var edges: [LandGroup: [[MKMapPoint]]] = [:]
+            var fillBounds: [LandGroup: [MKMapRect]] = [:]
+            var edgeBounds: [LandGroup: [MKMapRect]] = [:]
+            for parcel in model.land.parcels {
+                let group = model.group(of: parcel)
+                let rings = ([parcel.shape.exterior] + parcel.shape.holes).map(Self.points)
+                fills[group, default: []].append(rings)
+                fillBounds[group, default: []].append(Self.bounds(rings.first ?? []))
+                for line in parcel.borders {
+                    let points = Self.points(line)
+                    edges[group.edge, default: []].append(points)
+                    edgeBounds[group.edge, default: []].append(Self.bounds(points))
+                }
+            }
+            var wanted: [LandLayerOverlay.Key: LandLayerOverlay.Content.Shapes] = [:]
+            for (group, pieces) in fills {
+                wanted[LandLayerOverlay.Key(group: group, isEdge: false)] = .fills(
+                    zip(fillBounds[group] ?? [], pieces).map { LandLayerOverlay.Content.Fill(bounds: $0, rings: $1) })
+            }
+            for (group, lines) in edges {
+                wanted[LandLayerOverlay.Key(group: group, isEdge: true)] = .lines(
+                    zip(edgeBounds[group] ?? [], lines).map { LandLayerOverlay.Content.Line(bounds: $0, points: $1) })
+            }
+            let visible = model.layer == .capture
+            for key in Self.ordered(Set(layers.keys).union(wanted.keys)) {
+                let shapes = wanted[key] ?? (key.isEdge ? .lines([]) : .fills([]))
+                if let overlay = layers[key] {
+                    update(overlay, on: map) { $0.shapes = shapes }
+                    continue
+                }
+                let overlay = LandLayerOverlay(key: key)
+                overlay.content.withLock {
+                    $0.shapes = shapes
+                    $0.visible = visible
+                }
+                layers[key] = overlay
+                // На своё место: под ближайшим по порядку слоем, который уже на карте; кромка своей — сверху.
+                let order = Self.ordered(Set(layers.keys))
+                let above = order.drop { $0 != key }.dropFirst().first { layers[$0] != nil && $0 != key }
+                if let above, let neighbor = layers[above], map.overlays.contains(where: { $0 === neighbor }) {
+                    map.insertOverlay(overlay, below: neighbor)
+                } else {
+                    map.addOverlay(overlay, level: .aboveRoads)
+                }
+            }
+        }
+
+        /// Цвета и штрих всех слоёв — по окраске, цвету игрока и теме.
+        private func repaint(on map: MKMapView) {
+            #if DEBUG
+                repaints += 1
+            #endif
+            for (key, overlay) in layers {
+                let style = model.style(of: key.group)
+                update(overlay, on: map) { content in
+                    if key.isEdge {
+                        let stroke = style.relation.edge
+                        content.color = style.edge(theme)
+                        content.lineWidth = stroke.width
+                        content.dash = stroke.dash
+                        content.glow = style.relation.glowRadius(theme: theme)
+                    } else {
+                        content.color = style.fill(theme)
+                    }
+                }
+            }
+        }
+
+        /// Изменить содержимое слоя и перерисовать его тайлы.
+        private func update(
+            _ overlay: LandLayerOverlay, on map: MKMapView, _ change: @Sendable (inout LandLayerOverlay.Content) -> Void
+        ) {
+            overlay.content.withLock { change(&$0) }
+            map.renderer(for: overlay)?.setNeedsDisplay()
+        }
+
+        #if DEBUG
+            private var repaints = 0
+
+            /// Что нарисовано: окраска, слои и цвет заливки соперника уровня 1 (для снимка «Отношения») — в
+            /// `accessibilityValue` карты, только Debug.
             private func report(on map: MKMapView) {
+                let rival = layers.first { $0.key.group.relation == .rival && !$0.key.isEdge }?.value
+                let color = rival.map { overlay in overlay.content.withLock { $0.color.hexString } } ?? "—"
                 map.accessibilityValue =
-                    "\(model.coloring.rawValue) слоёв=\(landOverlays.count) на карте=\(map.overlays.count) "
-                    + "перестроек=\(rebuilds) рендереров=\(renderersMade)"
+                    "\(model.coloring.rawValue) слоёв=\(layers.count) перекрасок=\(repaints) соперник=\(color)"
             }
         #endif
 
-        /// Порядок слоёв — от призраков к своей: куски не перекрываются, но кромка своей должна быть сверху.
-        /// При равном отношении — по цвету и уровню: одинаковые данные дают одинаковую карту.
-        private static func ordered(_ styles: some Sequence<LandStyle>) -> [LandStyle] {
-            let order: [TerritoryRelation] = [.lost, .noMansLand, .rival, .clan, .contested, .mine]
-            func rank(_ style: LandStyle) -> (Int, String, Int) {
-                (order.firstIndex(of: style.relation) ?? 0, style.color.rawValue, style.level?.rawValue ?? 0)
+        /// Порядок слоёв — заливки под кромками, от призраков к своей: кромка своей сверху. При равном — по цвету
+        /// и уровню: одинаковые данные дают одинаковую карту.
+        private static func ordered(_ keys: some Sequence<LandLayerOverlay.Key>) -> [LandLayerOverlay.Key] {
+            let order: [LandRelation] = [.lost, .rival, .mine]
+            func rank(_ key: LandLayerOverlay.Key) -> (Int, Int, Int, Int) {
+                (
+                    key.isEdge ? 1 : 0, order.firstIndex(of: key.group.relation) ?? 0, key.group.colorIndex,
+                    key.group.level ?? 0
+                )
             }
-            return styles.sorted { rank($0) < rank($1) }
+            return keys.sorted { rank($0) < rank($1) }
         }
 
-        private static func polygon(_ shape: ParcelShape) -> MKPolygon {
-            func coordinates(_ ring: [Coordinate]) -> [CLLocationCoordinate2D] {
-                ring.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        private static func points(_ ring: [Coordinate]) -> [MKMapPoint] {
+            ring.map { MKMapPoint(CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)) }
+        }
+
+        private static func bounds(_ points: [MKMapPoint]) -> MKMapRect {
+            guard let first = points.first else { return .null }
+            var minX = first.x
+            var maxX = first.x
+            var minY = first.y
+            var maxY = first.y
+            for point in points {
+                minX = min(minX, point.x)
+                maxX = max(maxX, point.x)
+                minY = min(minY, point.y)
+                maxY = max(maxY, point.y)
             }
-            let holes = shape.holes.map { ring in
-                var points = coordinates(ring)
-                return MKPolygon(coordinates: &points, count: points.count)
-            }
-            var exterior = coordinates(shape.exterior)
-            return MKPolygon(coordinates: &exterior, count: exterior.count, interiorPolygons: holes)
+            return MKMapRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
         }
 
         // MARK: - MKMapViewDelegate
@@ -257,32 +316,8 @@ struct GameMapView: UIViewRepresentable {
             if overlay === fogOverlay {
                 return fogRenderer
             }
-            guard let entry = styles[ObjectIdentifier(overlay)] else {
-                return MKOverlayRenderer(overlay: overlay)
-            }
-            #if DEBUG
-                renderersMade += 1
-                report(on: mapView)
-            #endif
-            let style = entry.style
-            let isEdge = entry.isEdge
-            if !isEdge, let multi = overlay as? MKMultiPolygon {
-                let renderer = LandFillRenderer(overlay: multi)
-                renderer.prepare(multi, color: style.fill(theme))
-                return renderer
-            }
-            if isEdge, let multi = overlay as? MKMultiPolyline {
-                let stroke = style.relation.edge
-                let renderer = LandEdgeRenderer(multiPolyline: multi)
-                renderer.glow = style.relation.glowRadius(theme: theme)
-                renderer.strokeColor = style.edge(theme).uiColor
-                renderer.lineWidth = stroke.width
-                renderer.lineCap = .round
-                renderer.lineJoin = .round
-                if !stroke.dash.isEmpty {
-                    renderer.lineDashPattern = stroke.dash.map { NSNumber(value: $0) }
-                }
-                return renderer
+            if let layer = overlay as? LandLayerOverlay {
+                return LandLayerRenderer(overlay: layer)
             }
             return MKOverlayRenderer(overlay: overlay)
         }
@@ -317,64 +352,98 @@ struct GameMapView: UIViewRepresentable {
     }
 }
 
-/// Заливка земли одного стиля — все куски **одним путём**. `MKMultiPolygonRenderer` закрашивает куски по отдельности
-/// со сглаживанием, и общий край соседних кусков одного участка (сервер режет землю по тайлам) закрашен дважды
-/// наполовину — по линии тайла видна светлая нить (снимки 24 и 28 первых прогонов, и без сглаживания тоже: свой `draw`
-/// у подкласса MapKit не зовёт). Один путь с правилом чёт-нечет закрашивается целиком: шва нет, дыры — дыры.
-///
-/// Рисует тайлы карты MapKit в своих потоках; данные задаются один раз до первой отрисовки (`prepare`) и дальше не
-/// меняются. Своего инициализатора нет — как у `LandEdgeRenderer`.
-final class LandFillRenderer: MKOverlayRenderer, @unchecked Sendable {
-    private struct Piece {
-        var bounds: MKMapRect
-        var rings: [[MKMapPoint]]
+/// Слой земли одной группы — оверлей на весь мир, содержимое которого меняется: куски (новые тайлы), цвет и штрих
+/// (окраска, тема), видимость (слой карты). Читают его потоки отрисовки MapKit — всё под блокировкой.
+final class LandLayerOverlay: NSObject, MKOverlay, @unchecked Sendable {
+    struct Key: Hashable, Sendable {
+        var group: LandGroup
+        var isEdge: Bool
     }
 
-    private var pieces: [Piece] = []
-    private var color = CGColor(gray: 0, alpha: 0)
-
-    func prepare(_ multi: MKMultiPolygon, color: RGBA) {
-        pieces = multi.polygons.map { polygon in
-            let rings = [polygon] + (polygon.interiorPolygons ?? [])
-            return Piece(
-                bounds: polygon.boundingMapRect,
-                rings: rings.map { Array(UnsafeBufferPointer(start: $0.points(), count: $0.pointCount)) })
+    struct Content: Sendable {
+        /// Кусок заливки: кольца (внешнее и дыры) в точках карты.
+        struct Fill: Sendable {
+            var bounds: MKMapRect
+            var rings: [[MKMapPoint]]
         }
-        self.color = CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+
+        /// Линия кромки.
+        struct Line: Sendable {
+            var bounds: MKMapRect
+            var points: [MKMapPoint]
+        }
+
+        enum Shapes: Sendable {
+            case fills([Fill])
+            case lines([Line])
+        }
+
+        var shapes = Shapes.fills([])
+        var visible = true
+        var color = RGBA(0, alpha: 0)
+        /// Кромка: толщина, штрих и пробел пунктира, свечение — pt на экране.
+        var lineWidth = 0.0
+        var dash: [Double] = []
+        var glow = 0.0
     }
 
-    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        // Сглаженный край заходит на пиксель за кусок — берём куски и чуть за краем части карты.
-        let margin = 2 / Double(zoomScale)
-        let area = mapRect.insetBy(dx: -margin, dy: -margin)
-        let path = CGMutablePath()
-        for piece in pieces where piece.bounds.intersects(area) {
-            for ring in piece.rings where ring.count > 2 {
-                path.addLines(between: ring.map { point(for: $0) })
-                path.closeSubpath()
-            }
-        }
-        guard !path.isEmpty else { return }
-        context.addPath(path)
-        context.setFillColor(color)
-        context.fillPath(using: .evenOdd)
+    let key: Key
+    let content = OSAllocatedUnfairLock(initialState: Content())
+    let coordinate = CLLocationCoordinate2D(latitude: 52.0976, longitude: 23.7341)
+    let boundingMapRect = MKMapRect.world
+
+    init(key: Key) {
+        self.key = key
     }
 }
 
-/// Кромка земли: толщина и пунктир — у `MKOverlayPathRenderer` в экранных pt, свечение своей ночью — тенью того же
-/// цвета (`TerritoryRelation.glowRadius`, 3 pt).
-///
-/// Своего инициализатора нет: `init(multiPolyline:)` MapKit внутри зовёт `init(overlay:)`, и подкласс со своим
-/// назначенным инициализатором падал бы («unimplemented initializer»). Свечение задаётся после создания.
-final class LandEdgeRenderer: MKMultiPolylineRenderer, @unchecked Sendable {
-    /// Радиус свечения, pt; 0 — без свечения. Задаётся до первой отрисовки.
-    var glow = 0.0
-
-    override func applyStrokeProperties(to context: CGContext, atZoomScale zoomScale: MKZoomScale) {
-        super.applyStrokeProperties(to: context, atZoomScale: zoomScale)
-        if glow > 0, let color = strokeColor?.cgColor {
-            // Тень задаётся в пикселях растра, а не в точках карты: радиус в pt × масштаб экрана.
-            context.setShadow(offset: .zero, blur: CGFloat(glow) * contentScaleFactor, color: color)
+/// Рисует слой земли. Заливка — все куски **одним путём** с правилом чёт-нечет: общий край соседних кусков одного
+/// участка (сервер режет землю по тайлам) не закрашивается дважды наполовину, и по линии тайла нет светлой нити, как
+/// у `MKMultiPolygonRenderer`. Кромка — линии с толщиной и пунктиром в экранных pt (в точках карты — / `zoomScale`),
+/// своя ночью — со свечением (тень того же цвета).
+final class LandLayerRenderer: MKOverlayRenderer, @unchecked Sendable {
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        guard let layer = overlay as? LandLayerOverlay else { return }
+        let content = layer.content.withLock { $0 }
+        guard content.visible, content.color.alpha > 0 else { return }
+        let scale = Double(zoomScale)
+        // Линия и сглаженный край заходят за кусок — берём куски и чуть за краем части карты.
+        let margin = (content.lineWidth + 2 * content.glow + 2) / scale
+        let area = mapRect.insetBy(dx: -margin, dy: -margin)
+        let path = CGMutablePath()
+        let color = CGColor(
+            srgbRed: content.color.red, green: content.color.green, blue: content.color.blue,
+            alpha: content.color.alpha)
+        switch content.shapes {
+        case .fills(let fills):
+            for fill in fills where fill.bounds.intersects(area) {
+                for ring in fill.rings where ring.count > 2 {
+                    path.addLines(between: ring.map { point(for: $0) })
+                    path.closeSubpath()
+                }
+            }
+            guard !path.isEmpty else { return }
+            context.addPath(path)
+            context.setFillColor(color)
+            context.fillPath(using: .evenOdd)
+        case .lines(let lines):
+            for line in lines where line.bounds.intersects(area) && line.points.count > 1 {
+                path.addLines(between: line.points.map { point(for: $0) })
+            }
+            guard !path.isEmpty else { return }
+            context.addPath(path)
+            context.setStrokeColor(color)
+            context.setLineWidth(CGFloat(content.lineWidth / scale))
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            if !content.dash.isEmpty {
+                context.setLineDash(phase: 0, lengths: content.dash.map { CGFloat($0 / scale) })
+            }
+            if content.glow > 0 {
+                // Тень задаётся в пикселях растра, а не в точках карты: радиус в pt × масштаб экрана.
+                context.setShadow(offset: .zero, blur: CGFloat(content.glow) * contentScaleFactor, color: color)
+            }
+            context.strokePath()
         }
     }
 }
