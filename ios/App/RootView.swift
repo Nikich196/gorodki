@@ -32,7 +32,7 @@ struct RootView: View {
 private struct LiveRoot: View {
     private let session = AppSession.shared
     @State private var onboarding = OnboardingModel.live()
-    @State private var shell = ShellModel(profile: ProfileModel())
+    @State private var shell = ShellModel.live()
     @State private var noticeShown = false
 
     var body: some View {
@@ -55,7 +55,7 @@ private struct LiveRoot: View {
             if session.status == .signedOut {
                 // Вышел — онбординг с начала, профиль прежнего игрока забыт.
                 onboarding = OnboardingModel.live()
-                shell = ShellModel(profile: ProfileModel())
+                shell = ShellModel.live()
             }
             shell.profile.signedIn = session.status == .signedIn
             shell.profile.role = session.role
