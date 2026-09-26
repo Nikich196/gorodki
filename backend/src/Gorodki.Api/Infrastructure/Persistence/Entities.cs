@@ -334,6 +334,9 @@ public sealed class ParcelEntity
 
     public Guid[] LossAttackers { get; set; } = [];
 
+    /// <summary>Касание владельца (<c>ParcelState.TouchedAt</c>): «касались в этом сезоне» — не раньше его начала (§3.4).</summary>
+    public DateTimeOffset TouchedAt { get; set; }
+
     /// <summary>Многоугольник в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
     public required Polygon Geometry { get; set; }
 }
@@ -346,6 +349,18 @@ public sealed class SeasonEntity
     public required string Name { get; set; }
 
     public DateTimeOffset StartsAt { get; set; }
+
+    /// <summary>
+    /// Старт с чистой карты (§3.4: «Старт Сезона 0 — с чистой карты, земля полевых тестов стирается»): смена на этот сезон
+    /// стирает всю землю, а не сбрасывает её мягко. Только у Сезона 0.
+    /// </summary>
+    public bool CleanStart { get; set; }
+
+    /// <summary>
+    /// Когда выполнена смена на этот сезон (мягкий сброс или чистая карта, <c>SeasonRollover</c>); <c>null</c> — ещё нет.
+    /// Отметка ставится в той же транзакции, что и сброс: повтор задачи второй раз не сбросит.
+    /// </summary>
+    public DateTimeOffset? ResetAt { get; set; }
 }
 
 /// <summary>
@@ -423,6 +438,8 @@ public sealed class CaptureJournalPieceEntity
     public DateTimeOffset? LossWindowSince { get; set; }
 
     public Guid[] LossAttackers { get; set; } = [];
+
+    public DateTimeOffset TouchedAt { get; set; }
 
     /// <summary>Геометрия в TWKB (сетка 0,1 м).</summary>
     public required byte[] Geometry { get; set; }
@@ -777,4 +794,66 @@ public sealed class LandZoneEntity
 
     /// <summary>Многоугольник в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
     public required Polygon Geometry { get; set; }
+}
+
+/// <summary>Вид начисления очков (PLAN.md, §3.5).</summary>
+public enum ScoreKind : short
+{
+    /// <summary>Захват: ступени по площади, бонусы, ценность земли — пишется в транзакции захвата.</summary>
+    Capture = 1,
+
+    /// <summary>Дистанция забега: +10 за км до 20 км в сутки, «Вело» ×0,33 — пишется вместе с визитами забега.</summary>
+    Distance = 2,
+}
+
+/// <summary>
+/// Начисление очков сезона (PLAN.md, §3.5) — книга очков: одна строка на захват или забег. Очки сезона игрока — сумма его
+/// строк лиги и сезона; «очки → 0» при смене сезона (§3.4) — это просто новый номер сезона, старые строки остаются
+/// историей. Откат захвата стирает его строку.
+/// </summary>
+/// <remarks>
+/// Приватность (§3.16): чужие видят начисление только с <see cref="VisibleAt"/> — у захвата это граница публичности его
+/// применения (как карта, <c>TerritoryReader.PublicAt</c>): иначе рейтинг выдал бы свежий захват раньше карты, а бонусы за
+/// вражескую землю — ещё скрытый чужой захват. Читать только через <c>ScoreBook</c>.
+/// </remarks>
+public sealed class ScoreEventEntity
+{
+    public long Id { get; set; }
+
+    public Guid UserId { get; set; }
+
+    public League League { get; set; }
+
+    /// <summary>Номер сезона по <see cref="EffectiveAt"/>; <c>null</c> — вне сезонов (предсезонье, полевые тесты).</summary>
+    public int? Season { get; set; }
+
+    /// <summary>Игровые сутки по Минску (по <see cref="EffectiveAt"/>) — для ступеней суток и суточного потолка дистанции.</summary>
+    public DateOnly GameDay { get; set; }
+
+    public ScoreKind Kind { get; set; }
+
+    public int Points { get; set; }
+
+    /// <summary>
+    /// Основа начисления: у захвата — зачётные сотки после ступеней захвата (их сумма за сутки двигает ступени суток), у
+    /// дистанции — засчитанные метры (их сумма за сутки упирается в потолок 20 км).
+    /// </summary>
+    public double Basis { get; set; }
+
+    /// <summary>Захват, за который начислено (у <see cref="ScoreKind.Capture"/>).</summary>
+    public Guid? CaptureId { get; set; }
+
+    /// <summary>Забег: у захвата — его забег, у дистанции — сам забег.</summary>
+    public Guid? RunId { get; set; }
+
+    /// <summary>
+    /// К какому моменту относится начисление: у захвата — время петли (§3.4: «петля относится к сезону по времени
+    /// замыкания, а не обработки»), у дистанции — начало забега по часам сервера (как сезонный туман).
+    /// </summary>
+    public DateTimeOffset EffectiveAt { get; set; }
+
+    /// <summary>С какого момента начисление видят другие (рейтинги, срез, «Мои данные»).</summary>
+    public DateTimeOffset VisibleAt { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
 }

@@ -71,6 +71,7 @@ public static class CaptureJournal
         SiegeUntil = piece.State.SiegeUntil,
         LossWindowSince = piece.State.LossWindowSince,
         LossAttackers = [.. piece.State.LossAttackers.Ids],
+        TouchedAt = piece.State.TouchedAt,
         Geometry = Encode(piece.Geometry),
     };
 
@@ -84,6 +85,7 @@ public static class CaptureJournal
         SiegeUntil = p.SiegeUntil,
         LossWindowSince = p.LossWindowSince,
         LossAttackers = AttackerSet.Of(p.LossAttackers),
+        TouchedAt = p.TouchedAt,
     };
 
     /// <summary>Геометрия журнала в TWKB. Вершина не на сетке — ошибка движка: захват повторится, потом «не удалось».</summary>

@@ -20,6 +20,24 @@ public sealed class SeasonStore(AppDbContext db)
         var rows = await db.Seasons.AsNoTracking().OrderBy(s => s.Number).ToListAsync(cancellationToken);
         return new SeasonCalendar(rows.Select(s => new Season(s.Number, s.Name, s.StartsAt)));
     }
+
+    /// <summary>
+    /// Идущий сезон, если смена на него уже выполнена (<see cref="SeasonEntity.ResetAt"/>); <c>null</c> — сезоны не начались
+    /// или смена ещё впереди. Петля или визит со временем раньше его начала опоздали к смене (<c>SeasonReset.Late</c>).
+    /// </summary>
+    /// <remarks>
+    /// Читать под блокировками тайлов: смена сезона берёт блокировки всех тайлов с землёй и ставит отметку в той же
+    /// транзакции, поэтому, пока они держатся, ответ не устареет — смена либо уже закоммичена, либо ждёт их и сбросит
+    /// итог сама.
+    /// </remarks>
+    public async Task<SeasonEntity?> ResetSeasonAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var running = await db.Seasons.AsNoTracking()
+            .Where(s => s.StartsAt <= now)
+            .OrderByDescending(s => s.StartsAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        return running?.ResetAt is null ? null : running;
+    }
 }
 
 public static class SeasonEndpoints

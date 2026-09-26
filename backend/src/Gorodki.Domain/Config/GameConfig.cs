@@ -21,6 +21,9 @@ public sealed record GameConfig
 
     public PrivacyConfig Privacy { get; init; } = new();
 
+    /// <summary>Очки сезона (§3.5). Раздел добавлен до первого выпуска — версия 1, как и остальные числа.</summary>
+    public ScoringConfig Scoring { get; init; } = new();
+
     /// <summary>Набор конвейера OSM (маски захвата); без набора — как раньше.</summary>
     public OsmConfig Osm { get; init; } = new();
 

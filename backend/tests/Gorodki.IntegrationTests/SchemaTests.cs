@@ -42,7 +42,7 @@ public sealed class SchemaTests(DatabaseFixture database)
 
         // Порядок — побайтный, а не по правилам сортировки базы: у «district_tiles» и «districts» он от них зависит.
         Assert.Equal(
-            ["capture_journal", "capture_journal_pieces", "capture_rollbacks", "captures", "contested_zones", "district_tiles", "districts", "ef_migrations_history", "fog_tiles", "game_configs", "invites", "land_zones", "leaderboard_snapshots", "masks", "osm_sets", "parcels", "privacy_zones", "reachable_tiles", "refresh_tokens", "run_chunks", "runs", "seasons", "tile_versions", "users"],
+            ["capture_journal", "capture_journal_pieces", "capture_rollbacks", "captures", "contested_zones", "district_tiles", "districts", "ef_migrations_history", "fog_tiles", "game_configs", "invites", "land_zones", "leaderboard_snapshots", "masks", "osm_sets", "parcels", "privacy_zones", "reachable_tiles", "refresh_tokens", "run_chunks", "runs", "score_events", "seasons", "tile_versions", "users"],
             tables.Order(StringComparer.Ordinal));
     }
 

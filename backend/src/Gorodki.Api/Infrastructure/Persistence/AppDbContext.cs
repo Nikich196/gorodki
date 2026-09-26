@@ -63,6 +63,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<LandZoneEntity> LandZones => Set<LandZoneEntity>();
 
+    public DbSet<ScoreEventEntity> ScoreEvents => Set<ScoreEventEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -330,8 +332,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             });
 
             // Даты — из плана (PLAN.md, §3.4): С0 16–29.11 (бета), С1 30.11–13.12, С2 14.12 → показ. Полночь по Минску.
+            // Сезон 0 стартует с чистой карты (§3.4; #30, п. 3): земля полевых тестов стирается.
             season.HasData(
-                new SeasonEntity { Number = 0, Name = "Сезон 0 (бета)", StartsAt = new DateTimeOffset(2026, 11, 15, 21, 0, 0, TimeSpan.Zero) },
+                new SeasonEntity { Number = 0, Name = "Сезон 0 (бета)", StartsAt = new DateTimeOffset(2026, 11, 15, 21, 0, 0, TimeSpan.Zero), CleanStart = true },
                 new SeasonEntity { Number = 1, Name = "Сезон 1", StartsAt = new DateTimeOffset(2026, 11, 29, 21, 0, 0, TimeSpan.Zero) },
                 new SeasonEntity { Number = 2, Name = "Сезон 2", StartsAt = new DateTimeOffset(2026, 12, 13, 21, 0, 0, TimeSpan.Zero) });
         });
@@ -357,6 +360,29 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
 
         ConfigureOsm(model);
+
+        model.Entity<ScoreEventEntity>(score =>
+        {
+            score.HasKey(e => e.Id);
+            score.Property(e => e.Id).UseIdentityAlwaysColumn();
+            score.HasOne<UserEntity>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            // Захват уходит (удаление аккаунта) — его начисление с ним; откат стирает начисление явно (CaptureRollback).
+            score.HasOne<CaptureEntity>().WithMany().HasForeignKey(e => e.CaptureId).OnDelete(DeleteBehavior.Cascade);
+            score.HasOne<RunEntity>().WithMany().HasForeignKey(e => e.RunId).OnDelete(DeleteBehavior.Cascade);
+            // Одно начисление на захват и одно за дистанцию забега: повтор обработки не начислит дважды — это гарантирует база.
+            score.HasIndex(e => e.CaptureId).IsUnique().HasFilter("capture_id IS NOT NULL");
+            score.HasIndex(e => e.RunId).IsUnique().HasFilter("kind = 2").HasDatabaseName("ux_score_events_distance_per_run");
+            // Ступени суток и потолок дистанции — сумма за (игрок, лига, сутки, вид); рейтинги — (лига, сезон) с границей.
+            score.HasIndex(e => new { e.UserId, e.League, e.GameDay, e.Kind });
+            score.HasIndex(e => new { e.League, e.Season, e.VisibleAt });
+            score.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 2");
+                t.HasCheckConstraint("ck_score_events_capture", "kind <> 1 OR capture_id IS NOT NULL");
+                t.HasCheckConstraint("ck_score_events_distance", "kind <> 2 OR run_id IS NOT NULL");
+                t.HasCheckConstraint("ck_score_events_values", "points >= 0 AND basis >= 0");
+            });
+        });
 
         model.Entity<PrivacyZoneEntity>(zone =>
         {

@@ -108,6 +108,7 @@ if (withDatabase)
     builder.Services.AddScoped<CaptureRollback>();
     builder.Services.AddScoped<VisitProcessor>();
     builder.Services.AddScoped<SeasonStore>();
+    builder.Services.AddScoped<SeasonRollover>();
     builder.Services.AddScoped<FogProcessor>();
     builder.Services.AddScoped<FogHistory>();
     builder.Services.AddScoped<TerritoryReader>();

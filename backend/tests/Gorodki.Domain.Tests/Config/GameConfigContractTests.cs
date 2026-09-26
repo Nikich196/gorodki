@@ -80,6 +80,11 @@ public sealed class GameConfigContractTests
 
         // §7.2 — лимиты разрывов тумана.
         Assert.Equal((100.0, 200.0), (config.Exploration.MaxGapMeters.For(League.Run), config.Exploration.MaxGapMeters.For(League.Bike)));
+
+        // §3.5 — очки: ценность земли и дистанция. Ступени и бонусы план числом не называет — они предварительные.
+        Assert.Equal((1.0, 0.5, 2.0), (config.Scoring.LandValue.City, config.Scoring.LandValue.Rural, config.Scoring.LandValue.ArenaMultiplier));
+        Assert.Equal((10.0, 20.0), (config.Scoring.DistancePointsPerKm, config.Scoring.DistanceDailyCapKm));
+        Assert.Equal((1.0, 0.33), (config.Scoring.DistanceFactor.For(League.Run), config.Scoring.DistanceFactor.For(League.Bike)));
     }
 
     [Fact]
