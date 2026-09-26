@@ -55,6 +55,19 @@ public sealed record PipelineParams
     /// <summary>Id отношений-площадей, которые можно не собрать (с причиной), — только вне города.</summary>
     public IReadOnlyList<KnownBrokenRelation> KnownBrokenRelations { get; init; } = [];
 
+    /// <summary>
+    /// Id замкнутых путей темы площадей, которые можно не собрать в многоугольник (с причиной), — как
+    /// <see cref="KnownBrokenRelations"/>, но для путей.
+    /// </summary>
+    public IReadOnlyList<KnownBrokenWay> KnownBrokenWays { get; init; } = [];
+
+    /// <summary>
+    /// Разобранный непустой журнал ошибок темы площадей (<c>areas.errors.txt</c>): SHA-256 его содержимого и причина.
+    /// Совпал — журнал идёт в примечания, иначе непустой журнал — нарушение. Привязка к содержимому, а не просто
+    /// «разрешено»: новый журнал при пересборке снова требует разбора.
+    /// </summary>
+    public KnownErrorLog? KnownAreaErrors { get; init; }
+
     /// <summary>Арена и кварталы — «рецепт» (id зданий, улицы разреза, метки кварталов), а не геометрия.</summary>
     public ArenaRecipe? Arena { get; init; }
 
@@ -162,6 +175,12 @@ public sealed record MemorialParams
 
 /// <summary>Отношение, которое можно не собрать, и почему.</summary>
 public sealed record KnownBrokenRelation(long Id, string Reason);
+
+/// <summary>Замкнутый путь, который можно не собрать, и почему.</summary>
+public sealed record KnownBrokenWay(long Id, string Reason);
+
+/// <summary>Журнал ошибок osmium, который разобран и принят: SHA-256 содержимого (строчные hex) и почему он не страшен.</summary>
+public sealed record KnownErrorLog(string Sha256, string Reason);
 
 /// <summary>
 /// «Рецепт» Арены (вопрос 3): здания-якоря, радиус-ориентир, улицы разреза и метки кварталов. Геометрию строит конвейер.

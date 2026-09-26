@@ -128,5 +128,8 @@ public sealed class ThemesTests
         Assert.Empty(parameters.MajorRoads.SidewalkWayIds);
         Assert.Equal([3626404, 3626405], parameters.DistrictRelationIds); // 6.3: Ленинский и Московский
         Assert.Equal(0, parameters.MaskSimplifyMeters);
+        Assert.Empty(parameters.KnownBrokenRelations); // исключений из «все площади собраны» нет
+        Assert.Empty(parameters.KnownBrokenWays);
+        Assert.Null(parameters.KnownAreaErrors);
     }
 }

@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Gorodki.Domain.Geo;
+using Gorodki.Domain.Osm;
 
 namespace Gorodki.OsmPipeline;
 
@@ -12,11 +14,17 @@ namespace Gorodki.OsmPipeline;
 /// </summary>
 public static class Extract
 {
+    /// <summary>Тема площадей: из неё маски, пешеходные площади и земля ×0,5.</summary>
+    public const string AreasTheme = "areas";
+
+    /// <summary>Пути темы площадей в OPL (<c>osmium cat -t way</c>).</summary>
+    public const string WaysFile = "areas.ways.opl";
+
     /// <summary>Темы: файл и выражения <c>osmium tags-filter</c>.</summary>
     public static IReadOnlyList<(string Name, IReadOnlyList<string> Filters)> Themes(PipelineParams parameters) =>
     [
         ("lines", ["w/highway", "w/railway"]),
-        ("areas", [.. AreaRules(parameters).Select(Filter)]),
+        (AreasTheme, [.. AreaRules(parameters).Select(Filter)]),
         ("buildings", ["wr/building", "wr/amenity=university"]),
         ("memorials", ["nwr/historic", "nwr/memorial"]),
     ];
@@ -50,6 +58,11 @@ public static class Extract
             Export(osmium, themePbf, Path.Combine(work, name));
             var relations = Capture(osmium, "cat", themePbf, "-t", "relation", "-f", "opl");
             File.WriteAllText(Path.Combine(work, $"{name}.relations.opl"), relations);
+            if (name == AreasTheme)
+            {
+                // Замкнутые пути с тегами площадей — для сверки «каждый собран в многоугольник» (InputLoader.CheckClosedWays).
+                Osmium(osmium, "cat", themePbf, "-t", "way", "-f", "opl", "-O", "-o", Path.Combine(work, WaysFile));
+            }
         }
 
         var source = new SetSource
@@ -104,7 +117,10 @@ public static class Extract
     }
 }
 
-/// <summary>Чтение результата <see cref="Extract"/> в <see cref="OsmInput"/> и проверка «все отношения-площади собраны».</summary>
+/// <summary>
+/// Чтение результата <see cref="Extract"/> в <see cref="OsmInput"/> и проверка «все площади собраны»: отношения и замкнутые
+/// пути темы площадей сверяются по id, журнал ошибок osmium читается (osm-pipeline.md, «Проверка»).
+/// </summary>
 public static class InputLoader
 {
     public sealed record Loaded(OsmInput Input, SetSource Source, IReadOnlyList<string> Problems, IReadOnlyList<string> Notes);
@@ -127,6 +143,20 @@ public static class InputLoader
             }
 
             CheckRelations(name, work, exported, parameters, problems, notes);
+            if (name == Extract.AreasTheme)
+            {
+                var ways = Path.Combine(work, Extract.WaysFile);
+                if (File.Exists(ways))
+                {
+                    CheckClosedWays(File.ReadLines(ways), exported, parameters, problems, notes);
+                }
+                else
+                {
+                    problems.Add($"Нет {Extract.WaysFile}: папку собрал старый extract — запустите extract заново.");
+                }
+            }
+
+            CheckErrorLog(name, File.ReadAllText(Path.Combine(work, $"{name}.errors.txt")), parameters, problems, notes);
         }
 
         // getid -r тянет и вложенные отношения (области страны) — разбираем только нужные границы.
@@ -191,6 +221,138 @@ public static class InputLoader
                 problems.Add($"Тема {theme}: отношение-площадь r{id} не собралось в многоугольник (журнал: {theme}.errors.txt).");
             }
         }
+    }
+
+    /// <summary>
+    /// Каждый замкнутый путь темы площадей со своими тегами маски, пешеходной площади или земли ×0,5 (и без
+    /// <c>area=no</c>) есть в экспорте многоугольником с тем же id. osmium не собирает самопересекающееся кольцо
+    /// («восьмёрку»): пишет в журнал строку без id, выдаёт путь только линией и выходит с кодом 0, — а площади берут
+    /// только многоугольники, и маска пропала бы без единой ошибки. Не собран путь маски (вода, ж/д, военные, кладбища) —
+    /// нарушение; пешеходная площадь или земля ×0,5 — примечание: их потеря консервативна (нет лишней «достижимой»
+    /// площади, нет скидки ×0,5). Исключение — список <see cref="PipelineParams.KnownBrokenWays"/> с причиной.
+    /// Непомеченные пути-члены отношений, которые <c>tags-filter</c> тянет за отношениями, правилам не отвечают и в
+    /// сверку не идут.
+    /// </summary>
+    /// <param name="waysOpl">Строки <c>osmium cat -t way -f opl</c> темы площадей.</param>
+    /// <param name="exported">Объекты экспорта темы площадей.</param>
+    public static void CheckClosedWays(
+        IEnumerable<string> waysOpl, IEnumerable<OsmFeature> exported, PipelineParams parameters, List<string> problems, List<string> notes)
+    {
+        var assembled = exported.Where(f => f.Type == "way" && f.IsArea).Select(f => f.Id).ToHashSet();
+        var known = parameters.KnownBrokenWays.ToDictionary(w => w.Id, w => w.Reason);
+        var themes = new Themes(parameters);
+        foreach (var (id, tags, closed) in waysOpl.Where(line => line.Length > 0).Select(ParseOplWay).OrderBy(w => w.Id))
+        {
+            if (!closed || assembled.Contains(id) || tags.GetValueOrDefault("area") == "no")
+            {
+                continue;
+            }
+
+            // Как если бы путь собрался: те же правила тем, что у сборки, на пустом многоугольнике.
+            var asArea = new OsmFeature("way", id, tags, GeoOps.Factory.CreatePolygon());
+            var mask = themes.AreaMaskKind(asArea);
+            var what = mask is { } kind ? $"маска {OsmCodes.Of(kind)}"
+                : themes.IsPedestrianArea(asArea) ? "пешеходная площадь"
+                : themes.IsLowValueLand(asArea) ? "земля ×0,5"
+                : null;
+            if (what is null)
+            {
+                continue;
+            }
+
+            if (known.TryGetValue(id, out var reason))
+            {
+                notes.Add($"Тема {Extract.AreasTheme}: замкнутый путь w{id} ({what}) не собран — известно: {reason}.");
+            }
+            else if (mask is not null)
+            {
+                problems.Add($"Тема {Extract.AreasTheme}: замкнутый путь w{id} ({what}) не собрался в многоугольник — маски нет (журнал: {Extract.AreasTheme}.errors.txt).");
+            }
+            else
+            {
+                notes.Add($"Тема {Extract.AreasTheme}: замкнутый путь w{id} ({what}) не собрался в многоугольник — потеря консервативна.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Журнал <c>--show-errors</c> темы. Площади: непустой журнал — нарушение, если он не принят в параметрах
+    /// (<see cref="PipelineParams.KnownAreaErrors"/>, по SHA-256 содержимого). Это страховка сверх сверок id
+    /// (<see cref="CheckRelations"/>, <see cref="CheckClosedWays"/>): в osmium 1.19.1 строка журнала id объекта не
+    /// содержит, и по ней не понять, что именно не собралось. Здания и памятники — примечание: в маски они не идут. Пути
+    /// (<c>lines</c>) журнал не проверяют: самопересекающаяся замкнутая дорожка пишет ту же ошибку, а нужна ей только
+    /// линия. Границы сверяются по id при чтении.
+    /// </summary>
+    public static void CheckErrorLog(string theme, string log, PipelineParams parameters, List<string> problems, List<string> notes)
+    {
+        if (log.Trim().Length == 0 || theme == "lines")
+        {
+            return;
+        }
+
+        var lines = log.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+        var sha256 = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(log)));
+        var what = $"Тема {theme}: журнал osmium {theme}.errors.txt не пуст (строк: {lines}, SHA-256 {sha256})";
+        if (theme != Extract.AreasTheme)
+        {
+            notes.Add($"{what} — на маски не влияет.");
+        }
+        else if (parameters.KnownAreaErrors is { } accepted && string.Equals(accepted.Sha256, sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            notes.Add($"{what} — разобран: {accepted.Reason}.");
+        }
+        else
+        {
+            problems.Add($"{what}: какой-то многоугольник не собрался. Разобрать журнал; если маски не теряются — принять его в параметрах (knownAreaErrors: этот SHA-256 и причина).");
+        }
+    }
+
+    /// <summary>
+    /// Строка OPL пути: <c>w123 v1 … Tkey=value,key2=value2 Nn1,n2,n3,n1</c> → id, теги и замкнут ли путь (не меньше
+    /// четырёх ссылок, первая совпадает с последней: из меньшего кольца многоугольника не бывает).
+    /// </summary>
+    public static (long Id, IReadOnlyDictionary<string, string> Tags, bool Closed) ParseOplWay(string line)
+    {
+        var fields = line.Split(' ');
+        var id = long.Parse(fields[0].AsSpan(1), CultureInfo.InvariantCulture);
+        var tags = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in (fields.FirstOrDefault(f => f.StartsWith('T'))?[1..] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = pair.Split('=', 2);
+            if (kv.Length == 2)
+            {
+                tags[UnescapeOpl(kv[0])] = UnescapeOpl(kv[1]);
+            }
+        }
+
+        var nodes = (fields.FirstOrDefault(f => f.StartsWith('N'))?[1..] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+        return (id, tags, nodes.Length >= 4 && nodes[0] == nodes[^1]);
+    }
+
+    /// <summary>OPL экранирует пробел, запятую, «=», «@», «%» и прочее вне безопасного набора как <c>%hex%</c> (код Unicode).</summary>
+    private static string UnescapeOpl(string text)
+    {
+        if (!text.Contains('%', StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        var result = new StringBuilder(text.Length);
+        for (var i = 0; i < text.Length; i++)
+        {
+            var end = text[i] == '%' ? text.IndexOf('%', i + 1) : -1;
+            if (end > i + 1)
+            {
+                result.Append(char.ConvertFromUtf32(int.Parse(text.AsSpan(i + 1, end - i - 1), NumberStyles.HexNumber, CultureInfo.InvariantCulture)));
+                i = end;
+            }
+            else
+            {
+                result.Append(text[i]);
+            }
+        }
+
+        return result.ToString();
     }
 
     /// <summary>Строка OPL отношения: <c>r123 v1 … Tkey=value,key2=value2 M…</c> → id и значение тега <c>type</c>.</summary>
