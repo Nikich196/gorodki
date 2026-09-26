@@ -93,6 +93,7 @@
     }
 
     /// Сервер для фикстур: всё удаётся сразу, ничего не хранит.
+    @MainActor
     struct FixtureSettingsAccount: SettingsAccount {
         func setPublicProfile(_ enabled: Bool) async throws -> Bool { enabled }
         func clearExplorationHistory() async throws {}

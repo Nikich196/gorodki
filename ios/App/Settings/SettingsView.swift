@@ -19,6 +19,7 @@ protocol SettingsAccount {
 }
 
 /// Настоящие запросы: `AccountService`, забег — `RunController`, стирание — `AppDependencies`.
+@MainActor
 struct LiveSettingsAccount: SettingsAccount {
     let account: AccountService
 

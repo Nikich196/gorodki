@@ -14,6 +14,7 @@ import Testing
 @MainActor
 struct ProfileSettingsTests {
     /// Сервер «Настроек»: отвечает заданным или бросает ошибку; считает вызовы.
+    @MainActor
     final class FakeAccount: SettingsAccount {
         var publicProfileResult: Result<Bool, any Error> = .success(true)
         var clearError: (any Error)?
