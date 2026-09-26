@@ -3,7 +3,9 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +27,24 @@ public sealed record LeaderboardEntry(int Rank, string Name, double Hectares, bo
 public sealed record ExplorationLeaderboardResponse(
     string? Day, string Layer, int? Season, IReadOnlyList<LeaderboardEntry> Entries, LeaderboardEntry? Mine);
 
+/// <summary>Место в рейтинге территории.</summary>
+/// <param name="Name">Ник — только если игрок согласился показывать профиль, иначе «Игрок #1234».</param>
+/// <param name="Points">Очки сезона (SP): захваты, удержание, дистанция — только уже видимые всем начисления.</param>
+/// <param name="Me">Это сам спрашивающий.</param>
+public sealed record TerritoryLeaderboardEntry(int Rank, string Name, int Points, bool Me);
+
+/// <summary>Рейтинг территории — очки сезона по лиге, срез за сутки.</summary>
+/// <param name="Day">Игровые сутки среза (по Минску), <c>yyyy-MM-dd</c>; <c>null</c> — срезов ещё не было.</param>
+/// <param name="Season">Номер сезона: спрошенный или текущий; <c>null</c> — сезона нет (межсезонье) и номер не спрошен.</param>
+/// <param name="Final">
+/// Итог закрытого сезона (после 04:00 первого дня следующего). <c>false</c> — предварительно: сезон идёт, или очки его
+/// последних минут ещё не видны.
+/// </param>
+/// <param name="Entries">Первые места (до 50).</param>
+/// <param name="Mine">Своё место, даже если оно ниже первых; <c>null</c> — в срезе игрока нет.</param>
+public sealed record TerritoryLeaderboardResponse(
+    string? Day, League League, int? Season, bool Final, IReadOnlyList<TerritoryLeaderboardEntry> Entries, TerritoryLeaderboardEntry? Mine);
+
 /// <summary>
 /// Рейтинги (PLAN.md, §3.10: «кто открыл больше» — сезон и всё время, «Пешком / Вело / Всего», только числа; §3.5: по
 /// ежедневному снимку). Чужие карты исследования не показываются никогда — только площадь.
@@ -41,7 +61,37 @@ public static class LeaderboardEndpoints
             .WithSummary("Кто открыл больше: layer=foot|bike|total, season=номер (без него — за всё время); срез раз в сутки")
             .RequireRateLimiting(CaptureEndpoints.ReadRateLimitPolicy)
             .ProducesProblem(StatusCodes.Status400BadRequest);
+        app.MapGet("/leaderboards/territory", GetTerritory)
+            .WithName("getTerritoryLeaderboard")
+            .WithTags("Рейтинги")
+            .WithSummary("Рейтинг территории: очки сезона, league=run|bike, season=номер (без него — текущий); срез раз в сутки")
+            .WithDescription(
+                "Очки сезона (§3.5): захваты, удержание (срез в 00:00 по Минску) и дистанция — раздельно по лигам. Только уже "
+                + "видимые всем начисления: очки за захват появляются с той же границы публичности, что сам захват на карте. "
+                + "Ник — с согласия, иначе «Игрок #1234». Рейтинг прошлого сезона до 04:00 первого дня нового — предварительный "
+                + "(final = false), потом — итог. Неверная лига или сезон — 400 leaderboard_invalid.")
+            .RequireRateLimiting(CaptureEndpoints.ReadRateLimitPolicy)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
         return app;
+    }
+
+    private static Task<Results<Ok<TerritoryLeaderboardResponse>, ProblemHttpResult, UnauthorizedHttpResult>> GetTerritory(
+        string? league,
+        int? season,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        SeasonStore seasons,
+        TimeProvider time,
+        CancellationToken cancellationToken)
+    {
+        // ЗАДАЧА #TBD-E7 (Егор): копия GetExploration по доске LeaderboardBoard.Territory (новое значение перечисления):
+        // лига — run или bike (без неё — run), сезон — номер от 0 (без него — текущий: seasons.CalendarAsync(…).At(now)),
+        // иначе 400 leaderboard_invalid. Value среза — очки сезона (ScoreBook.SeasonTotalsAsync после записи удержания).
+        // Final — сезон закрыт: now ≥ ScoreBook.ClosesAt(календарь, сезон) и итоговый проход (ScoreBook.FinalTotalsAsync) уже
+        // сделан. Ник — как Entry в GetExploration. Сам срез — задача Hangfire в 00:00 (образец — LeaderboardSnapshots,
+        // egor-server.md, карточка E7). Тесты — TerritoryLeaderboardTests.
+        _ = (league, season, principal, db, seasons, time, cancellationToken);
+        throw new NotImplementedException("ЗАДАЧА #TBD-E7");
     }
 
     private static async Task<Results<Ok<ExplorationLeaderboardResponse>, ProblemHttpResult, UnauthorizedHttpResult>> GetExploration(
