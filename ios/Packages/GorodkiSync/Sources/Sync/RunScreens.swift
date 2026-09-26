@@ -737,3 +737,14 @@ public struct RunResultReadout: Equatable, Sendable {
         }
     }
 }
+
+extension CeremonyDecision {
+    /// Для экранов вне пакета (режим фикстур): решение по заявке `claimNo` забега `run`.
+    public init(run runId: UUID, claimNo: Int, applied: Bool, takenSquareMeters: Double, refusalCode: String?) {
+        self.runId = runId
+        self.claimNo = claimNo
+        self.applied = applied
+        self.takenSquareMeters = takenSquareMeters
+        self.refusalCode = refusalCode
+    }
+}

@@ -91,7 +91,7 @@
             case .hudCeremony:
                 var item = CeremonyItem(runId: runId, loop: claimedLoop)
                 item.decision = CeremonyDecision(
-                    runId: runId, claimNo: 0, applied: true, takenSquareMeters: loopSquareMeters, refusalCode: nil)
+                    run: runId, claimNo: 0, applied: true, takenSquareMeters: loopSquareMeters, refusalCode: nil)
                 model.present(runningState(), trail: trail, contours: contour, ceremony: item, ring: loop)
                 model.hudPresented = true
             case .hudCollapsed:
