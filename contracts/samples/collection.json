@@ -1,0 +1,22 @@
+{
+  "caches": [
+    {
+      "id": "7b6a5948-3726-4150-9e8d-7c6b5a493827",
+      "rarity": "epic",
+      "name": "Мост над Мухавцом",
+      "hint": "Там, где река делится надвое, а люди — нет.",
+      "foundAtMs": 1789827200000,
+      "finderNumber": 1,
+      "goldFrame": true
+    },
+    {
+      "id": "6a594837-2615-4f0e-8d7c-6b5a49382716",
+      "rarity": "legendary",
+      "name": null,
+      "hint": "Ищи там, где часы идут, а стрелки стоят.",
+      "foundAtMs": null,
+      "finderNumber": null,
+      "goldFrame": false
+    }
+  ]
+}

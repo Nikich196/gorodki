@@ -295,6 +295,55 @@
         }
       }
     },
+    "/leaderboards/territory": {
+      "get": {
+        "tags": [
+          "Рейтинги"
+        ],
+        "summary": "Рейтинг территории: очки сезона, league=run|bike, season=номер (без него — текущий); срез раз в сутки",
+        "description": "Очки сезона (§3.5): захваты, удержание (срез в 00:00 по Минску) и дистанция — раздельно по лигам. Только уже видимые всем начисления: очки за захват появляются с той же границы публичности, что сам захват на карте. Ник — с согласия, иначе «Игрок #1234». Рейтинг прошлого сезона до 04:00 первого дня нового — предварительный (final = false), потом — итог. Неверная лига или сезон — 400 leaderboard_invalid.",
+        "operationId": "getTerritoryLeaderboard",
+        "parameters": [
+          {
+            "name": "league",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "season",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerritoryLeaderboardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/players/{id}": {
       "get": {
         "tags": [
@@ -334,6 +383,118 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/me/weekly": {
+      "get": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Карточка недели: км, +га тумана, прирост «% Бреста», взятая площадь; week=yyyy-MM-dd (понедельник)",
+        "description": "Без week — последняя завершённая неделя (понедельник–воскресенье по Минску). week — не понедельник или в будущем — 400 weekly_invalid. Только свои числа.",
+        "operationId": "getWeeklyCard",
+        "parameters": [
+          {
+            "name": "week",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyCardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/streak": {
+      "get": {
+        "tags": [
+          "Профиль"
+        ],
+        "summary": "Своя серия: дней подряд с забегом, засчитан ли сегодняшний день, действует ли «Заморозка серии»",
+        "operationId": "getStreak",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreakResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/hall-of-fame": {
+      "get": {
+        "tags": [
+          "Рейтинги"
+        ],
+        "summary": "Зал славы: закрытые сезоны — топ-3 игроков по лигам и топ-клан",
+        "description": "Только закрытые сезоны: снимок делается один раз по итогу сезона (очки, видимые на момент закрытия — 04:00 первого дня следующего). Ник — с согласия игрока, иначе «Игрок #1234»; удалил аккаунт — строка остаётся без имени (playerId и name — null).",
+        "operationId": "getHallOfFame",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HallOfFameResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/collection": {
+      "get": {
+        "tags": [
+          "Коллекция"
+        ],
+        "summary": "Коллекция тайников: найденные значки и силуэты с подсказками — без координат",
+        "description": "Все тайники текущего сезона: найденный — название, дата, «№ N нашедших», золотая рамка первому; ненайденный — только редкость и подсказка-загадка, которая проясняется, когда открываешь туман рядом.",
+        "operationId": "getCollection",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
           }
         }
       }
@@ -1082,7 +1243,8 @@
         "tags": [
           "Исследование"
         ],
-        "summary": "Сколько открыто: клетки и площадь по слоям — за всё время и за текущий сезон",
+        "summary": "Сколько открыто: клетки, площадь и «% Бреста» по слоям — за всё время и за текущий сезон",
+        "description": "«% Бреста» и районов — от «достижимой» площади набора OSM (пешеходные пути с буфером 25 м в границах города минус маски); открытое вне неё идёт в гектары, но не в процент. Набора OSM нет — проценты null. Только свой туман.",
         "operationId": "getFogSummary",
         "responses": {
           "200": {
@@ -1097,10 +1259,1371 @@
           }
         }
       }
+    },
+    "/clans": {
+      "post": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Создать клан: название и, по желанию, оттенок; создатель — лидер",
+        "description": "Название 3–24 символа (буквы, цифры, пробел, дефис), уникально без учёта регистра, без мата — иначе 400 clan_name_invalid, занято — 409 clan_name_taken. Уже в клане — 409 clan_already_member; вышел или исключён меньше 72 ч назад — 409 clan_join_cooldown. Оттенок не 0–11 — 400 clan_hue_invalid; занят, хотя свободные есть, — 409 clan_hue_taken.",
+        "operationId": "createClan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clans/mine": {
+      "get": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Свой клан; не в клане — когда можно вступить",
+        "operationId": "getMyClan",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyClanResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/clans/hues": {
+      "get": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Свободные оттенки палитры кланов (для экрана создания)",
+        "operationId": "getClanHues",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClanHuesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clans/{id}": {
+      "get": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Карточка клана: название, оттенок, участники (ники — с их согласия)",
+        "description": "Код-приглашение — только лидеру и офицерам этого клана. Нет такого клана — 404 clan_not_found.",
+        "operationId": "getClan",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClanResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clans/join": {
+      "post": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Вступить в клан по коду-приглашению",
+        "description": "Нет такого кода — 404 clan_code_invalid; в клане уже 12 — 409 clan_full; уже в клане — 409 clan_already_member; вышел или исключён меньше 72 ч назад — 409 clan_join_cooldown.",
+        "operationId": "joinClan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinClanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClanResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clans/mine/leave": {
+      "post": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Выйти из клана; 72 ч потом нельзя вступить в другой",
+        "description": "Земля остаётся у игрока (она личная). Вышел лидер — лидерство переходит офицеру, иначе самому давнему участнику. Не в клане — 404 clan_not_member.",
+        "operationId": "leaveClan",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clans/mine/members/{userId}": {
+      "delete": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Исключить участника (лидер — любого, офицер — рядового)",
+        "description": "Исключённому 72 ч нельзя вступить в другой клан, земля остаётся у него. Такого участника в своём клане нет — 404 clan_member_not_found; не хватает прав — 403 clan_forbidden.",
+        "operationId": "removeClanMember",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clans/mine/members/{userId}/role": {
+      "put": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Назначить офицером или снять (только лидер; офицеров не больше 2)",
+        "description": "Роль — officer или member (иначе 400 clan_role_invalid). Офицеров уже 2 — 409 clan_officer_limit. Не лидер — 403 clan_forbidden; такого участника в своём клане нет — 404 clan_member_not_found.",
+        "operationId": "setClanMemberRole",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClanRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clans/mine/name": {
+      "put": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Переименовать клан (только лидер, раз в сезон)",
+        "description": "Правила названия — как при создании (400 clan_name_invalid, 409 clan_name_taken). Уже переименовывали в этом сезоне — 409 clan_rename_limit; не лидер — 403 clan_forbidden.",
+        "operationId": "renameClan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameClanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clans/mine/code": {
+      "post": {
+        "tags": [
+          "Кланы"
+        ],
+        "summary": "Новый код-приглашение (лидер или офицер); старый перестаёт действовать",
+        "operationId": "newClanCode",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClanResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inbox": {
+      "get": {
+        "tags": [
+          "Входящие"
+        ],
+        "summary": "Входящие: свои события, новые сверху, по 50; cursor — из nextCursor прошлой страницы",
+        "description": "Только события, которые уже можно показать: о чужом захвате твоей земли — не раньше, чем его покажет карта (граница публичности). Без координат — только текст. Битый курсор — 400 inbox_cursor_invalid.",
+        "operationId": "getInbox",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inbox/read": {
+      "post": {
+        "tags": [
+          "Входящие"
+        ],
+        "summary": "Отметить прочитанными все события не новее upToAtMs",
+        "operationId": "markInboxRead",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboxReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/me/inventory": {
+      "get": {
+        "tags": [
+          "Рюкзак"
+        ],
+        "summary": "Рюкзак: фишки, сроки, что активировано",
+        "operationId": "getInventory",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/me/inventory/{id}/activate": {
+      "post": {
+        "tags": [
+          "Рюкзак"
+        ],
+        "summary": "Активировать фишку — только вне забега (стоя или перед «Стартом»)",
+        "description": "Идёт забег — 409 run_active; фишка истекла — 409 item_expired; уже активирована — 409 item_active. Нет такой фишки у игрока — 404 item_not_found. Ответ — фишка после активации.",
+        "operationId": "activateItem",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends": {
+      "get": {
+        "tags": [
+          "Друзья"
+        ],
+        "summary": "Друзья, входящие и исходящие заявки и свой код для QR",
+        "operationId": "listFriends",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Друзья"
+        ],
+        "summary": "Добавить по коду: заявка; если он уже добавил меня — сразу друзья",
+        "description": "Нет такого кода (или игрок заблокировал тебя) — 404 friend_code_invalid: блокировка так не выдаёт себя. Свой код — 400 friend_self. Ответ — игрок со статусом outgoing или friend.",
+        "operationId": "addFriend",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddFriendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/{id}/accept": {
+      "post": {
+        "tags": [
+          "Друзья"
+        ],
+        "summary": "Принять входящую заявку",
+        "description": "Заявки от этого игрока нет — 404 friend_request_not_found.",
+        "operationId": "acceptFriend",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/{id}": {
+      "delete": {
+        "tags": [
+          "Друзья"
+        ],
+        "summary": "Удалить из друзей, отклонить или отозвать заявку",
+        "description": "Ни дружбы, ни заявки с этим игроком нет — 404 friend_not_found.",
+        "operationId": "removeFriend",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/feed": {
+      "get": {
+        "tags": [
+          "Лента"
+        ],
+        "summary": "Лента: scope=friends (друзья и клан, по умолчанию) или all; по 30, cursor — из nextCursor",
+        "description": "Только посты, ставшие публичными (захват — с той же границы, что на карте). Посты заблокированных и заблокировавших не видны. Неверный scope или курсор — 400 feed_invalid.",
+        "operationId": "getFeed",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/feed/{id}/respect": {
+      "post": {
+        "tags": [
+          "Лента"
+        ],
+        "summary": "Поставить респект (повтор ничего не меняет)",
+        "description": "Поста нет или он тебе не виден (ещё до границы публичности, блокировка) — 404 post_not_found.",
+        "operationId": "respectPost",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/feed/{id}/report": {
+      "post": {
+        "tags": [
+          "Лента"
+        ],
+        "summary": "Пожаловаться на пост — его посмотрит админ",
+        "description": "Поста нет или он тебе не виден — 404 post_not_found; причина длиннее 200 — 400 report_invalid.",
+        "operationId": "reportPost",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportPostRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/blocks": {
+      "get": {
+        "tags": [
+          "Лента"
+        ],
+        "summary": "Кого я заблокировал",
+        "operationId": "listBlocks",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlayerResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/blocks/{id}": {
+      "put": {
+        "tags": [
+          "Лента"
+        ],
+        "summary": "Заблокировать игрока: его посты не видны, дружба и заявки с ним снимаются",
+        "description": "Себя — 400 block_self. Повтор ничего не меняет.",
+        "operationId": "blockPlayer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Лента"
+        ],
+        "summary": "Снять блокировку (повтор ничего не меняет)",
+        "operationId": "unblockPlayer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/segments": {
+      "get": {
+        "tags": [
+          "Короли участков"
+        ],
+        "summary": "Отрезки «Королей участков» с короной сезона; league=run|bike (без него — run)",
+        "description": "Неверная лига — 400 segments_invalid.",
+        "operationId": "listSegments",
+        "parameters": [
+          {
+            "name": "league",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/segments/{id}": {
+      "get": {
+        "tags": [
+          "Короли участков"
+        ],
+        "summary": "Отрезок: линия, короны сезона и всего времени, «Местная легенда», своё лучшее время; league=run|bike",
+        "description": "Нет такого отрезка — 404 segment_not_found; неверная лига — 400 segments_invalid.",
+        "operationId": "getSegment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "league",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/segments/{id}/leaderboard": {
+      "get": {
+        "tags": [
+          "Короли участков"
+        ],
+        "summary": "Таблица отрезка: лучшие времена; league=run|bike, season=номер (без него — за всё время)",
+        "description": "Нет такого отрезка — 404 segment_not_found; неверная лига или сезон — 400 segments_invalid.",
+        "operationId": "getSegmentLeaderboard",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "league",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "season",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentLeaderboardResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/duels": {
+      "get": {
+        "tags": [
+          "Дуэли"
+        ],
+        "summary": "Свои дуэли: вызовы, идущие и законченные за 30 дней",
+        "operationId": "listDuels",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DuelsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Дуэли"
+        ],
+        "summary": "Вызвать друга на дуэль",
+        "description": "Не взаимный друг — 404 duel_opponent_not_found; неверные срок, лига или метрика, нет отрезка у segmentTime — 400 duel_invalid; аккаунт моложе 48 ч — 409 duel_account_too_new; уже 2 активных — 409 duel_limit; с этим соперником уже была дуэль на этой неделе — 409 duel_pair_week; фишки на кон нет или она активирована — 409 duel_stake_invalid.",
+        "operationId": "createDuel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDuelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DuelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/duels/{id}": {
+      "get": {
+        "tags": [
+          "Дуэли"
+        ],
+        "summary": "Дуэль с живым счётом (счёт — по границе публичности, как видит посторонний)",
+        "description": "Не своя или нет такой — 404 duel_not_found.",
+        "operationId": "getDuel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DuelResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/duels/{id}/accept": {
+      "post": {
+        "tags": [
+          "Дуэли"
+        ],
+        "summary": "Принять вызов (по желанию — со своей фишкой на кон)",
+        "description": "Вызов не тебе или уже не ждёт ответа — 404 duel_not_found; лимиты — как при вызове (409 duel_limit, duel_account_too_new, duel_stake_invalid).",
+        "operationId": "acceptDuel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptDuelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DuelResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/duels/{id}/decline": {
+      "post": {
+        "tags": [
+          "Дуэли"
+        ],
+        "summary": "Отказаться от вызова",
+        "description": "Вызов не тебе или уже не ждёт ответа — 404 duel_not_found.",
+        "operationId": "declineDuel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AcceptDuelRequest": {
+        "type": "object",
+        "properties": {
+          "stakeItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "AccountDeletionResponse": {
         "required": [
           "requestedAtMs",
@@ -1189,6 +2712,70 @@
             "items": {
               "$ref": "#/components/schemas/ExportScore"
             }
+          }
+        }
+      },
+      "AddFriendRequest": {
+        "required": [
+          "code"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "BadgeRarity": {
+        "enum": [
+          "common",
+          "rare",
+          "epic",
+          "legendary"
+        ],
+        "type": "string"
+      },
+      "CacheBadgeResponse": {
+        "required": [
+          "id",
+          "rarity",
+          "hint",
+          "goldFrame"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rarity": {
+            "$ref": "#/components/schemas/BadgeRarity"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "foundAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "finderNumber": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "goldFrame": {
+            "type": "boolean"
           }
         }
       },
@@ -1398,6 +2985,124 @@
           }
         }
       },
+      "ClanHuesResponse": {
+        "required": [
+          "free"
+        ],
+        "type": "object",
+        "properties": {
+          "free": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        }
+      },
+      "ClanMemberResponse": {
+        "required": [
+          "playerId",
+          "name",
+          "colorIndex",
+          "role",
+          "me"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "colorIndex": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ClanRole"
+          },
+          "me": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ClanResponse": {
+        "required": [
+          "id",
+          "name",
+          "hue",
+          "full",
+          "members"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hue": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "full": {
+            "type": "boolean"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClanMemberResponse"
+            }
+          },
+          "myRole": {
+            "$ref": "#/components/schemas/ClanRole"
+          },
+          "inviteCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ClanRole": {
+        "enum": [
+          "member",
+          "officer",
+          "leader"
+        ],
+        "type": "string"
+      },
+      "ClanRoleRequest": {
+        "required": [
+          "role"
+        ],
+        "type": "object",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ClanRole"
+          }
+        }
+      },
+      "CollectionResponse": {
+        "required": [
+          "caches"
+        ],
+        "type": "object",
+        "properties": {
+          "caches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CacheBadgeResponse"
+            }
+          }
+        }
+      },
       "ConfigResponse": {
         "required": [
           "version",
@@ -1449,6 +3154,229 @@
             }
           }
         }
+      },
+      "CreateClanRequest": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "hue": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CreateDuelRequest": {
+        "required": [
+          "opponentId",
+          "league",
+          "metric",
+          "days"
+        ],
+        "type": "object",
+        "properties": {
+          "opponentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/DuelMetric"
+          },
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "segmentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "stakeItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "DistrictKind": {
+        "enum": [
+          "city",
+          "district",
+          "arena",
+          "quarter"
+        ],
+        "type": "string"
+      },
+      "DistrictPercent": {
+        "required": [
+          "key",
+          "name",
+          "kind",
+          "proposal",
+          "percent"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DistrictKind"
+          },
+          "proposal": {
+            "type": "boolean"
+          },
+          "percent": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "DuelMetric": {
+        "enum": [
+          "capturedArea",
+          "exploredArea",
+          "distance",
+          "segmentTime"
+        ],
+        "type": "string"
+      },
+      "DuelResponse": {
+        "required": [
+          "id",
+          "status",
+          "league",
+          "metric",
+          "days",
+          "me",
+          "opponent"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DuelStatus"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/DuelMetric"
+          },
+          "segmentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "me": {
+            "$ref": "#/components/schemas/DuelSide"
+          },
+          "opponent": {
+            "$ref": "#/components/schemas/DuelSide"
+          },
+          "startsAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "endsAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "winnerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "DuelSide": {
+        "required": [
+          "playerId",
+          "name",
+          "colorIndex",
+          "staked"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "colorIndex": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "score": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "staked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DuelsResponse": {
+        "required": [
+          "duels"
+        ],
+        "type": "object",
+        "properties": {
+          "duels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DuelResponse"
+            }
+          }
+        }
+      },
+      "DuelStatus": {
+        "enum": [
+          "pending",
+          "active",
+          "finished",
+          "declined"
+        ],
+        "type": "string"
       },
       "ExplorationConfig": {
         "required": [
@@ -1913,6 +3841,98 @@
           }
         }
       },
+      "FeedPost": {
+        "required": [
+          "id",
+          "authorId",
+          "authorName",
+          "authorColorIndex",
+          "kind",
+          "league",
+          "day",
+          "respects",
+          "respectedByMe",
+          "mine"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "authorColorIndex": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FeedPostKind"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "day": {
+            "type": "string"
+          },
+          "distanceMeters": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "capturedSquareMeters": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "respects": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "respectedByMe": {
+            "type": "boolean"
+          },
+          "mine": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FeedPostKind": {
+        "enum": [
+          "capture",
+          "run"
+        ],
+        "type": "string"
+      },
+      "FeedResponse": {
+        "required": [
+          "posts"
+        ],
+        "type": "object",
+        "properties": {
+          "posts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedPost"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "FinishRunRequest": {
         "required": [
           "endedAtMs",
@@ -1972,6 +3992,22 @@
           "areaSquareMeters": {
             "type": "number",
             "format": "double"
+          },
+          "brestPercent": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "districts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DistrictPercent"
+            }
           }
         }
       },
@@ -2018,6 +4054,13 @@
             "items": {
               "$ref": "#/components/schemas/FogLayerSummary"
             }
+          },
+          "osmSetVersion": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -2053,6 +4096,57 @@
             "format": "byte"
           }
         }
+      },
+      "FriendResponse": {
+        "required": [
+          "playerId",
+          "name",
+          "colorIndex",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "colorIndex": {
+            "type": "integer",
+            "format": "int16"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FriendStatus"
+          }
+        }
+      },
+      "FriendsResponse": {
+        "required": [
+          "myCode",
+          "friends"
+        ],
+        "type": "object",
+        "properties": {
+          "myCode": {
+            "type": "string"
+          },
+          "friends": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FriendResponse"
+            }
+          }
+        }
+      },
+      "FriendStatus": {
+        "enum": [
+          "friend",
+          "incoming",
+          "outgoing"
+        ],
+        "type": "string"
       },
       "GameConfig": {
         "required": [
@@ -2117,6 +4211,99 @@
           }
         }
       },
+      "HallOfFameEntry": {
+        "required": [
+          "kind",
+          "league",
+          "place",
+          "value",
+          "me"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/HallOfFameKind"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "place": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "playerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "clanId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "value": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "me": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HallOfFameKind": {
+        "enum": [
+          "player",
+          "clan"
+        ],
+        "type": "string"
+      },
+      "HallOfFameResponse": {
+        "required": [
+          "seasons"
+        ],
+        "type": "object",
+        "properties": {
+          "seasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HallOfFameSeason"
+            }
+          }
+        }
+      },
+      "HallOfFameSeason": {
+        "required": [
+          "season",
+          "name",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HallOfFameEntry"
+            }
+          }
+        }
+      },
       "HealthResponse": {
         "required": [
           "status",
@@ -2145,6 +4332,161 @@
           "gameDay": {
             "type": "string",
             "format": "date"
+          }
+        }
+      },
+      "InboxItem": {
+        "required": [
+          "id",
+          "kind",
+          "text",
+          "atMs",
+          "read"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InboxKind"
+          },
+          "text": {
+            "type": "string"
+          },
+          "atMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "read": {
+            "type": "boolean"
+          }
+        }
+      },
+      "InboxKind": {
+        "enum": [
+          "attack",
+          "dethroned",
+          "duel",
+          "raid",
+          "seasonEnd",
+          "decay",
+          "streak"
+        ],
+        "type": "string"
+      },
+      "InboxReadRequest": {
+        "required": [
+          "upToAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "upToAtMs": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "InboxResponse": {
+        "required": [
+          "items",
+          "unread"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InboxItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "unread": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "InventoryItemResponse": {
+        "required": [
+          "id",
+          "kind",
+          "receivedAtMs",
+          "expiresAtMs",
+          "active"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "receivedAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expiresAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "remainingMeters": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "InventoryResponse": {
+        "required": [
+          "slots",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "slots": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventoryItemResponse"
+            }
+          }
+        }
+      },
+      "ItemKind": {
+        "enum": [
+          "magnet",
+          "radar",
+          "compass",
+          "streakFreeze",
+          "chest"
+        ],
+        "type": "string"
+      },
+      "JoinClanRequest": {
+        "required": [
+          "code"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
           }
         }
       },
@@ -2421,6 +4763,21 @@
           },
           "activity": {
             "$ref": "#/components/schemas/MotionActivity"
+          }
+        }
+      },
+      "MyClanResponse": {
+        "type": "object",
+        "properties": {
+          "clan": {
+            "$ref": "#/components/schemas/ClanResponse"
+          },
+          "canJoinAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -2730,6 +5087,28 @@
           }
         }
       },
+      "RenameClanRequest": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ReportPostRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "RunResponse": {
         "required": [
           "id",
@@ -2856,6 +5235,8 @@
           "dailyTiers",
           "enemyLandBonus",
           "levelRemovedBonus",
+          "holdTiers",
+          "holdCapSotki",
           "landValue",
           "distancePointsPerKm",
           "distanceDailyCapKm",
@@ -2884,6 +5265,16 @@
             "format": "double"
           },
           "levelRemovedBonus": {
+            "type": "number",
+            "format": "double"
+          },
+          "holdTiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreTier"
+            }
+          },
+          "holdCapSotki": {
             "type": "number",
             "format": "double"
           },
@@ -2949,6 +5340,175 @@
               "integer"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "SegmentEntry": {
+        "required": [
+          "rank",
+          "name",
+          "timeMs",
+          "me"
+        ],
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "timeMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "me": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SegmentLeaderboardResponse": {
+        "required": [
+          "segmentId",
+          "league",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "segmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "season": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentEntry"
+            }
+          },
+          "mine": {
+            "$ref": "#/components/schemas/SegmentEntry"
+          }
+        }
+      },
+      "SegmentLegend": {
+        "required": [
+          "name",
+          "efforts",
+          "me"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "efforts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "me": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SegmentListResponse": {
+        "required": [
+          "league",
+          "segments"
+        ],
+        "type": "object",
+        "properties": {
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentSummary"
+            }
+          }
+        }
+      },
+      "SegmentResponse": {
+        "required": [
+          "id",
+          "name",
+          "lengthMeters",
+          "line",
+          "league"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "lengthMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "line": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "seasonCrown": {
+            "$ref": "#/components/schemas/SegmentEntry"
+          },
+          "allTimeCrown": {
+            "$ref": "#/components/schemas/SegmentEntry"
+          },
+          "legend": {
+            "$ref": "#/components/schemas/SegmentLegend"
+          },
+          "myBestTimeMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "SegmentSummary": {
+        "required": [
+          "id",
+          "name",
+          "lengthMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "lengthMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "seasonCrown": {
+            "$ref": "#/components/schemas/SegmentEntry"
           }
         }
       },
@@ -3082,6 +5642,26 @@
           }
         }
       },
+      "StreakResponse": {
+        "required": [
+          "days",
+          "todayCounted",
+          "freezeActive"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "todayCounted": {
+            "type": "boolean"
+          },
+          "freezeActive": {
+            "type": "boolean"
+          }
+        }
+      },
       "TerritoryConfig": {
         "required": [
           "maxLevel",
@@ -3150,6 +5730,69 @@
           "contestedHours": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "TerritoryLeaderboardEntry": {
+        "required": [
+          "rank",
+          "name",
+          "points",
+          "me"
+        ],
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "points": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "me": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TerritoryLeaderboardResponse": {
+        "required": [
+          "league",
+          "final",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "season": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "final": {
+            "type": "boolean"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TerritoryLeaderboardEntry"
+            }
+          },
+          "mine": {
+            "$ref": "#/components/schemas/TerritoryLeaderboardEntry"
           }
         }
       },
@@ -3345,6 +5988,39 @@
             "format": "double"
           }
         }
+      },
+      "WeeklyCardResponse": {
+        "required": [
+          "weekStart",
+          "distanceMeters",
+          "exploredSquareMeters",
+          "capturedSquareMeters"
+        ],
+        "type": "object",
+        "properties": {
+          "weekStart": {
+            "type": "string"
+          },
+          "distanceMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "exploredSquareMeters": {
+            "type": "number",
+            "format": "double"
+          },
+          "brestPercentGained": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "capturedSquareMeters": {
+            "type": "number",
+            "format": "double"
+          }
+        }
       }
     }
   },
@@ -3368,7 +6044,13 @@
       "name": "Исследование"
     },
     {
+      "name": "Рейтинги"
+    },
+    {
       "name": "Игроки"
+    },
+    {
+      "name": "Коллекция"
     },
     {
       "name": "Вход"
@@ -3378,6 +6060,27 @@
     },
     {
       "name": "Захваты"
+    },
+    {
+      "name": "Кланы"
+    },
+    {
+      "name": "Входящие"
+    },
+    {
+      "name": "Рюкзак"
+    },
+    {
+      "name": "Друзья"
+    },
+    {
+      "name": "Лента"
+    },
+    {
+      "name": "Короли участков"
+    },
+    {
+      "name": "Дуэли"
     }
   ]
 }

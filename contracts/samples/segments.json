@@ -1,0 +1,22 @@
+{
+  "league": "run",
+  "segments": [
+    {
+      "id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+      "name": "Набережная Мухавца",
+      "lengthMeters": 640.5,
+      "seasonCrown": {
+        "rank": 1,
+        "name": "Муха",
+        "timeMs": 71400,
+        "me": false
+      }
+    },
+    {
+      "id": "4d3c2b1a-0918-4e7d-a6c5-b4a392817060",
+      "name": "Аллея у БрГТУ",
+      "lengthMeters": 310,
+      "seasonCrown": null
+    }
+  ]
+}

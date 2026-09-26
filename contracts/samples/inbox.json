@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "id": "8d2f6a1c-3b7e-4c59-a0d4-e1f2b3c4d5e6",
+      "kind": "attack",
+      "text": "Часть твоей земли взяли — 0,4 га. Освежи её забегом.",
+      "atMs": 1790001500000,
+      "read": false
+    },
+    {
+      "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "kind": "streak",
+      "text": "Серия — 5 дней подряд! Не прерывай её завтра.",
+      "atMs": 1789913600000,
+      "read": true
+    }
+  ],
+  "nextCursor": "MTc5MDAwMTUwMDAwMDo4ZDJm",
+  "unread": 1
+}

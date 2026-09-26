@@ -1,0 +1,26 @@
+{
+  "day": "2026-11-20",
+  "league": "run",
+  "season": 0,
+  "final": false,
+  "entries": [
+    {
+      "rank": 1,
+      "name": "Муха",
+      "points": 1240,
+      "me": false
+    },
+    {
+      "rank": 2,
+      "name": "Игрок #4771",
+      "points": 980,
+      "me": false
+    }
+  ],
+  "mine": {
+    "rank": 17,
+    "name": "Бегун-1234",
+    "points": 215,
+    "me": true
+  }
+}

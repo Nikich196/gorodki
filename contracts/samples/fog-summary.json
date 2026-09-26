@@ -5,14 +5,41 @@
       "season": null,
       "tiles": 3,
       "cellCount": 1234,
-      "areaSquareMeters": 42580.5
+      "areaSquareMeters": 42580.5,
+      "brestPercent": 1.37,
+      "districts": [
+        {
+          "key": "leninsky",
+          "name": "Ленинский район",
+          "kind": "district",
+          "proposal": false,
+          "percent": 2.41
+        },
+        {
+          "key": "moskovsky",
+          "name": "Московский район",
+          "kind": "district",
+          "proposal": false,
+          "percent": 0.52
+        },
+        {
+          "key": "arena",
+          "name": "Арена БрГТУ",
+          "kind": "arena",
+          "proposal": true,
+          "percent": 18.9
+        }
+      ]
     },
     {
       "layer": "foot",
       "season": 0,
       "tiles": 1,
       "cellCount": 321,
-      "areaSquareMeters": 11074.9
+      "areaSquareMeters": 11074.9,
+      "brestPercent": 0.35,
+      "districts": []
     }
-  ]
+  ],
+  "osmSetVersion": 1
 }
