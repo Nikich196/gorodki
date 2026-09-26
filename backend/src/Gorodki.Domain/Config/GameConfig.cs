@@ -24,6 +24,9 @@ public sealed record GameConfig
     /// <summary>Очки сезона (§3.5). Раздел добавлен до первого выпуска — версия 1, как и остальные числа.</summary>
     public ScoringConfig Scoring { get; init; } = new();
 
+    /// <summary>Набор конвейера OSM (маски захвата); без набора — как раньше.</summary>
+    public OsmConfig Osm { get; init; } = new();
+
     public static GameConfig Default { get; } = new();
 
     /// <summary>Как конфиг хранится в базе и в контракте: имена в camelCase, как в API.</summary>
@@ -43,6 +46,17 @@ public sealed record GameConfig
 
     public static GameConfig FromJson(string json) =>
         JsonSerializer.Deserialize<GameConfig>(json, JsonOptions) ?? throw new JsonException("Пустой игровой конфиг.");
+}
+
+/// <summary>
+/// Набор конвейера OSM (docs/architecture/osm-pipeline.md, «Маски в обработке захвата»). Версия набора — в игровом конфиге:
+/// «забег проверяется той версией, с которой начат» (§3), поэтому петли забега, начатого до смены набора, судятся по старому
+/// набору, а повторная обработка даёт тот же результат.
+/// </summary>
+public sealed record OsmConfig
+{
+    /// <summary>Набор масок (<c>osm_sets.version</c>), по которому судятся захваты; <c>null</c> — масок нет (как до конвейера).</summary>
+    public int? SetVersion { get; init; }
 }
 
 /// <summary>Приватность по умолчанию (PLAN.md, §3.16).</summary>

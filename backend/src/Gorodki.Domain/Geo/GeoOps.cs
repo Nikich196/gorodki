@@ -207,6 +207,31 @@ public static class GeoOps
             EndCapStyle = EndCapStyle.Flat,
         }).IsEmpty;
 
+    /// <summary>
+    /// Полоса ширины 2·<paramref name="distance"/> вокруг линий (или запас вокруг многоугольника) с круглыми концами — на
+    /// сетке 0,1 м. Для конвейера OSM: маски ж/д и «магистралей», «достижимое» вокруг пешеходных путей.
+    /// </summary>
+    /// <remarks>
+    /// Буфер строится на копии без сетки (как в <see cref="IsNarrowerThan"/>: буфер NTS на сетке 0,1 м изредка молча теряет
+    /// результат, issue #113), потом переносится на сетку <see cref="Snap(Geometry)"/>. Дуги — ломаные:
+    /// <paramref name="quadrantSegments"/> отрезков на четверть окружности (в NTS по умолчанию 8), хорда отходит от дуги
+    /// не больше чем на r·(1 − cos(π/(4·q))) — для r = 25 м и q = 8 это ≈ 0,12 м.
+    /// </remarks>
+    public static Geometry Buffer(Geometry geometry, double distance, int quadrantSegments = 8)
+    {
+        var buffered = BufferOp.Buffer(Floating.CreateGeometry(geometry), distance, new BufferParameters
+        {
+            QuadrantSegments = quadrantSegments,
+            EndCapStyle = EndCapStyle.Round,
+            JoinStyle = JoinStyle.Round,
+        });
+        return Polygonal(Factory.CreateGeometry(Snap(buffered)));
+    }
+
+    /// <summary>Часть линии внутри области (граница — тоже внутри); сетка — как у <see cref="LineOutside"/>.</summary>
+    public static Geometry LineInside(Geometry line, Geometry area) =>
+        OverlayNG.Overlay(line, area, SpatialFunction.Intersection);
+
     /// <summary>Часть линии вне области.</summary>
     /// <remarks>
     /// Сетка здесь тоже есть: OverlayNG без явной точности берёт её у первой геометрии, а линии строятся через

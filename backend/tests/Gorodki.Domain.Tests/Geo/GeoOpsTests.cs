@@ -33,6 +33,29 @@ public sealed class GeoOpsTests
     }
 
     [Fact]
+    public void Buffer_is_on_the_grid_valid_and_has_round_ends()
+    {
+        var line = GeoOps.Factory.CreateLineString([new Coordinate(684_000.03, 5_774_000.07), new Coordinate(684_100.01, 5_774_000.02)]);
+
+        var buffer = GeoOps.Buffer(line, 10);
+
+        Assert.True(GeoOps.IsOnGrid(buffer));
+        Assert.True(buffer.IsValid);
+        // Полоса 100 × 20 и две половины круга радиусом 10; ломаная дуга (8 отрезков на четверть) чуть меньше круга.
+        Assert.InRange(buffer.Area, 2_000 + (Math.PI * 100 * 0.98), 2_000 + (Math.PI * 100));
+        Assert.True(GeoOps.Buffer(GeoOps.Factory.CreatePoint(new Coordinate(684_000, 5_774_000)), 50, 32).Area > Math.PI * 2_500 * 0.995);
+    }
+
+    [Fact]
+    public void Line_inside_an_area_is_the_clipped_line()
+    {
+        var line = GeoOps.Factory.CreateLineString([new Coordinate(0, 50), new Coordinate(300, 50)]);
+        var square = GeoOps.Factory.CreatePolygon([new Coordinate(100, 0), new Coordinate(200, 0), new Coordinate(200, 100), new Coordinate(100, 100), new Coordinate(100, 0)]);
+
+        Assert.Equal(100, GeoOps.LineInside(line, square).Length, 9);
+    }
+
+    [Fact]
     public void Bow_tie_is_split_into_two_faces()
     {
         var bowTie = GeoOps.Factory.CreateLineString(
@@ -194,8 +217,10 @@ public sealed class GeoOpsArchitectureTests
     [Fact]
     public void No_direct_overlay_calls_outside_GeoOps()
     {
-        var sourceRoot = Path.Combine(FindBackendRoot(), "src");
-        var offenders = Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories)
+        // Сервер и конвейер OSM: маски строятся тем же фасадом, что и участки, — на той же сетке (osm-pipeline.md).
+        var sourceRoot = FindBackendRoot();
+        var offenders = new[] { "src", Path.Combine("tools", "Gorodki.OsmPipeline") }
+            .SelectMany(folder => Directory.EnumerateFiles(Path.Combine(sourceRoot, folder), "*.cs", SearchOption.AllDirectories))
             .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
             .Where(path => Path.GetFileName(path) != "GeoOps.cs")
             .SelectMany(path => File.ReadLines(path)

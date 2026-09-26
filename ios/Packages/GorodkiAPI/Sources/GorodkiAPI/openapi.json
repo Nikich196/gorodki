@@ -2061,7 +2061,8 @@
           "leagues",
           "exploration",
           "privacy",
-          "scoring"
+          "scoring",
+          "osm"
         ],
         "type": "object",
         "properties": {
@@ -2082,6 +2083,9 @@
           },
           "scoring": {
             "$ref": "#/components/schemas/ScoringConfig"
+          },
+          "osm": {
+            "$ref": "#/components/schemas/OsmConfig"
           }
         }
       },
@@ -2453,6 +2457,18 @@
             "format": "double"
           },
           "explorationRank": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "OsmConfig": {
+        "type": "object",
+        "properties": {
+          "setVersion": {
             "type": [
               "null",
               "integer"

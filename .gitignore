@@ -80,3 +80,13 @@ docs/report/**/*.toc
 docs/report/**/*.synctex.gz
 docs/report/**/*.fdb_latexmk
 docs/report/**/*.fls
+
+# ── Конвейер OSM (docs/architecture/osm-pipeline.md) ─────
+# Выгрузки OSM, темы osmium и наборы osm-set-N — производные данные под ODbL: в git не коммитятся, набор публикуется
+# отдельным релизом (вопрос 5, А). Работать с ними — вне репозитория; эти строки — страховка.
+*.osm.pbf
+*.osm
+*.geojsonseq
+osm-set-*.zip
+# Карта preview (SVG-контуры из данных OSM): пишется туда, куда указал --out.
+osm-preview*.html
