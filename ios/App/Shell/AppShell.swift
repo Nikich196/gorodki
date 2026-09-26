@@ -27,7 +27,7 @@ struct AppShell: View {
                 ClanTab()
             }
             Tab("Профиль", systemImage: "person.crop.circle", value: AppTab.profile) {
-                ProfileTab(model: model.profile)
+                ProfileTab(model: model.profile, home: model.home, onFogCleared: { model.fogCleared() })
             }
         }
         .tint(Palette.uiInk.color)  // активная вкладка — нейтральная (tokens.md, §6, п. 3)
@@ -83,8 +83,8 @@ extension View {
     }
 }
 
-/// Состояние оболочки: выбранная вкладка, профиль (из него же цвет «Старта» и свой номер для карты), карта
-/// и экраны забега.
+/// Состояние оболочки: выбранная вкладка, профиль (из него же цвет «Старта» и свой номер для карты), карта,
+/// экраны забега и «Дом» (круг на карте, «Настройки → Дом»).
 @MainActor
 @Observable
 final class ShellModel {
@@ -92,20 +92,35 @@ final class ShellModel {
     let profile: ProfileModel
     let run: RunScreenModel
     let map: MapModel
+    let home: HomeModel
 
     /// - Parameters:
     ///   - run: `nil` — экраны забега без трекера (режим фикстур, тесты).
-    ///   - map: `nil` — карта без данных (экраны без сервера).
-    init(tab: AppTab = .map, profile: ProfileModel, run: RunScreenModel? = nil, map: MapModel? = nil) {
+    ///   - map: `nil` — карта без данных (экраны без сервера); свою карту «Дом» берёт отсюда же.
+    init(
+        tab: AppTab = .map, profile: ProfileModel, run: RunScreenModel? = nil, map: MapModel? = nil,
+        home: HomeModel? = nil
+    ) {
+        let home = home ?? map?.home ?? HomeModel()
         self.tab = tab
         self.profile = profile
         self.run = run ?? RunScreenModel(profile: profile)
-        self.map = map ?? MapModel(profile: profile)
+        self.map = map ?? MapModel(profile: profile, home: home)
+        self.home = home
+        self.map.home = home
     }
 
-    /// Оболочка приложения: забег — `RunController`, земля и туман карты — кэши `AppDependencies`.
+    /// Оболочка приложения: забег — `RunController`, земля и туман карты — кэши `AppDependencies`, «Дом» — файл.
     static func live() -> ShellModel {
         let profile = ProfileModel()
-        return ShellModel(profile: profile, run: .live(profile: profile), map: .live(profile: profile))
+        let home = HomeModel.live()
+        return ShellModel(
+            profile: profile, run: .live(profile: profile), map: .live(profile: profile, home: home), home: home)
+    }
+
+    /// История исследований очищена: карта перезапрашивает туман, профиль — сводку.
+    func fogCleared() {
+        map.fogCleared()
+        Task { await profile.refresh() }
     }
 }

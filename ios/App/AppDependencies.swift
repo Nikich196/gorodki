@@ -43,6 +43,8 @@ final class AppDependencies: Sendable {
     let exports: ExportFolder
     /// Запись для демо-повтора (`RunController`): одна, последняя, только на телефоне.
     let demoRecordingURL: URL?
+    /// Точка «Дом» — только на телефоне (PLAN.md, §3.10), `Application Support/home.json`.
+    let home = HomeStore.live()
     /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). В приложении — в базе
     /// GRDB (`GRDBSyncStore`): неотправленные забеги переживают выгрузку приложения и перезапуск телефона.
     let syncStore: any SyncStore
@@ -160,7 +162,7 @@ final class AppDependencies: Sendable {
     }
 
     /// Стереть всё, что телефон хранит об игроке (выход из аккаунта и его удаление, docs/architecture/ios-app.md): вход,
-    /// очередь синхронизации (с недоставленными забегами), землю и туман в памяти и на диске, правила, запись
+    /// очередь синхронизации (с недоставленными забегами), землю и туман в памяти и на диске, «Дом», правила, запись
     /// демо-повтора, историю забегов. Каждая часть стирается, даже если предыдущая не стёрлась. Выгрузки в «Файлах»
     /// (`Documents/Exports`) остаются: их игрок сохранил сам.
     /// - Throws: первую ошибку стирания — остальные части к этому времени уже стёрты.
@@ -178,6 +180,7 @@ final class AppDependencies: Sendable {
         await territory?.reset()
         await fog?.reset()
         tileLocation?.removeAll()  // и без адреса сервера: файлы могли остаться от сборки, где он был
+        do { try home.remove() } catch { failures.append(error) }
         do { try await rules.removeLocal() } catch { failures.append(error) }
         if let demoRecordingURL, FileManager.default.fileExists(atPath: demoRecordingURL.path) {
             do { try FileManager.default.removeItem(at: demoRecordingURL) } catch { failures.append(error) }

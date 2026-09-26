@@ -23,6 +23,14 @@ final class AppSession {
     var browsingWithoutSignIn = false
     /// Сообщение, которое корень показывает поверх любого экрана: например, выход стёр вход, но не все данные игрока.
     var notice: String? = nil
+    /// Заголовок сообщения: «Выход», «Аккаунт удалён».
+    var noticeTitle = "Выход"
+
+    /// Показать сообщение поверх любого экрана — и после выхода, над онбордингом.
+    func show(notice: String, title: String) {
+        noticeTitle = title
+        self.notice = notice
+    }
 
     /// Показать вкладки, а не онбординг.
     var showsShell: Bool {

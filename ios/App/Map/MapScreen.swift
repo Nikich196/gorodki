@@ -1,9 +1,10 @@
 import DesignSystem
 import GameCore
 import SwiftUI
+import UIKit
 
-/// Вкладка «Карта» (PLAN.md, §5, экраны 4–5; docs/design/tokens.md, §8): слой «Захват | Исследование» и окраска земли
-/// на стекле сверху, «Старт» — единственная цветная кнопка внизу (`RunStartButton`: лист «Новый забег» с подсказками
+/// Вкладка «Карта» (PLAN.md, §5, экраны 4–5; docs/design/tokens.md, §8): слой «Захват | Исследование», лига
+/// «Бег | Вело» и окраска земли на стекле сверху, «Где я» справа, «Старт» — единственная цветная кнопка внизу (`RunStartButton`: лист «Новый забег» с подсказками
 /// к разрешениям, затем HUD), лист участка по касанию.
 struct MapScreen: View {
     @Bindable var model: MapModel
@@ -35,6 +36,7 @@ struct MapScreen: View {
             }
             .onChange(of: model.layer) { model.layerChanged() }
             .sensoryFeedback(.selection, trigger: model.selection?.id)
+            .modifier(MapLocationPrompts(model: model))
             .task {
                 // Раз в минуту: истёкшие зоны «спорная» уходят с карты, кэши получают шанс на запасной опрос.
                 while !Task.isCancelled {
@@ -56,33 +58,130 @@ private struct MapControls: View {
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
-            VStack(spacing: 8) {
-                Picker("Слой карты", selection: $model.layer) {
-                    ForEach(MapLayer.allCases) { layer in
-                        Text(layer.title).tag(layer)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .segmentedGlass()
-                switch model.layer {
-                case .capture:
-                    Picker("Окраска земли", selection: $model.coloring) {
-                        ForEach(LandColoring.allCases) { coloring in
-                            Text(coloring.title).tag(coloring)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Picker("Слой карты", selection: $model.layer) {
+                        ForEach(MapLayer.allCases) { layer in
+                            Text(layer.title).tag(layer)
                         }
                     }
                     .pickerStyle(.segmented)
-                    .padding(3)
-                    .frame(height: Metrics.modeRowHeight)
-                    .capsuleGlass()
-                    .glassEffectID("layer-detail", in: glass)
-                    .frame(maxWidth: 280)
-                case .explore:
-                    ExploreCard(squareMeters: model.profile.exploredSquareMeters, glass: glass)
+                    .segmentedGlass()
+                    LeaguePicker(model: model)
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    switch model.layer {
+                    case .capture:
+                        Picker("Окраска земли", selection: $model.coloring) {
+                            ForEach(LandColoring.allCases) { coloring in
+                                Text(coloring.title).tag(coloring)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(3)
+                        .frame(height: Metrics.modeRowHeight)
+                        .capsuleGlass()
+                        .glassEffectID("layer-detail", in: glass)
+                        .frame(maxWidth: 280)
+                        Spacer(minLength: 0)
+                    case .explore:
+                        ExploreCard(squareMeters: model.profile.exploredSquareMeters, glass: glass)
+                    }
+                    MapGlassButton("Где я", systemImage: "location.fill") { model.locateTapped() }
+                }
+                if model.bikeHintShown {
+                    Label("«Вело» — с Сезона 1: своя лига, своя земля и свой туман", systemImage: "lock.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.uiInk.color)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .capsuleGlass()
+                        .transition(.opacity)
                 }
             }
         }
         .animation(Motion.layerSwitch.unlessReduceMotion(reduceMotion), value: model.layer)
+        .animation(Motion.layerSwitch.unlessReduceMotion(reduceMotion), value: model.bikeHintShown)
+        .task(id: model.bikeHintShown) {
+            // Пояснение уходит само через 3 с.
+            guard model.bikeHintShown else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { model.bikeHintShown = false }
+        }
+    }
+}
+
+/// Лига карты «Бег | Вело» на стекле (tokens.md, §8, `LeaguePicker`): «Вело» — с замком до Сезона 1, нажатие —
+/// пояснение. Выбранное — нейтральное, как выбранный сегмент (tokens.md, §6, п. 3).
+private struct LeaguePicker: View {
+    let model: MapModel
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Button {
+                model.select(.run)
+            } label: {
+                Image(systemName: "figure.run")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 38)
+                    .background(Palette.uiCell.color.opacity(0.7), in: .capsule)
+            }
+            .accessibilityLabel(Text("Лига «Бег»"))
+            .accessibilityValue(Text("выбрано"))
+            Button {
+                model.select(.bike)
+            } label: {
+                Image(systemName: "bicycle")
+                    .font(.body.weight(.semibold))
+                    .opacity(0.42)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .offset(x: 6, y: 2)
+                    }
+                    .frame(width: 44, height: 38)
+            }
+            .accessibilityLabel(Text("Лига «Вело»"))
+            .accessibilityValue(Text("недоступно до Сезона 1"))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Palette.uiInk.color)
+        .padding(4)
+        .frame(height: Metrics.segmentHeight)
+        .capsuleGlass(interactive: true)
+        .sensoryFeedback(.selection, trigger: model.bikeHintShown)
+    }
+}
+
+/// «Где я» без разрешения: подсказка перед системным запросом (одна кнопка «Продолжить», PLAN.md, §6.6) или путь
+/// в Настройки, если геопозиция запрещена.
+private struct MapLocationPrompts: ViewModifier {
+    @Bindable var model: MapModel
+    @Environment(\.openURL) private var openURL
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Показать, где ты?", isPresented: $model.locationPrimerShown, titleVisibility: .visible)
+        {
+            Button("Продолжить") {
+                Task { await model.locationPrimerAccepted() }
+            }
+            Button("Не сейчас", role: .cancel) {}
+        } message: {
+            Text(
+                "Карта покажет твоё место. Та же геопозиция нужна забегу — выбери «При использовании», "
+                    + "разрешение «Всегда» игре не нужно.")
+        }
+            .alert("Геопозиция выключена", isPresented: $model.locationDeniedShown) {
+                Button("Открыть Настройки") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                }
+                Button("Отмена", role: .cancel) {}
+            } message: {
+                Text("Включи её для Городков: «Конфиденциальность → Службы геолокации → Городки → При использовании».")
+            }
     }
 }
 

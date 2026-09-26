@@ -58,6 +58,7 @@ private struct LiveRoot: View {
                 shell = ShellModel.live()
             }
             shell.profile.signedIn = session.status == .signedIn
+            shell.home.reload()  // «Дом» прежнего игрока стёрт при выходе — не показывать новому
             shell.profile.role = session.role
             shell.profile.api = session.status == .signedIn ? AppDependencies.shared.api : nil
             await shell.profile.refresh()
@@ -65,7 +66,7 @@ private struct LiveRoot: View {
         .onChange(of: session.notice) { _, notice in
             noticeShown = notice != nil
         }
-        .alert("Выход", isPresented: $noticeShown, presenting: session.notice) { _ in
+        .alert(Text(session.noticeTitle), isPresented: $noticeShown, presenting: session.notice) { _ in
             Button("Понятно", role: .cancel) { session.notice = nil }
         } message: { notice in
             Text(notice)
