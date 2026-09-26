@@ -182,17 +182,22 @@
         func requestAccess() async -> PhotoAccess { .limited }
 
         func items(_ filter: GalleryFilter) async -> [GalleryItem] {
-            let all = (0..<30).map { index in
-                GalleryItem(
-                    id: "fixture-\(index)", isVideo: index % 7 == 3, duration: Double(8 + index * 3),
-                    createdAt: Date(unix: SheetFixtures.now - Double(index) * 20_000),
-                    latitude: index % 3 == 0 ? nil : 52.0976 + Double(index) * 0.001,
-                    longitude: index % 3 == 0 ? nil : 23.7341)
+            var all: [GalleryItem] = []
+            for index in 0..<30 {
+                let step = Double(index)
+                let tagged = index % 3 != 0
+                let latitude: Double? = tagged ? 52.0976 + step * 0.001 : nil
+                let longitude: Double? = tagged ? 23.7341 : nil
+                all.append(
+                    GalleryItem(
+                        id: "fixture-\(index)", isVideo: index % 7 == 3, duration: 8 + step * 3,
+                        createdAt: Date(unix: SheetFixtures.now - step * 20_000), latitude: latitude,
+                        longitude: longitude))
             }
             switch filter {
             case .all: return all
-            case .geotagged: return all.filter(\.hasLocation)
-            case .videos: return all.filter(\.isVideo)
+            case .geotagged: return all.filter { $0.hasLocation }
+            case .videos: return all.filter { $0.isVideo }
             }
         }
 
