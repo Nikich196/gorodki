@@ -168,6 +168,9 @@ final class RunScreenModel {
     @ObservationIgnored private var progress = ClosureProgress()
     @ObservationIgnored private var activeWarnings: Set<RunWarning.Kind> = []
     @ObservationIgnored private var trailTask: Task<Void, Never>?
+    /// Подключение к трекеру и синхронизации (`RunController.onState`, `onReport`) — делает экран, когда оболочка на
+    /// экране: модель, созданная и выброшенная при пересоздании вида, не должна перехватывать снимки.
+    @ObservationIgnored var connect: (() -> Void)?
 
     /// - Parameter makeResult: итог законченного забега (живой — из очереди и истории); `nil` — итога нет.
     init(
@@ -315,10 +318,15 @@ final class RunScreenModel {
         hudPresented = false
     }
 
-    /// Плашка свёрнутого забега: открыть HUD. Пропущенные за это время петли — списком.
+    /// Плашка свёрнутого забега: открыть HUD. Пропущенные за это время петли — списком, когда HUD появится
+    /// (`hudAppeared`): два окна сразу SwiftUI не покажет.
     func expand() {
         coverSource = "run.accessory"
         hudPresented = true
+    }
+
+    /// HUD на экране — пропущенные петли списком.
+    func hudAppeared() {
         showMissedIfAny()
     }
 
@@ -519,11 +527,8 @@ final class RunScreenModel {
     }
 
     private func loadCeremonyRing() {
-        guard let playing = stage.playing else {
-            ceremonyRing = []
-            return
-        }
-        guard let driver else { return }
+        ceremonyRing = []
+        guard let playing = stage.playing, let driver else { return }
         Task {
             let ring = await driver.ring(claimNo: playing.claimNo)
             if stage.playing?.id == playing.id {

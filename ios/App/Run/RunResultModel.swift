@@ -58,10 +58,20 @@ final class RunResultModel: Identifiable {
 
     /// Открытие: показать сохранённое, спросить сервер, показать снова.
     func load() async {
+        await loadSaved()
+        await refreshFromServer()
+    }
+
+    /// Сохранённое на телефоне: итог и след.
+    func loadSaved() async {
         await reload()
         if track.isEmpty {
             track = await source.track(of: runId)
         }
+    }
+
+    /// Перезапрос у сервера (`refreshResults(of:)`) и пересборка.
+    func refreshFromServer() async {
         await source.refresh(runId)
         await reload()
     }
@@ -169,7 +179,8 @@ struct LiveRunResults: RunResultSource {
         if let points = try? await AppDependencies.shared.history?.points(of: runId), !points.isEmpty {
             return points.map(\.coordinate)
         }
-        // История пишется после «Финиша» в фоне — пока её нет, след последнего забега знает трекер.
+        // История пишется после «Финиша» в фоне — пока её нет, след последнего забега знает трекер (только этого забега).
+        guard await RunController.shared.state.runId == runId else { return [] }
         return await RunController.shared.trail().flatMap { $0 }
     }
 

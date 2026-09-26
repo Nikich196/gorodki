@@ -46,7 +46,7 @@ struct CaptureCeremonyView: View {
                 .onMapCameraChange(frequency: .onEnd) { _ in
                     convert(proxy)
                 }
-                .task(id: ring.count) {
+                .task(id: ring) {
                     frame()
                     // Экранные точки появляются, когда карта разложена: несколько попыток, пока `convert` не ответит.
                     for _ in 0..<15 where points.count < 3 {

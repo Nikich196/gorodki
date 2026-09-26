@@ -43,8 +43,11 @@ struct AppShell: View {
         }
         .environment(\.runScreens, model.run)
         .environment(\.runTransition, runTransition)
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
             run.sceneChanged(active: phase == .active)
+        }
+        .task(id: ObjectIdentifier(model.run)) {
+            model.run.connect?()
         }
     }
 }

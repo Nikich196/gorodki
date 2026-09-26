@@ -87,10 +87,13 @@ final class SystemRunFeedback: NSObject, RunFeedback, AVSpeechSynthesizerDelegat
 }
 
 /// Компас для стрелки «до замыкания» (`CLHeading`, решение 25.09, пункт 2): куда смотрит верх телефона, градусы от
-/// севера. Работает, пока открыт HUD; нет компаса — `heading` остаётся `nil`, и стрелка идёт по курсу движения.
+/// севера. Работает, пока открыт HUD; нет компаса — `heading` остаётся `nil`, и стрелка идёт по курсу движения. Один на
+/// приложение: вид HUD пересоздаётся часто, а менеджер геопозиции создавать каждый раз незачем.
 @MainActor
 @Observable
 final class HeadingSource: NSObject, CLLocationManagerDelegate {
+    static let shared = HeadingSource()
+
     private(set) var heading: Double?
     @ObservationIgnored private let manager = CLLocationManager()
 
@@ -126,9 +129,11 @@ extension RunScreenModel {
             profile: profile, driver: controller, access: SystemRunStartAccess(), feedback: SystemRunFeedback(),
             makeResult: { RunResultModel.live(runId: $0, justFinished: true) },
             queueSurvivesRestart: AppDependencies.shared.queueSurvivesRestart)
-        controller.onState = { [weak model] state in model?.receive(state) }
-        controller.onReport = { [weak model] report in model?.receive(report) }
-        model.receive(controller.state)
+        model.connect = { [weak model] in
+            controller.onState = { [weak model] state in model?.receive(state) }
+            controller.onReport = { [weak model] report in model?.receive(report) }
+            model?.receive(controller.state)
+        }
         return model
     }
 }

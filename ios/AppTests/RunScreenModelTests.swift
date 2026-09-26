@@ -276,7 +276,9 @@ struct RunScreenModelTests {
         #expect(run.stage.missed.last?.status == "не засчитана · Петля меньше 0,25 га")
 
         run.expand()
-        #expect(run.hudPresented && run.missedShown)
+        #expect(run.hudPresented && !run.missedShown)  // список — когда HUD уже на экране
+        run.hudAppeared()
+        #expect(run.missedShown)
         run.dismissMissed()
         #expect(run.stage.missed.isEmpty && !run.missedShown)
     }
@@ -315,7 +317,7 @@ struct RunScreenModelTests {
     func resultLater() async {
         let before = RunResultModel(runId: Self.runId, justFinished: true, source: Results())
         await before.load()
-        let early = try? #require(before.readout)
+        let early = before.readout
         #expect(early?.breakdown == nil && early?.breakdownPending == true)
         #expect(early?.visitedParcels == nil && early?.fogServerText == nil && early?.takenText == "+1,25\(space)га")
 

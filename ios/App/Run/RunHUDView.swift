@@ -30,7 +30,7 @@ struct RunCover: View {
 /// кнопки 64 pt: «Свернуть», «Финиш — удерживай», настройки голоса и вибрации. Поверх — церемония захвата.
 struct RunHUDView: View {
     @Bindable var model: RunScreenModel
-    @State private var compass = HeadingSource()
+    private let compass = HeadingSource.shared
 
     var body: some View {
         ZStack {
@@ -76,7 +76,10 @@ struct RunHUDView: View {
         } message: {
             Text("Забег сохранится и уйдёт на сервер. Удерживай «Финиш», чтобы закончить без вопроса.")
         }
-        .onAppear { compass.start() }
+        .onAppear {
+            compass.start()
+            model.hudAppeared()
+        }
         .onDisappear { compass.stop() }
         .onChange(of: compass.heading) { _, heading in model.heading = heading }
         .task {
@@ -439,7 +442,8 @@ private struct HoldToFinishButton: View {
     let finish: () -> Void
     let ask: () -> Void
     @State private var holding = false
-    @State private var finished = false
+    /// Сколько раз дожали до конца — для хаптики.
+    @State private var holds = 0
 
     private static let holdSeconds = 1.0
 
@@ -469,16 +473,14 @@ private struct HoldToFinishButton: View {
         .clipShape(.capsule)
         .contentShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
-        .onTapGesture {
-            if !finished { ask() }
-        }
+        .onTapGesture(perform: ask)
         .onLongPressGesture(minimumDuration: Self.holdSeconds) {
-            finished = true
+            holds += 1
             finish()
         } onPressingChanged: { pressing in
             holding = pressing
         }
-        .sensoryFeedback(.impact(weight: .heavy), trigger: finished) { _, new in new }
+        .sensoryFeedback(.impact(weight: .heavy), trigger: holds)
         .accessibilityElement()
         .accessibilityLabel(Text("Финиш"))
         .accessibilityHint(Text("Спросит подтверждение"))

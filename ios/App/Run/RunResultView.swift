@@ -66,12 +66,14 @@ struct RunResultView: View {
             }
         }
         .task {
+            // Сначала сохранённое — числа накатываются уже по нему, потом сервер.
+            await model.loadSaved()
             if reduceMotion {
                 appeared = true
             } else {
-                withAnimation(Motion.numericAppear.delay(0.15)) { appeared = true }
+                withAnimation(Motion.numericAppear) { appeared = true }
             }
-            await model.load()
+            await model.refreshFromServer()
         }
         .task {
             if !model.justFinished { await model.prepareGPX() }
@@ -426,9 +428,14 @@ private struct RowsCard: View {
 // MARK: - История
 
 /// История забегов (PLAN.md, §5: детали забега — отсюда): новые первыми; строка раскрывается в детали zoom-переходом.
+/// Модель — во владении экрана: перерисовка родителя не подменяет её пустой.
 struct RunHistoryView: View {
-    let model: RunHistoryModel
+    @State private var model: RunHistoryModel
     @Namespace private var zoom
+
+    init(model: RunHistoryModel) {
+        _model = State(initialValue: model)
+    }
 
     var body: some View {
         ScrollView {
@@ -456,11 +463,24 @@ struct RunHistoryView: View {
         .background(Palette.uiBackground.color)
         .navigationTitle("Забеги")
         .navigationDestination(for: UUID.self) { id in
-            RunResultView(model: model.details(id))
+            RunDetailsScreen(model: model.details(id))
                 .navigationTransition(.zoom(sourceID: id, in: zoom))
         }
         .task { await model.load() }
         .refreshable { await model.load() }
+    }
+}
+
+/// Детали забега: модель — во владении экрана.
+private struct RunDetailsScreen: View {
+    @State private var model: RunResultModel
+
+    init(model: RunResultModel) {
+        _model = State(initialValue: model)
+    }
+
+    var body: some View {
+        RunResultView(model: model)
     }
 }
 
