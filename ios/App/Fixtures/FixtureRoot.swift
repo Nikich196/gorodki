@@ -18,7 +18,8 @@
             _shell = State(
                 initialValue: ShellModel(
                     tab: Fixtures.tab(screen), profile: profile, run: RunFixture.model(screen, profile: profile),
-                    map: Fixtures.map(screen, fixture: fixture, profile: profile)))
+                    map: Fixtures.map(screen, fixture: fixture, profile: profile),
+                    social: Fixtures.social(screen, fixture: fixture)))
         }
 
         var body: some View {
@@ -26,8 +27,12 @@
             case .intro, .invite, .age, .terms, .consent, .signIn:
                 OnboardingView(model: onboarding, browseWithoutSignIn: { @MainActor in })
             case .map, .mapParcel, .mapExplore, .leaderboards, .clan, .profile, .hud, .hudCeremony, .hudCollapsed,
-                .runResult:
+                .runResult, .leaderboardsExploration, .clanJoin, .clanCreate, .friends, .friendAdd, .feed:
                 AppShell(model: shell)
+            case .inbox:
+                NavigationStack {
+                    InboxView(model: shell.social.inbox)
+                }
             case .runDetails:
                 NavigationStack {
                     RunResultView(model: RunFixture.details())
@@ -49,7 +54,8 @@
     /// - `player-map` — он же и карта с землёй и туманом (`MapFixture`); экраны `map-parcel` и `map-explore`
     ///   берут её сами;
     /// - `google-ready` — вход через Google настроен (кнопка активна, но никуда не ходит);
-    /// - `offline`, `invite-invalid`, `google-rejected`, `account-deleting` — ошибка входа с текстом `SignInFailure`.
+    /// - `offline`, `invite-invalid`, `google-rejected`, `account-deleting` — ошибка входа с текстом `SignInFailure`;
+    /// - `server-stub` — социальные экраны получают ответ заглушки сервера (500): «пока не работает на сервере».
     @MainActor
     enum Fixtures {
         static func onboarding(_ screen: FixtureScreen, fixture: String?) -> OnboardingModel {
@@ -93,11 +99,28 @@
 
         static func tab(_ screen: FixtureScreen) -> AppTab {
             switch screen {
-            case .leaderboards: .leaderboards
-            case .clan: .clan
+            case .leaderboards, .leaderboardsExploration: .leaderboards
+            case _ where screen.isClanTab: .clan
             case .profile: .profile
             default: .map
             }
+        }
+
+        /// Социальные экраны на образцах (`SampleSocialSource`): раздел «Клан», открытые листы, вид рейтинга;
+        /// «сейчас» — `SampleSocialSource.now`.
+        static func social(_ screen: FixtureScreen, fixture: String?) -> SocialScreens {
+            let source = SampleSocialSource(
+                inClan: ![.clanJoin, .clanCreate].contains(screen), stub: fixture == "server-stub")
+            let social = SocialScreens(backend: source, now: SampleSocialSource.now)
+            switch screen {
+            case .leaderboardsExploration: social.leaderboards.kind = .exploration
+            case .friends, .friendAdd: social.clanSection = .friends
+            case .feed: social.clanSection = .feed
+            default: break
+            }
+            social.createClanShown = screen == .clanCreate
+            social.addFriendShown = screen == .friendAdd
+            return social
         }
 
         /// Карта: с землёй и туманом — для `player-map` и экранов карты, иначе пустая.

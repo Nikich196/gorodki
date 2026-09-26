@@ -151,14 +151,17 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen("map", fixture: "player", expecting: "Старт", name: "17-tab-map", settle: 6)
     }
 
+    /// «Рейтинги» — «Захват» на образце `leaderboard-territory.json`: свои 17-е место закреплено снизу,
+    /// «предварительно». Днём и ночью.
     @MainActor
     func test18Leaderboards() {
-        snapshotScreen("leaderboards", expecting: "Рейтинги — скоро", name: "18-tab-leaderboards")
+        snapshotScreen("leaderboards", expecting: "Муха", name: "18-tab-leaderboards")
     }
 
+    /// «Клан» — свой клан из `clan.json`: код-приглашение лидеру, состав с ролями. Только днём.
     @MainActor
     func test19Clan() {
-        snapshotScreen("clan", expecting: "Кланы — скоро", name: "19-tab-clan")
+        snapshotScreen("clan", expecting: "Бегуны БрГТУ", name: "19-tab-clan", themes: ["day"])
     }
 
     @MainActor
@@ -297,6 +300,60 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshot("35-run-start-day")
         XCTAssertTrue(shown, "На карте нет кнопки «Старт»")
         XCTAssertTrue(sheet, "Лист «Новый забег» не открылся")
+    }
+
+    // MARK: - Социальные экраны (SampleSocialSource: образцы contracts/samples)
+    // Номера 24–35, 40–59 и 60+ заняты другими ветками, поэтому — с 80. Только днём: ночь снимает рейтинг (18).
+
+    /// «Исследование»: своё 7-е место среди первых — строка выделена, снизу не закреплена.
+    @MainActor
+    func test80LeaderboardsExploration() {
+        snapshotScreen(
+            "leaderboards-exploration", expecting: "Лиса-2718", name: "80-leaderboards-exploration", themes: ["day"])
+    }
+
+    /// «Клан»: не в клане — вступить по коду или создать свой.
+    @MainActor
+    func test81ClanJoin() {
+        snapshotScreen("clan-join", expecting: "Ты пока без клана", name: "81-clan-join", themes: ["day"])
+    }
+
+    /// Лист «Новый клан»: название и свободные оттенки из `clan-hues.json`.
+    @MainActor
+    func test82ClanCreate() {
+        snapshotScreen("clan-create", expecting: "Новый клан", name: "82-clan-create", settle: 2, themes: ["day"])
+    }
+
+    /// «Друзья»: свой код, входящая заявка, друг.
+    @MainActor
+    func test83Friends() {
+        snapshotScreen("friends", expecting: "R4T8-KD2M", name: "83-friends", themes: ["day"])
+    }
+
+    /// Лист «Добавить друга».
+    @MainActor
+    func test84FriendAdd() {
+        snapshotScreen("friend-add", expecting: "Отправить заявку", name: "84-friend-add", settle: 2, themes: ["day"])
+    }
+
+    /// «Лента»: захват друга с респектом и свой забег.
+    @MainActor
+    func test85Feed() {
+        snapshotScreen("feed", expecting: "Муха", name: "85-feed", themes: ["day"])
+    }
+
+    /// «Входящие»: непрочитанное нападение и прочитанная серия.
+    @MainActor
+    func test86Inbox() {
+        snapshotScreen("inbox", expecting: "Часть твоей земли", name: "86-inbox", themes: ["day"])
+    }
+
+    /// Адрес ещё заглушка сервера (500): экран честно говорит «пока не работает на сервере».
+    @MainActor
+    func test87ServerStub() {
+        snapshotScreen(
+            "leaderboards", fixture: "server-stub", expecting: "Пока не работает", name: "87-server-stub",
+            themes: ["day"])
     }
 
     /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у

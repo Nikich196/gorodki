@@ -9,6 +9,7 @@ enum AppTab: String, CaseIterable, Hashable, Sendable {
 /// Оболочка после входа: системный `TabView` (Liquid Glass рисует сама система, docs/design/tokens.md, §5) и плавающий
 /// «Старт» на карте. Экраны, которых ещё нет, — заглушки в стиле дизайн-системы. Забег (PLAN.md, §5): «Старт» — лист
 /// с лигой, HUD — полноэкранно (zoom из «Старта» или плашки), свёрнутый — плашка `tabViewBottomAccessory`.
+/// «Рейтинги» и «Клан | Друзья | Лента» — `App/Social`; «Входящие» — колокольчик на «Карте» (лист) и строка в «Профиле».
 struct AppShell: View {
     @Bindable var model: ShellModel
     @Environment(\.scenePhase) private var scenePhase
@@ -16,15 +17,16 @@ struct AppShell: View {
 
     var body: some View {
         @Bindable var run = model.run
+        @Bindable var social = model.social
         TabView(selection: $model.tab) {
             Tab("Карта", systemImage: "map", value: AppTab.map) {
                 MapScreen(model: model.map)
             }
             Tab("Рейтинги", systemImage: "trophy", value: AppTab.leaderboards) {
-                LeaderboardsTab()
+                LeaderboardsTab(model: model.social.leaderboards, myColor: model.profile.playerColor)
             }
             Tab("Клан", systemImage: "person.3", value: AppTab.clan) {
-                ClanTab()
+                ClanTab(social: model.social)
             }
             Tab("Профиль", systemImage: "person.crop.circle", value: AppTab.profile) {
                 ProfileTab(model: model.profile)
@@ -41,7 +43,12 @@ struct AppShell: View {
             RunCover(model: run)
                 .navigationTransition(.zoom(sourceID: run.coverSource, in: runTransition))
         }
+        .sheet(isPresented: $social.inboxShown) {
+            InboxSheet(model: model.social.inbox)
+                .navigationTransition(.zoom(sourceID: SocialTransitionID.inbox, in: runTransition))
+        }
         .environment(\.runScreens, model.run)
+        .environment(model.social)
         .environment(\.runTransition, runTransition)
         .onChange(of: scenePhase, initial: true) { _, phase in
             run.sceneChanged(active: phase == .active)
@@ -92,20 +99,29 @@ final class ShellModel {
     let profile: ProfileModel
     let run: RunScreenModel
     let map: MapModel
+    let social: SocialScreens
 
     /// - Parameters:
     ///   - run: `nil` — экраны забега без трекера (режим фикстур, тесты).
     ///   - map: `nil` — карта без данных (экраны без сервера).
-    init(tab: AppTab = .map, profile: ProfileModel, run: RunScreenModel? = nil, map: MapModel? = nil) {
+    ///   - social: `nil` — рейтинги, клан, лента и «Входящие» без сервера.
+    init(
+        tab: AppTab = .map, profile: ProfileModel, run: RunScreenModel? = nil, map: MapModel? = nil,
+        social: SocialScreens? = nil
+    ) {
         self.tab = tab
         self.profile = profile
         self.run = run ?? RunScreenModel(profile: profile)
         self.map = map ?? MapModel(profile: profile)
+        self.social = social ?? SocialScreens(backend: nil)
     }
 
-    /// Оболочка приложения: забег — `RunController`, земля и туман карты — кэши `AppDependencies`.
+    /// Оболочка приложения: забег — `RunController`, земля и туман карты — кэши `AppDependencies`, социальные
+    /// экраны — клиент API.
     static func live() -> ShellModel {
         let profile = ProfileModel()
-        return ShellModel(profile: profile, run: .live(profile: profile), map: .live(profile: profile))
+        return ShellModel(
+            profile: profile, run: .live(profile: profile), map: .live(profile: profile),
+            social: SocialScreens(backend: AppDependencies.shared.api.map { APISocialSource(api: $0) }))
     }
 }
