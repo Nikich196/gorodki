@@ -6,7 +6,7 @@
 //   extract --pbf belarus-latest.osm.pbf --work <папка> [--params osm-pipeline.json] [--osmium osmium]
 //   build   --work <папка> --version N --out osm-set-N.zip [--params …]
 //   import  --set osm-set-N.zip                  строка подключения — в переменной GORODKI_OSM_DB
-//   preview --set osm-set-N.zip --work <папка> --out карта.html [--params …]
+//   preview --set osm-set-N.zip --work <папка> --out osm-preview-N.html [--params …]
 
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -46,7 +46,7 @@ public static class Cli
           extract --pbf belarus-latest.osm.pbf --work <папка> [--params osm-pipeline.json] [--osmium osmium]
           build   --work <папка> --version N --out osm-set-N.zip [--params osm-pipeline.json]
           import  --set osm-set-N.zip          (строка подключения — в переменной GORODKI_OSM_DB)
-          preview --set osm-set-N.zip --work <папка> --out карта.html [--params osm-pipeline.json]
+          preview --set osm-set-N.zip --work <папка> --out osm-preview-N.html [--params osm-pipeline.json]
 
         Параметры по умолчанию — osm-pipeline.json рядом с программой. Данные OSM и наборы — вне репозитория.
         """;

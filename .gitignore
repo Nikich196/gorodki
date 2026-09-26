@@ -88,3 +88,5 @@ docs/report/**/*.fls
 *.osm
 *.geojsonseq
 osm-set-*.zip
+# Карта preview (SVG-контуры из данных OSM): пишется туда, куда указал --out.
+osm-preview*.html

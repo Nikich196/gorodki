@@ -70,8 +70,11 @@ dotnet run -c Release --project tools/Gorodki.OsmPipeline -- build \
 
 ```bash
 dotnet run -c Release --project tools/Gorodki.OsmPipeline -- preview \
-  --set /mnt/c/Users/nikic/gorodki-osm/sets/osm-set-1.zip --work /mnt/c/Users/nikic/gorodki-osm/work --out карта.html
+  --set /mnt/c/Users/nikic/gorodki-osm/sets/osm-set-1.zip --work /mnt/c/Users/nikic/gorodki-osm/work   --out /mnt/c/Users/nikic/gorodki-osm/osm-preview-1.html
 ```
+
+`--out` — путь вне репозитория, как у набора: команда запускается из `backend`, и относительный путь положил бы карту
+(контуры из данных OSM) в рабочую копию. `.gitignore` страхует и здесь (`osm-preview*.html`).
 
 Самодостаточный HTML без тайлов карт: Арена и кварталы, маски, «достижимое», списки кандидатов (корпуса и общежития,
 мемориалы, военные объекты, trunk и тротуары). Никита смотрит его перед включением набора; точечно — Мухавец, вокзал и
