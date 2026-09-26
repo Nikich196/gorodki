@@ -1,4 +1,5 @@
 import DesignSystem
+import GameCore
 import SwiftUI
 
 /// Пункт листика курсовой (PLAN.md, §1 и §4): где его показать в приложении.
