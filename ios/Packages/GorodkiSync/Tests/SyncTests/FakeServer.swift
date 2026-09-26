@@ -20,6 +20,8 @@ actor FakeServer: APIProtocol {
         var captures: [Int: Components.Schemas.CaptureResponse] = [:]
         /// «+N га» забега (`RunResponse.fogNewCells`): `nil` — туман по забегу ещё не открыт.
         var fogNewCells: Int?
+        /// Визиты забега (`RunResponse.visitedParcels`): `nil` — ещё не посчитаны.
+        var visitedParcels: Int?
     }
 
     enum Fault: Sendable {
@@ -105,6 +107,7 @@ actor FakeServer: APIProtocol {
 
     /// Сервер открыл туман по забегу: «+N га» в `GET /runs/{id}`.
     func openFog(of runId: UUID, newCells: Int) { runs[SyncEngine.string(runId)]?.fogNewCells = newCells }
+    func countVisits(of runId: UUID, parcels: Int) { runs[SyncEngine.string(runId)]?.visitedParcels = parcels }
 
     func run(_ runId: UUID) -> Run? { runs[SyncEngine.string(runId)] }
 
@@ -436,6 +439,7 @@ actor FakeServer: APIProtocol {
             lastSeq: run.lastSeq.map { Int32($0) }, processedSeq: -1, received: ranges(have.sorted()), missing: missing,
             newcomer: false)
         response.fogNewCells = run.fogNewCells.map { Int32($0) }
+        response.visitedParcels = run.visitedParcels.map { Int32($0) }
         return response
     }
 

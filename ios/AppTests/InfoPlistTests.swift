@@ -16,10 +16,10 @@ struct InfoPlistTests {
         #expect(permitted.contains(BackgroundSync.uploadIdentifier))
     }
 
-    @Test("Фоновые режимы: геопозиция забега, короткое пробуждение и длинная досылка с сетью")
+    @Test("Фоновые режимы: геопозиция забега, голос в кармане, короткое пробуждение и длинная досылка с сетью")
     func backgroundModes() throws {
         let modes = try #require(Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String])
-        #expect(Set(modes).isSuperset(of: ["location", "fetch", "processing"]), "режимы: \(modes)")
+        #expect(Set(modes).isSuperset(of: ["location", "audio", "fetch", "processing"]), "режимы: \(modes)")
     }
 
     @Test("Сборка видео-повтора (BGContinuedProcessingTask) разрешена в Info.plist — иначе iOS не примет задачу")

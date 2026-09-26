@@ -14,16 +14,26 @@
         init(screen: FixtureScreen, fixture: String?) {
             self.screen = screen
             _onboarding = State(initialValue: Fixtures.onboarding(screen, fixture: fixture))
+            let profile = Fixtures.profile(screen.isRun ? "player" : fixture)
             _shell = State(
-                initialValue: ShellModel(tab: Fixtures.tab(screen), profile: Fixtures.profile(fixture)))
+                initialValue: ShellModel(
+                    tab: Fixtures.tab(screen), profile: profile, run: RunFixture.model(screen, profile: profile)))
         }
 
         var body: some View {
             switch screen {
             case .intro, .invite, .age, .terms, .consent, .signIn:
                 OnboardingView(model: onboarding, browseWithoutSignIn: { @MainActor in })
-            case .map, .leaderboards, .clan, .profile:
+            case .map, .leaderboards, .clan, .profile, .hud, .hudCeremony, .hudCollapsed, .runResult:
                 AppShell(model: shell)
+            case .runDetails:
+                NavigationStack {
+                    RunResultView(model: RunFixture.details())
+                }
+            case .runHistory:
+                NavigationStack {
+                    RunHistoryView(model: RunFixture.history())
+                }
             case .debug:
                 NavigationStack {
                     DebugMenuView()

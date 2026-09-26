@@ -3,11 +3,10 @@ import MapKit
 import SwiftUI
 
 /// Вкладка «Карта» до этапа 2: подложка Apple Maps как у игры (PLAN.md, D4: плоская, приглушённая, без POI) над
-/// Брестом и плавающий «Старт» — единственный цветной элемент управления (docs/design/tokens.md, §6). Земли, туман,
-/// режимы и HUD появятся здесь со следующими шагами.
+/// Брестом и плавающий «Старт» — единственный цветной элемент управления (docs/design/tokens.md, §6). «Старт» ведёт
+/// в экраны забега (`RunStartButton`); земли, туман и режимы появятся здесь со следующими шагами.
 struct MapTab: View {
     let player: PlayerColor
-    @State private var startNoticeShown = false
 
     /// Центр Бреста.
     private static let brest = MKCoordinateRegion(
@@ -27,23 +26,8 @@ struct MapTab: View {
                     .padding(.top, 8)
             }
             .safeAreaInset(edge: .bottom) {
-                StartButton(player: player) {
-                    startNoticeShown = true
-                } label: {
-                    Label("Старт", systemImage: "figure.run")
-                }
-                .frame(width: 200)
-                .padding(.bottom, 12)
+                RunStartButton(player: player)
+                    .padding(.bottom, 12)
             }
-            .alert("Забег — скоро", isPresented: $startNoticeShown) {
-                Button("Понятно", role: .cancel) {}
-            } message: {
-                Text(startNotice)
-            }
-    }
-
-    private var startNotice: String {
-        let hud = "Экран забега появится вместе с картой земель."
-        return DebugAccess.buildAllows ? hud + " Пробный забег без сервера — в «Профиль → Отладка → Лаборатория»." : hud
     }
 }

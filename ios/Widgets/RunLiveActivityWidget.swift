@@ -3,8 +3,9 @@ import Platform
 import SwiftUI
 import WidgetKit
 
-/// Live Activity забега: плашка на экране блокировки и в Dynamic Island.
-/// На этапе 0 показывает проверочный текст и таймер с момента запуска.
+/// Live Activity забега: плашка на экране блокировки и в Dynamic Island. Забег показывает те же числа, что HUD, строками
+/// (`RunActivityText`, docs/architecture/run-hud.md): «До замыкания 140 м» без стрелки и «3,21 км · 5:32 /км · +0,80 га
+/// тумана»; время идёт само от начала. «Лаборатория» и проверка установки пишут сюда свои строки.
 struct RunLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RunActivityAttributes.self) { context in
@@ -23,10 +24,18 @@ struct RunLiveActivityWidget: Widget {
                         .font(.title3.weight(.semibold))
                         .multilineTextAlignment(.trailing)
                 }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.state.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
                 DynamicIslandExpandedRegion(.bottom) {
                     Text(context.state.detail)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             } compactLeading: {
                 Image(systemName: "figure.run")

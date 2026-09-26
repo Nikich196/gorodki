@@ -82,6 +82,7 @@ struct RunResultTests {
         #expect(settled.map(\.refusedCode) == ["claim_limit"] && settled.first?.outcome == nil)
         #expect(await engine().syncOnce().settledClaims.isEmpty)
         await server.openFog(of: run.id, newCells: 0)
+        await server.countVisits(of: run.id, parcels: 0)
         #expect(await engine().refreshFog() == nil)
         let summary = try await result(run)
         #expect(summary.readiness == .ready)
@@ -139,7 +140,8 @@ struct RunResultTests {
 
     // MARK: - «+N га» сервера и перезапрос разбивки
 
-    @Test("fogNewCells: null у сервера остаётся null; после FogChanged — число; после числа запросов нет")
+    @Test(
+        "fogNewCells и визиты: null у сервера остаётся null; после FogChanged — число; после обоих чисел запросов нет")
     func fogNewCells() async throws {
         let run = Fixture.run()
         try await Fixture.record(run, points: 25, into: store)
@@ -152,6 +154,15 @@ struct RunResultTests {
         await server.openFog(of: run.id, newCells: 120)
         await engine().refreshFog()
         #expect(try await stored(run).fogNewCells == 120)
+        #expect(try await stored(run).visitedParcels == nil)  // визиты ещё не посчитаны — «позже»
+        #expect(try await result(run).readiness == .computing)
+
+        await server.countVisits(of: run.id, parcels: 3)
+        await engine().refreshResults(of: run.id)
+        let counted = try await stored(run)
+        #expect(counted.visitedParcels == 3 && counted.fogNewCells == 120)
+        #expect(try await result(run).visitedParcels == 3)
+        #expect(try await result(run).readiness == .ready)
 
         let before = await server.log.count
         await engine().refreshFog()
@@ -189,6 +200,7 @@ struct RunResultTests {
         _ = await engine().syncOnce()
         await server.settleClaim(of: run.id, endSeq: 14, status: .applied, area: 4_000)
         await server.openFog(of: run.id, newCells: 10)
+        await server.countVisits(of: run.id, parcels: 1)
         _ = await engine().syncOnce()
         await engine().refreshFog()
 
@@ -277,13 +289,31 @@ struct RunResultTests {
         #expect(waiting.areaByOutcome == ["claimedNeutral": 3_500, "refreshed": 500] && !waiting.areaByOutcomePending)
 
         let pending = claims + [Self.claim(4) { $0.outcome = ClaimOutcome(status: "pending", waitingFor: "sensors") }]
-        let opened = Self.finishedRun { $0.fogNewCells = 100 }
+        let opened = Self.finishedRun {
+            $0.fogNewCells = 100
+            $0.visitedParcels = 2
+        }
         #expect(RunResult(run: opened, claims: pending, now: Self.now).readiness == .computing)
 
         let ready = RunResult(run: opened, claims: claims, now: Self.now)
         #expect(ready.readiness == .ready)
         let cell = FogGrid.cellSizeMeters(atLatitude: 52.1)
         #expect(abs((ready.fogNewSquareMeters ?? 0) - 100 * cell * cell) < 1e-9)
+    }
+
+    @Test("Визитов ещё нет — «считается», хотя заявки решены и туман открыт; через 14 дней ждать нечего")
+    func visitsPending() {
+        let opened = Self.finishedRun { $0.fogNewCells = 100 }
+        let waiting = RunResult(run: opened, claims: [], now: Self.now)
+        #expect(waiting.readiness == .computing && waiting.visitedParcels == nil)
+
+        let counted = Self.finishedRun {
+            $0.fogNewCells = 100
+            $0.visitedParcels = 0
+        }
+        #expect(RunResult(run: counted, claims: [], now: Self.now).readiness == .ready)
+        let late = Fixture.start + (SyncEngine.fogQueryDays + 1) * 86_400
+        #expect(RunResult(run: opened, claims: [], now: late).readiness == .ready)
     }
 
     @Test("Повтор и конец по пределу длины — видны в итоге")

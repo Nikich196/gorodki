@@ -70,8 +70,10 @@ final class RealtimeRelay {
                         await AppDependencies.shared.fog?.invalidate()
                     }
                 case .fogChanged:
-                    // Сервер открыл туман по доставленному забегу: тайлы перезапросятся с версиями, когда карта их покажет.
+                    // Сервер открыл туман по доставленному забегу: тайлы перезапросятся с версиями, когда карта их покажет,
+                    // а «+N га» забега — в итог (docs/architecture/run-hud.md, «Итог забега»).
                     await AppDependencies.shared.fog?.invalidate()
+                    await AppDependencies.shared.syncEngine()?.refreshFog()
                 case .tilesChanged(let league, let tiles):
                     // Пометить тайлы: карта (этап 2) перезапросит их с известными версиями, когда покажет.
                     if league == .run {

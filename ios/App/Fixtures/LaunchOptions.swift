@@ -58,9 +58,19 @@ enum FixtureScreen: String, CaseIterable, Sendable {
     case intro, invite, age, terms, consent, signIn = "sign-in"
     // Вкладки.
     case map, leaderboards, clan, profile
+    /// Экраны забега: HUD, церемония захвата, свёрнутый забег (плашка над таб-баром), итог, детали, история.
+    case hud, hudCeremony = "hud-ceremony", hudCollapsed = "hud-collapsed"
+    case runResult = "run-result", runDetails = "run-details", runHistory = "run-history"
     /// Отладочное меню: «Проверка установки» и «Лаборатория».
     case debug
     /// Экраны пунктов листика из «Профиля» (`ProfileFeature`) и «Отладка → Пункты задания».
     case gallery, replay, storage, backup, files, calendar, inviteFriend = "invite-friend"
     case myQR = "my-qr", scanner, notifications, assignment
+}
+
+extension FixtureScreen {
+    /// Экран забега с образцами `RunFixture` — поверх оболочки.
+    var isRun: Bool {
+        [.hud, .hudCeremony, .hudCollapsed, .runResult].contains(self)
+    }
 }

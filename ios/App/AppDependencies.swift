@@ -287,7 +287,11 @@ final class AppDependencies: Sendable {
                 engine: created,
                 backlog: { (try? await SyncBacklog.of(store, ownerId: ownerId)) ?? SyncBacklog() },
                 appActive: { await MainActor.run { UIApplication.shared.applicationState == .active } },
-                onReport: { report in log.record(report, atMs: StoragePrecision.milliseconds(clock())) })
+                // Экрану забега: вторая фаза церемоний, «сервер недоступен», свежий итог. «Резервной копии» — журнал.
+                onReport: { report in
+                    log.record(report, atMs: StoragePrecision.milliseconds(clock()))
+                    Task { @MainActor in RunController.shared.syncReported(report) }
+                })
             let previous = cached?.scheduler
             cached = (ownerId, created, scheduler)
             return ((created, scheduler), previous)
