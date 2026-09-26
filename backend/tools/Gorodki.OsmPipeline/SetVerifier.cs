@@ -63,12 +63,17 @@ public static class SetVerifier
     /// Нет достижимой клетки, центр которой внутри маски, вычитаемой из «достижимого». Допуск — сетка: snap-rounding
     /// сдвигает край не дальше полудиагонали клетки сетки (0,0707 м, ADR 0003), поэтому в счёт идут центры глубже 0,1 м.
     /// </summary>
+    /// <remarks>
+    /// Маски тайла — объединением, а не коллекцией кусков: маски разных видов накладываются (ж/д над водой на мосту,
+    /// ж/д и «магистраль» на переезде), а <see cref="IndexedPointInAreaLocator"/> считает пересечения луча с кольцами —
+    /// точка в двух наложенных многоугольниках вышла бы «снаружи», и в зонах наложения проверка была бы слепа.
+    /// </remarks>
     private static void CheckReachableOutsideMasks(OsmSetData data, List<string> problems)
     {
         var masksByTile = data.Masks
             .Where(m => SetBuilder.SubtractedFromReachable.Contains(m.Kind))
             .GroupBy(m => m.Tile)
-            .ToDictionary(g => g.Key, g => GeoOps.Factory.BuildGeometry(g.Select(m => (Geometry)m.Geometry).ToList()));
+            .ToDictionary(g => g.Key, g => GeoOps.UnionAll(g.Select(m => (Geometry)m.Geometry)));
         var locators = masksByTile.ToDictionary(kv => kv.Key, kv => new IndexedPointInAreaLocator(kv.Value));
         var bad = 0;
         foreach (var (key, bits) in data.Reachable)

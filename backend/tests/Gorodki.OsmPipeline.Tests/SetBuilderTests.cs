@@ -300,4 +300,32 @@ public sealed class SetBuilderTests
 
         Assert.Contains(SetVerifier.Verify(broken), p => p.Contains("с центром внутри маски", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Verifier_sees_reachable_cells_where_masks_of_different_kinds_overlap()
+    {
+        // Ж/д над водой на мосту, ж/д и «магистраль» на переезде: маски разных видов накладываются. Точка в двух наложенных
+        // многоугольниках для счёта пересечений луча — «снаружи»; без объединения проверка в зонах наложения слепа.
+        var data = Build(Way("highway=footway", (300, 1000), (1700, 1000)));
+        var tile = new TileKey(684, 5774);
+        OsmSetData Broken(params (MaskKind Kind, Polygon Box)[] masks) => new()
+        {
+            Frame = data.Frame,
+            PlayZone = data.PlayZone,
+            Masks = [.. masks.SelectMany(m => GeoOps.Polygons(GeoOps.Intersection(m.Box, tile.ToPolygon())).Select(p => new MaskPiece(m.Kind, tile, p)))],
+            Land = data.Land,
+            Reachable = data.Reachable,
+            Districts = data.Districts,
+            Notes = data.Notes,
+        };
+        static string? Cells(IReadOnlyList<string> problems) => problems.SingleOrDefault(p => p.Contains("с центром внутри маски", StringComparison.Ordinal));
+
+        var water = Cells(SetVerifier.Verify(Broken((MaskKind.Water, Box(800, 900, 1100, 1100)))));
+        var sameShape = Cells(SetVerifier.Verify(Broken((MaskKind.Water, Box(800, 900, 1100, 1100)), (MaskKind.Rail, Box(800, 900, 1100, 1100)))));
+        var partly = Cells(SetVerifier.Verify(Broken((MaskKind.Water, Box(800, 900, 1100, 1100)), (MaskKind.Rail, Box(800, 900, 950, 1100)))));
+
+        Assert.NotNull(water);
+        Assert.Equal(water, sameShape); // те же клетки, что у одной воды
+        Assert.Equal(water, partly);
+    }
 }
