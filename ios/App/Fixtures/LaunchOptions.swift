@@ -60,6 +60,10 @@ enum FixtureScreen: String, CaseIterable, Sendable {
     case map, leaderboards, clan, profile
     /// Карта: лист участка по касанию, слой «Исследование».
     case mapParcel = "map-parcel", mapExplore = "map-explore"
+    /// Профиль и настройки: настройки, приватные зоны, «Дом», статистика «Исследования», профиль без сети, круг «Дома»
+    /// на «Исследовании».
+    case settings, privacyZones = "privacy-zones", home, explorationStats = "exploration-stats", offline
+    case mapHome = "map-home"
     /// Экраны забега: HUD, церемония захвата, свёрнутый забег (плашка над таб-баром), итог, детали, история.
     case hud, hudCeremony = "hud-ceremony", hudCollapsed = "hud-collapsed"
     case runResult = "run-result", runDetails = "run-details", runHistory = "run-history"
@@ -75,6 +79,6 @@ extension FixtureScreen {
 
     /// Экран карты с данными фикстуры (`MapFixture`).
     var isMap: Bool {
-        self == .mapParcel || self == .mapExplore
+        self == .mapParcel || self == .mapExplore || self == .mapHome
     }
 }

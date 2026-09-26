@@ -91,11 +91,11 @@ struct APIPlayerNames: PlayerNames {
 
 extension MapModel {
     /// Карта приложения: кэши и клиент API из `AppDependencies`.
-    static func live(profile: ProfileModel) -> MapModel {
+    static func live(profile: ProfileModel, home: HomeModel? = nil) -> MapModel {
         let dependencies = AppDependencies.shared
         return MapModel(
             profile: profile,
             data: CachedMapData(territory: dependencies.territory, fogCache: dependencies.fog),
-            names: dependencies.api.map { APIPlayerNames(api: $0) })
+            names: dependencies.api.map { APIPlayerNames(api: $0) }, home: home)
     }
 }

@@ -1,6 +1,7 @@
 import DesignSystem
 import GameCore
 import GorodkiAPI
+import Networking
 import SwiftUI
 import Sync
 
@@ -19,6 +20,19 @@ final class ProfileModel {
     var exploredSquareMeters: Double? = nil
     var seasonExploredSquareMeters: Double? = nil
     var seasonName: String? = nil
+    // Профиль, настройки, статистика (docs/architecture/ios-app.md, «Профиль и настройки»).
+    /// Согласие на показ ника (`publicProfile` в `GET /me`); `nil` — ещё не знаем.
+    var publicProfile: Bool? = nil
+    /// Забеги, засчитанные метры и место в «Кто открыл больше» (`GET /me/stats`); `nil` — сервер не ответил.
+    var runs: Int? = nil
+    var distanceMeters: Double? = nil
+    var explorationRank: Int? = nil
+    /// Текущий сезон и его день («день 10 из 14»).
+    var season: SeasonProgress? = nil
+    /// Статистика «Исследования» из той же сводки тумана — экран 15 открывается с ней сразу.
+    var exploration: ExplorationSummary? = nil
+    /// Почему профиль не загрузился (нет сети, сервер недоступен); `nil` — загрузился или ещё не пробовали.
+    var loadFailure: RequestFailure? = nil
     var signedIn: Bool
     /// Клиент API вошедшего игрока (`LiveRoot`); `nil` — не вошёл, нет адреса сервера или режим фикстур.
     @ObservationIgnored var api: (any APIProtocol)?
@@ -41,10 +55,21 @@ final class ProfileModel {
         displayName = me.displayName
         colorIndex = Int(me.colorIndex)
         role = me.role
+        publicProfile = me.publicProfile
+    }
+
+    func apply(_ stats: Components.Schemas.MyStatsResponse) {
+        runs = Int(stats.runs)
+        distanceMeters = stats.distanceMeters
+        explorationRank = stats.explorationRank.map(Int.init)
     }
 
     /// Сводка тумана (`GET /fog/summary`): слой «Пешком» за всё время (`season == nil`) и за сезон `current`.
-    func apply(_ summary: Components.Schemas.FogSummaryResponse, currentSeason: Int?) {
+    func apply(
+        _ summary: Components.Schemas.FogSummaryResponse, currentSeason: Int?,
+        seasons: Components.Schemas.SeasonsResponse? = nil
+    ) {
+        exploration = ExplorationSummary(summary: summary, seasons: seasons)
         let foot = summary.layers.filter { $0.layer == .foot }
         exploredSquareMeters = foot.first { $0.season == nil }?.areaSquareMeters ?? 0
         if let currentSeason {
@@ -52,8 +77,11 @@ final class ProfileModel {
         }
     }
 
-    func apply(_ seasons: Components.Schemas.SeasonsResponse) {
+    func apply(
+        _ seasons: Components.Schemas.SeasonsResponse, nowMs: Int64 = Int64(Date.now.timeIntervalSince1970 * 1_000)
+    ) {
         seasonName = seasons.seasons.first { seasons.current.map(Int.init) == Int($0.number) }?.name
+        season = SeasonProgress(seasons: seasons, nowMs: nowMs)
     }
 
     /// Профиль ещё не загрузился (например, приложение запустилось без сети).
@@ -68,38 +96,47 @@ final class ProfileModel {
         await load(api: api)
     }
 
-    /// Данные вошедшего игрока с сервера. Ошибки не показываются: профиль останется с тем, что уже знает, а
-    /// следующий заход на вкладку или «потянуть вниз» попробуют снова (`refresh`).
+    /// Данные вошедшего игрока с сервера. Профиль остаётся с тем, что уже знает; не ответил `GET /me` — причина
+    /// в `loadFailure` (карточка «Нет сети» в профиле), следующий заход на вкладку или «потянуть вниз» попробуют снова.
     func load(api: any APIProtocol) async {
-        if let me = try? await api.getMe().ok.body.json {
-            apply(me)
+        do {
+            switch try await api.getMe() {
+            case .ok(let ok): apply(try ok.body.json)
+            case .notFound: throw AccountServiceError.notFound
+            case .undocumented(let status, _): throw AccountServiceError.unexpectedStatus(status)
+            }
+            loadFailure = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadFailure = RequestFailure(error)
+            return
         }
         let seasons = try? await api.getSeasons().ok.body.json
         if let seasons {
             apply(seasons)
         }
         if let summary = try? await api.getFogSummary().ok.body.json {
-            apply(summary, currentSeason: seasons?.current.map(Int.init))
+            apply(summary, currentSeason: seasons?.current.map(Int.init), seasons: seasons)
+        }
+        // Своя статистика — только числа; сервер без неё (задача #116) — плитки с «—».
+        if let stats = try? await api.getMyStats().ok.body.json {
+            apply(stats)
         }
     }
 }
 
 struct ProfileTab: View {
     let model: ProfileModel
-    @State private var signOutError: String?
-    @State private var signOutAsked = false
-    /// Сколько забегов сотрёт выход, не дойдя до сервера (`AppDependencies.unsentRunCount`) — для вопроса перед выходом.
-    @State private var unsentRuns = 0
+    /// «Дом» для «Настроек»; `nil` — только в памяти.
+    var home: HomeModel? = nil
+    /// После «Очистить историю исследований»: карта перезапрашивает туман, профиль — сводку.
+    var onFogCleared: (() -> Void)? = nil
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    header
-                    HStack(spacing: 12) {
-                        StatTile(title: "Открыто тумана", value: area(model.exploredSquareMeters))
-                        StatTile(title: model.seasonName ?? "Сезон", value: area(model.seasonExploredSquareMeters))
-                    }
+                    ProfileOverview(model: model)
                     actions
                 }
                 .padding(20)
@@ -111,54 +148,14 @@ struct ProfileTab: View {
                 // Не загрузилось при входе (не было сети) — ещё раз при заходе на вкладку.
                 if model.needsLoad { await model.refresh() }
             }
-            .confirmationDialog("Выйти из аккаунта?", isPresented: $signOutAsked, titleVisibility: .visible) {
-                Button("Выйти", role: .destructive) {
-                    Task { await signOut() }
-                }
-                Button("Отмена", role: .cancel) {}
-            } message: {
-                Text(signOutWarning)
-            }
         }
     }
 
-    /// Что потеряется при выходе: `RunController.signOut` заканчивает забег и стирает очередь синхронизации.
-    private var signOutWarning: String {
-        let base = "Идущий забег закончится, а всё об игроке на этом телефоне сотрётся."
-        guard unsentRuns > 0 else { return base }
-        return base + " Ещё не дошли до сервера \(CountText.runs(unsentRuns)) — они пропадут."
-    }
-
-    private var header: some View {
-        HStack(spacing: 16) {
-            Text(String((model.displayName ?? "?").prefix(1)))
-                .font(.title.bold())
-                .fontDesign(.rounded)
-                .foregroundStyle(model.playerColor.startInkColor)
-                .frame(width: 64, height: 64)
-                .background(model.playerColor.color, in: .circle)
-                .padding(4)
-                .overlay { Circle().stroke(model.playerColor.edgeColor, lineWidth: 3) }
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.displayName ?? (model.signedIn ? "Игрок" : "Вход не выполнен"))
-                    .font(.title2.bold())
-                    .foregroundStyle(Palette.uiInk.color)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.uiInk2.color)
-            }
-        }
-        .contentCard()
-    }
-
-    private var subtitle: String {
-        guard model.signedIn else { return "Вкладки без входа — только для сборки команды" }
-        switch model.role {
-        case "admin": return "Администратор"
-        case "demo": return "Демо-режим"
-        default: return "Ник и цвет назначены автоматически"
-        }
+    /// «Настройки» с тем же профилем и «Домом», что у карты.
+    private func settings() -> SettingsModel {
+        let settings = SettingsModel.live(profile: model, home: home ?? HomeModel())
+        settings.onFogCleared = onFogCleared
+        return settings
     }
 
     private var actions: some View {
@@ -177,52 +174,22 @@ struct ProfileTab: View {
                 }
                 Divider().padding(.leading, 52)
             }
-            if model.signedIn {
-                Button {
-                    Task {
-                        unsentRuns = await AppDependencies.shared.unsentRunCount()
-                        signOutAsked = true
-                    }
-                } label: {
-                    ProfileRow(title: "Выйти", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            } else {
+            NavigationLink {
+                SettingsView(model: settings())
+            } label: {
+                ProfileRow(title: "Настройки", systemImage: "gearshape")
+            }
+            if !model.signedIn {
+                Divider().padding(.leading, 52)
                 Button {
                     AppSession.shared.browsingWithoutSignIn = false
                 } label: {
                     ProfileRow(title: "Войти", systemImage: "person.crop.circle.badge.checkmark")
                 }
             }
-            if let signOutError {
-                Text(signOutError)
-                    .font(.footnote)
-                    .foregroundStyle(Palette.uiInk2.color)
-                    .padding(12)
-            }
         }
         .buttonStyle(.plain)
         .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
-    }
-
-    private func area(_ squareMeters: Double?) -> String {
-        squareMeters.map { NumberText.hectares(fromSquareMeters: $0, fractionDigits: 2) } ?? "—"
-    }
-
-    /// Выход — как в `RunController.signOut`: идущий забег заканчивается, всё об игроке на телефоне стирается.
-    private func signOut() async {
-        do {
-            try await RunController.shared.signOut()
-            signOutError = nil
-        } catch {
-            let signedOut = await AppDependencies.shared.tokens.current() == nil
-            let message = Self.signOutFailure(error, signedOut: signedOut)
-            if message.stayedSignedIn {
-                signOutError = message.text
-            } else {
-                // Вход уже стёрт: корень переключится на онбординг, и эта вкладка ошибку не покажет.
-                AppSession.shared.notice = message.text
-            }
-        }
     }
 
     /// Текст ошибки выхода для игрока. `signedOut` — вход к этому времени уже стёрт (упало стирание данных).
@@ -240,7 +207,7 @@ struct ProfileTab: View {
     }
 }
 
-private struct StatTile: View {
+struct StatTile: View {
     let title: String
     let value: String
 

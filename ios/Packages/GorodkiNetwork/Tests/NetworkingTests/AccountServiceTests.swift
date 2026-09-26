@@ -86,6 +86,42 @@ struct AccountServiceTests {
         await #expect(throws: AccountServiceError.notFound) { _ = try await service.deleteAccount() }
     }
 
+    @Test("Очистка истории исследований: DELETE /fog; туман занят — отказ с кодом, ничего не стёрто")
+    func clearExplorationHistory() async throws {
+        await server.answer(204)
+        try await service.clearExplorationHistory()
+        #expect(await server.requests == ["DELETE /fog"])
+
+        await server.answer(503, #"{"status":503,"code":"fog_clear_busy"}"#)
+        await #expect(throws: AccountServiceError.rejected(status: 503, code: "fog_clear_busy")) {
+            try await service.clearExplorationHistory()
+        }
+        await server.answer(500)
+        await #expect(throws: AccountServiceError.unexpectedStatus(500)) {
+            try await service.clearExplorationHistory()
+        }
+    }
+
+    @Test("Согласие на показ ника: PUT /me/public-profile с отметкой, ответ — профиль; заглушка сервера — её статус")
+    func publicProfile() async throws {
+        await server.answer(
+            200,
+            #"{"id":"0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b","displayName":"Н","colorIndex":1,"role":"player","publicProfile":true}"#
+        )
+        #expect(try await service.setPublicProfile(true).publicProfile)
+        #expect(await server.requests == ["PUT /me/public-profile"])
+        let sent = try JSONSerialization.jsonObject(with: Data(try #require(await server.bodies.last).utf8))
+        #expect(sent as? [String: Bool] == ["enabled": true])
+
+        // Сервер Егора до задачи #71 бросает NotImplementedException — это 500, а не успех.
+        await server.answer(500, #"{"status":500}"#)
+        await #expect(throws: AccountServiceError.unexpectedStatus(500)) {
+            _ = try await service.setPublicProfile(false)
+        }
+        await server.answer(404)
+        await #expect(throws: AccountServiceError.notFound) { _ = try await service.setPublicProfile(false) }
+    }
+
     @Test("«Мои данные» — JSON ответа сервера, читается обратно")
     func exportData() async throws {
         let body =

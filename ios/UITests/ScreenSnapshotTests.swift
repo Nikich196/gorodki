@@ -299,6 +299,93 @@ final class ScreenSnapshotTests: XCTestCase {
         XCTAssertTrue(sheet, "Лист «Новый забег» не открылся")
     }
 
+    // MARK: - Профиль и настройки (40–50, только днём)
+
+    @MainActor
+    func test40Settings() {
+        snapshotScreen(
+            "settings", expecting: "Очистить историю исследований", name: "40-settings", settle: 1.5, pages: 2,
+            themes: ["day"])
+    }
+
+    @MainActor
+    func test41PrivacyZones() {
+        snapshotScreen("privacy-zones", expecting: "Зона 1", name: "41-privacy-zones", settle: 4, themes: ["day"])
+    }
+
+    /// Пусто — общий компонент состояний карточкой.
+    @MainActor
+    func test42PrivacyZonesEmpty() {
+        snapshotScreen(
+            "privacy-zones", fixture: "empty", expecting: "Зон пока нет", name: "42-privacy-zones-empty",
+            themes: ["day"])
+    }
+
+    /// «Сменить Дом»: круг 500 м палитрой тумана под неподвижной меткой.
+    @MainActor
+    func test43Home() {
+        snapshotScreen("home", expecting: "Перенести «Дом» сюда", name: "43-home", settle: 4, themes: ["day"])
+    }
+
+    /// Статистика с полями E9 (образец fog-summary.json): «% Бреста», сезоны, районы.
+    @MainActor
+    func test44ExplorationStats() {
+        snapshotScreen(
+            "exploration-stats", expecting: "Бреста открыто", name: "44-exploration-stats", settle: 2, pages: 2,
+            themes: ["day"])
+    }
+
+    /// У сервера нет набора OSM: гектары и клетки, «% Бреста» — «появится позже».
+    @MainActor
+    func test45ExplorationStatsNoOSM() {
+        snapshotScreen(
+            "exploration-stats", fixture: "no-osm", expecting: "появится позже", name: "45-exploration-stats-no-osm",
+            settle: 2, themes: ["day"])
+    }
+
+    /// Профиль без сети — общий компонент состояний карточкой с «Повторить».
+    @MainActor
+    func test46ProfileOffline() {
+        snapshotScreen("offline", expecting: "Нет сети", name: "46-profile-offline", themes: ["day"])
+    }
+
+    /// Сервер недоступен — тот же компонент на весь экран.
+    @MainActor
+    func test47ServerDown() {
+        snapshotScreen(
+            "exploration-stats", fixture: "server-down", expecting: "Сервер недоступен", name: "47-server-down",
+            themes: ["day"])
+    }
+
+    /// Профиль целиком: сезон, плитки, «скоро».
+    @MainActor
+    func test48Profile() {
+        snapshotScreen(
+            "profile", fixture: "player", expecting: "Скоро в профиле", name: "48-profile", pages: 2, themes: ["day"])
+    }
+
+    /// «Исследование» с «Домом»: круг открыт в тумане, метка «Дома», «Где я», «Бег | Вело».
+    @MainActor
+    func test49MapHome() {
+        snapshotScreen("map-home", expecting: "Открыто", name: "49-map-home", settle: 6, themes: ["day"])
+    }
+
+    /// «Вело» — нажатие показывает пояснение «с Сезона 1».
+    @MainActor
+    func test50MapBikeHint() {
+        let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
+        let bike = button(in: app, containing: "Вело")
+        let shown = bike.waitForExistence(timeout: Self.launchTimeout)
+        if shown {
+            bike.tap()
+        }
+        let hint = waitForAny([text(in: app, containing: "с Сезона 1")], timeout: Self.screenTimeout)
+        pause(0.5)
+        snapshot("50-map-bike-hint-day")
+        XCTAssertTrue(shown, "На карте нет «Вело»")
+        XCTAssertTrue(hint, "Нет пояснения «Вело — с Сезона 1»")
+    }
+
     /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у
     /// остальных. `pages` — сколько снимков с прокруткой между ними.
     @MainActor
