@@ -1,5 +1,6 @@
 import AVFoundation
 import Photos
+import PhotosUI
 import Synchronization
 import UIKit
 

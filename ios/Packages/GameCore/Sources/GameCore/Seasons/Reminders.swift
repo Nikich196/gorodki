@@ -29,6 +29,14 @@ public struct CalendarEventDraft: Equatable, Sendable {
     public var notes: String
     /// Напомнить за столько секунд до начала.
     public var alarmBefore: Double
+
+    public init(title: String, start: Double, end: Double, notes: String, alarmBefore: Double) {
+        self.title = title
+        self.start = start
+        self.end = end
+        self.notes = notes
+        self.alarmBefore = alarmBefore
+    }
 }
 
 /// Локальное уведомление (пункт 4 листика без платного аккаунта: APNs нет — напоминает сам телефон).
@@ -39,6 +47,13 @@ public struct ReminderDraft: Equatable, Sendable {
     public var body: String
     /// Когда показать, секунды Unix.
     public var fireAt: Double
+
+    public init(id: String, title: String, body: String, fireAt: Double) {
+        self.id = id
+        self.title = title
+        self.body = body
+        self.fireAt = fireAt
+    }
 }
 
 /// Напоминания игры: конец сезона в Календаре и уведомлением накануне, «забег всё ещё идёт» (PLAN.md, §3.17).
