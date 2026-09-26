@@ -47,7 +47,7 @@ public static class TrustEndpoints
     {
         // ЗАДАЧА #TBD-E13 (Егор): только админ (иначе 403 admin_only); причина 3–200 символов (400 reason_required, как в
         // RequestRollback); нет игрока — 404 user_not_found. Бан: вход и обновление токенов закрыты, refresh-токены стёрты
-        // (как в DELETE /me), забеги не принимаются. Откат земли — отдельно, POST /admin/users/{id}/rollback. Тесты —
+        // (как в DELETE /me), старт забега — 403 account_banned. Откат земли — отдельно, POST /admin/users/{id}/rollback. Тесты —
         // AdminTrustTests; строка в IdorTests.AwaitingTasks.
         _ = (userId, request, principal, db, time, cancellationToken);
         throw new NotImplementedException("ЗАДАЧА #TBD-E13");

@@ -40,6 +40,27 @@ public sealed class IdorTests(DatabaseFixture database)
         ["DELETE /admin/invites/{code}"] = HttpStatusCode.Forbidden,
         // Карточка игрока публична по замыслу: номер владельца и так есть у каждого куска на карте (GET /territory).
         ["GET /players/{id:guid}"] = HttpStatusCode.OK,
+
+        // Заготовки задач Егора (C15). Карточка клана публична, как карточка игрока (участники — по номерам, ники — с согласия);
+        // код-приглашение Борису не виден. Остальное — «нет такого»: Анна не в клане Бориса, фишки, заявки, посты (ещё до
+        // границы публичности) и дуэли Анны — не его; отрезок — несуществующий номер. Блокировка — право Бориса: 204, данные
+        // Анны не меняются. Бан — только администратору.
+        ["GET /clans/{id:guid}"] = HttpStatusCode.OK,
+        ["DELETE /clans/mine/members/{userId:guid}"] = HttpStatusCode.NotFound,
+        ["PUT /clans/mine/members/{userId:guid}/role"] = HttpStatusCode.NotFound,
+        ["POST /me/inventory/{id:guid}/activate"] = HttpStatusCode.NotFound,
+        ["POST /friends/{id:guid}/accept"] = HttpStatusCode.NotFound,
+        ["DELETE /friends/{id:guid}"] = HttpStatusCode.NotFound,
+        ["POST /feed/{id:guid}/respect"] = HttpStatusCode.NotFound,
+        ["POST /feed/{id:guid}/report"] = HttpStatusCode.NotFound,
+        ["PUT /me/blocks/{id:guid}"] = HttpStatusCode.NoContent,
+        ["DELETE /me/blocks/{id:guid}"] = HttpStatusCode.NoContent,
+        ["GET /segments/{id:guid}"] = HttpStatusCode.NotFound,
+        ["GET /segments/{id:guid}/leaderboard"] = HttpStatusCode.NotFound,
+        ["GET /duels/{id:guid}"] = HttpStatusCode.NotFound,
+        ["POST /duels/{id:guid}/accept"] = HttpStatusCode.NotFound,
+        ["POST /duels/{id:guid}/decline"] = HttpStatusCode.NotFound,
+        ["POST /admin/users/{userId:guid}/ban"] = HttpStatusCode.Forbidden,
     };
 
     /// <summary>
@@ -50,10 +71,26 @@ public sealed class IdorTests(DatabaseFixture database)
     {
         ["DELETE /admin/invites/{code}"] = "ЗАДАЧА #114",
         ["GET /players/{id:guid}"] = "ЗАДАЧА #115",
+        ["GET /clans/{id:guid}"] = "ЗАДАЧА #TBD-E5",
+        ["DELETE /clans/mine/members/{userId:guid}"] = "ЗАДАЧА #TBD-E5",
+        ["PUT /clans/mine/members/{userId:guid}/role"] = "ЗАДАЧА #TBD-E5",
+        ["POST /me/inventory/{id:guid}/activate"] = "ЗАДАЧА #TBD-E11",
+        ["POST /friends/{id:guid}/accept"] = "ЗАДАЧА #TBD-E14a",
+        ["DELETE /friends/{id:guid}"] = "ЗАДАЧА #TBD-E14a",
+        ["POST /feed/{id:guid}/respect"] = "ЗАДАЧА #TBD-E14b",
+        ["POST /feed/{id:guid}/report"] = "ЗАДАЧА #TBD-E14b",
+        ["PUT /me/blocks/{id:guid}"] = "ЗАДАЧА #TBD-E14b",
+        ["DELETE /me/blocks/{id:guid}"] = "ЗАДАЧА #TBD-E14b",
+        ["GET /segments/{id:guid}"] = "ЗАДАЧА #TBD-E16",
+        ["GET /segments/{id:guid}/leaderboard"] = "ЗАДАЧА #TBD-E16",
+        ["GET /duels/{id:guid}"] = "ЗАДАЧА #TBD-E17",
+        ["POST /duels/{id:guid}/accept"] = "ЗАДАЧА #TBD-E17",
+        ["POST /duels/{id:guid}/decline"] = "ЗАДАЧА #TBD-E17",
+        ["POST /admin/users/{userId:guid}/ban"] = "ЗАДАЧА #TBD-E13",
     };
 
-    /// <summary>Ответ называет номер Анны по замыслу: карточка игрока. Ника без её согласия в ответе всё равно нет.</summary>
-    private static readonly string[] ShowsOwnerId = ["GET /players/{id:guid}"];
+    /// <summary>Ответ называет номер Анны по замыслу: карточки игрока и клана. Ника без её согласия в ответе всё равно нет.</summary>
+    private static readonly string[] ShowsOwnerId = ["GET /players/{id:guid}", "GET /clans/{id:guid}"];
 
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
