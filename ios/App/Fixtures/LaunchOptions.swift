@@ -63,6 +63,10 @@ enum FixtureScreen: String, CaseIterable, Sendable {
     /// Экраны забега: HUD, церемония захвата, свёрнутый забег (плашка над таб-баром), итог, детали, история.
     case hud, hudCeremony = "hud-ceremony", hudCollapsed = "hud-collapsed"
     case runResult = "run-result", runDetails = "run-details", runHistory = "run-history"
+    /// Социальные экраны (`SocialFixture`): «Исследование» в «Рейтингах»; «Клан»: не в клане, лист «Новый клан»;
+    /// «Друзья», лист «Добавить друга»; «Лента»; «Входящие». `leaderboards` и `clan` — «Захват» и свой клан.
+    case leaderboardsExploration = "leaderboards-exploration"
+    case clanJoin = "clan-join", clanCreate = "clan-create", friends, friendAdd = "friend-add", feed, inbox
     /// Отладочное меню: «Проверка установки» и «Лаборатория».
     case debug
 }
@@ -76,5 +80,10 @@ extension FixtureScreen {
     /// Экран карты с данными фикстуры (`MapFixture`).
     var isMap: Bool {
         self == .mapParcel || self == .mapExplore
+    }
+
+    /// Вкладка «Клан» на одном из разделов (`SocialFixture`).
+    var isClanTab: Bool {
+        [.clan, .clanJoin, .clanCreate, .friends, .friendAdd, .feed].contains(self)
     }
 }

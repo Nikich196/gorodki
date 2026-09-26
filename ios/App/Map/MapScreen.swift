@@ -19,7 +19,12 @@ struct MapScreen: View {
             }
             .safeAreaInset(edge: .bottom) {
                 // «Старт» — экраны забега: лист «Новый забег» с подсказками к разрешениям, HUD (`RunStartButton`).
+                // Справа — колокольчик «Входящих» (App/Social).
                 RunStartButton(player: model.player)
+                    .frame(maxWidth: .infinity)
+                    .overlay(alignment: .trailing) {
+                        InboxBell().padding(.trailing, Metrics.panelInset + 6)
+                    }
                     .padding(.bottom, 12)
             }
             .sheet(item: $model.selection) { _ in

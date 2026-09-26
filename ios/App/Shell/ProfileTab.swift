@@ -163,6 +163,7 @@ struct ProfileTab: View {
 
     private var actions: some View {
         VStack(spacing: 0) {
+            InboxProfileRow()
             NavigationLink {
                 RunHistoryView(model: RunHistoryModel.live())
             } label: {
