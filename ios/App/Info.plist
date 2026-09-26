@@ -2,11 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- Фоновая досылка очереди (App/BackgroundSync.swift): короткое пробуждение и длинное с сетью. -->
+  <!-- Фоновая досылка очереди (App/BackgroundSync.swift): короткое пробуждение и длинное с сетью.
+       Сборка видео-повтора (App/Profile/Replay/ReplayBuilder.swift): BGContinuedProcessingTask, пункт 8 листика. -->
   <key>BGTaskSchedulerPermittedIdentifiers</key>
   <array>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER).sync.refresh</string>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER).sync.upload</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER).replay.build</string>
   </array>
   <key>CFBundleDevelopmentRegion</key>
   <string>$(DEVELOPMENT_LANGUAGE)</string>
@@ -49,6 +51,19 @@
   </dict>
   <key>NSMotionUsageDescription</key>
   <string>Датчики движения отличают бег от поездки на транспорте — так игра остаётся честной.</string>
+  <!-- Пункты листика в «Профиле» (App/Profile): каждый запрос — по кнопке игрока, в момент надобности (PLAN.md, §6.6). -->
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>Галерея показывает твои фото и видео, например снятые на забеге. Можно открыть только выбранные.</string>
+  <key>NSPhotoLibraryAddUsageDescription</key>
+  <string>Городки сохраняют в «Фото» видео-повтор забега и кадр его итога — только добавляют, ничего не читают.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Камера читает QR-код друга или код приглашения и снимает кадр в «Фото». Снимки никуда не отправляются.</string>
+  <key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+  <string>Городки добавляют в Календарь конец сезона с напоминанием. Твои события игра не видит.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>Чтобы позвать друга, игра видит только тех, кого ты отметишь: имя и телефон для сообщения. На сервер они не уходят.</string>
+  <!-- audio — для «картинки в картинке» видео-повтора (пункт 9 листика): без него окно PiP не остаётся после
+       сворачивания приложения. Своего звука у игры пока нет. -->
   <key>UIBackgroundModes</key>
   <array>
     <string>audio</string>

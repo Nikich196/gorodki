@@ -40,6 +40,10 @@
                 NavigationStack {
                     DebugMenuView()
                 }
+            case .gallery, .replay, .storage, .backup, .files, .calendar, .inviteFriend, .myQR, .scanner,
+                .notifications,
+                .assignment:
+                SheetFixtureScreen(screen: screen)
             }
         }
     }

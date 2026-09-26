@@ -46,6 +46,54 @@ public enum GPX {
         return "gorodki-\(stamp)-\(league.rawValue).gpx"
     }
 
+    /// Точки трека из чужого GPX (открытого в «Файлах» через `fileImporter`): широта и долгота каждого `<trkpt>`
+    /// по порядку, остальное (время, высота, маршруты `<rtept>`) не нужно — из них собирается видео-повтор. Точка
+    /// с неразборчивыми или недопустимыми координатами пропускается. Не XML-парсер: GPX из приложений для бега
+    /// простой, а FoundationXML на Linux — отдельная библиотека.
+    public static func trackCoordinates(in document: String) -> [Coordinate] {
+        var coordinates: [Coordinate] = []
+        var rest = document[...]
+        while let open = rest.range(of: "<trkpt") {
+            let afterName = rest[open.upperBound...]
+            guard let close = afterName.firstIndex(of: ">") else { break }
+            let tag = afterName[..<close]
+            rest = afterName[close...]
+            // «<trkpts» и подобное — другой элемент.
+            guard let separator = tag.first, separator.isWhitespace else { continue }
+            if let latitude = attribute("lat", in: tag).flatMap(Double.init),
+                let longitude = attribute("lon", in: tag).flatMap(Double.init)
+            {
+                let coordinate = Coordinate(latitude: latitude, longitude: longitude)
+                if coordinate.isValid {
+                    coordinates.append(coordinate)
+                }
+            }
+        }
+        return coordinates
+    }
+
+    /// Значение атрибута `name="…"` или `name='…'` в теле тега.
+    static func attribute(_ name: String, in tag: Substring) -> String? {
+        var rest = tag
+        while let found = rest.range(of: name) {
+            let before = found.lowerBound == tag.startIndex ? nil : tag[tag.index(before: found.lowerBound)]
+            var cursor = found.upperBound
+            rest = tag[found.upperBound...]
+            // Имя целиком: перед ним пробел, после — «=» (пробелы вокруг допустимы).
+            guard before?.isWhitespace ?? true else { continue }
+            while cursor < tag.endIndex, tag[cursor].isWhitespace { cursor = tag.index(after: cursor) }
+            guard cursor < tag.endIndex, tag[cursor] == "=" else { continue }
+            cursor = tag.index(after: cursor)
+            while cursor < tag.endIndex, tag[cursor].isWhitespace { cursor = tag.index(after: cursor) }
+            guard cursor < tag.endIndex, tag[cursor] == "\"" || tag[cursor] == "'" else { continue }
+            let quote = tag[cursor]
+            let valueStart = tag.index(after: cursor)
+            guard let valueEnd = tag[valueStart...].firstIndex(of: quote) else { return nil }
+            return String(tag[valueStart..<valueEnd]).trimmingCharacters(in: .whitespaces)
+        }
+        return nil
+    }
+
     /// Текст для XML: пять служебных символов — сущностями.
     static func escaped(_ text: String) -> String {
         var result = ""

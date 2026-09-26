@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 
 /// Делегат приложения — ради того, что нужно сделать при запуске, до того как пользователь что-то откроет:
 /// - если iOS перезапустила приложение в фоне во время забега, прогулки или пробного забега «Лаборатории», продолжить
@@ -16,6 +17,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         WalkLab.shared.resumeIfNeeded()
         ProbeRun.shared.resumeAtLaunch()
         BackgroundSync.register()
+        // Локальные уведомления видны и в открытом приложении (пункт 4 листика, «Профиль → Уведомления»).
+        UNUserNotificationCenter.current().delegate = NotificationPresenter.shared
         // При запуске слушатели соединение реального времени не открывают: оно открывается только на переднем плане —
         // при переходе в `.active` (`GorodkiApp`) или при входе в открытом приложении (`SessionRelay`).
         NetworkWatcher.shared.start()

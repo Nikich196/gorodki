@@ -100,6 +100,7 @@ struct ProfileTab: View {
                         StatTile(title: "Открыто тумана", value: area(model.exploredSquareMeters))
                         StatTile(title: model.seasonName ?? "Сезон", value: area(model.seasonExploredSquareMeters))
                     }
+                    ProfileFeatures(model: model)
                     actions
                 }
                 .padding(20)
@@ -171,7 +172,7 @@ struct ProfileTab: View {
             Divider().padding(.leading, 52)
             if model.debugMenuAvailable {
                 NavigationLink {
-                    DebugMenuView()
+                    DebugMenuView(profile: model)
                 } label: {
                     ProfileRow(title: "Отладка", systemImage: "ladybug")
                 }
@@ -262,7 +263,7 @@ private struct StatTile: View {
     }
 }
 
-private struct ProfileRow: View {
+struct ProfileRow: View {
     let title: String
     let systemImage: String
 
