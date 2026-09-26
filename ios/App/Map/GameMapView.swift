@@ -241,18 +241,22 @@ struct GameMapView: UIViewRepresentable {
             #if DEBUG
                 repaints += 1
             #endif
+            let theme = self.theme
             for (key, overlay) in layers {
                 let style = model.style(of: key.group)
-                update(overlay, on: map) { content in
-                    if key.isEdge {
-                        let stroke = style.relation.edge
-                        content.color = style.edge(theme)
+                if key.isEdge {
+                    let color = style.edge(theme)
+                    let stroke = style.relation.edge
+                    let glow = style.relation.glowRadius(theme: theme)
+                    update(overlay, on: map) { content in
+                        content.color = color
                         content.lineWidth = stroke.width
                         content.dash = stroke.dash
-                        content.glow = style.relation.glowRadius(theme: theme)
-                    } else {
-                        content.color = style.fill(theme)
+                        content.glow = glow
                     }
+                } else {
+                    let color = style.fill(theme)
+                    update(overlay, on: map) { $0.color = color }
                 }
             }
         }
