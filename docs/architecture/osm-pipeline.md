@@ -44,13 +44,13 @@
 | Загрузка одной транзакцией, повтор — без изменений | `SetImporter.cs` (команда `import`) | сделано; проверено на локальной PostgreSQL |
 | Карта-артефакт для Никиты (без тайлов, SVG из данных OSM) | `Preview.cs` (команда `preview`) | сделано |
 | Маски в шаге A захвата: `OsmConfig.SetVersion` → `IMaskStore.CoveringAsync` → `CaptureShapeBuilder` | `Features/Osm/MaskStore.cs`, `CaptureProcessor` | сделано; без набора в конфиге — как раньше |
-| Чтение «достижимого» и доли города и районов — опора для E9 | `Features/Osm/ReachableStore.cs`, `Gorodki.Domain/Osm/ReachableArea.cs` | сделано; в `/fog/summary` процента ещё нет (E9, правка контракта) |
+| Чтение «достижимого» и доли города и районов — опора для E9 | `Features/Osm/ReachableStore.cs`, `Gorodki.Domain/Osm/ReachableArea.cs` | сделано; поля процента в `/fog/summary` — в контракте (заготовка C15, пока `null`), считает их E9 ([#138](https://github.com/Nikich196/gorodki/issues/138)) |
 
 **Не сделано в v1** (и почему):
 
 - **Показ масок на карте** (`GET /masks?tiles=`) — правка контракта и заглушка в FakeServer телефона; по проекту — часть
   сервера после того, как пакет B отпустит `contracts/` ([ниже](#маски-на-карте)).
-- **% Бреста в `/fog/summary`** — задача Егора E9 (опора готова: [egor-server.md](../guides/egor-server.md)); прирост за
+- **% Бреста в `/fog/summary`** — задача Егора E9, [#138](https://github.com/Nikich196/gorodki/issues/138) (опора и поля контракта готовы: [egor-server.md](../guides/egor-server.md#70-заготовки-контрактов-где-что)); прирост за
   неделю в срезе (`leaderboard_snapshots`) — после E9.
 - **«Ничейные земли»** — форма целей решена (блоки из сети улиц в Арене), но засев, учётная запись фракции и правила —
   задача C7; таблицы целей в v1 нет.
