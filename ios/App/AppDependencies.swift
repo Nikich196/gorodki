@@ -260,7 +260,9 @@ final class AppDependencies: Sendable {
             let scheduler = SyncScheduler(
                 engine: created,
                 backlog: { (try? await SyncBacklog.of(store, ownerId: ownerId)) ?? SyncBacklog() },
-                appActive: { await MainActor.run { UIApplication.shared.applicationState == .active } })
+                appActive: { await MainActor.run { UIApplication.shared.applicationState == .active } },
+                // Экрану забега: вторая фаза церемоний, «сервер недоступен», свежий итог.
+                onReport: { report in Task { @MainActor in RunController.shared.syncReported(report) } })
             let previous = cached?.scheduler
             cached = (ownerId, created, scheduler)
             return ((created, scheduler), previous)

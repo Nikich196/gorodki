@@ -4,14 +4,12 @@ import GameCore
 /// Итог забега — экраны «Итог забега» и «Детали забега» (docs/architecture/run-hud.md, «Итог забега»). Собирается
 /// **из сохранённого** — забега и его заявок в очереди, — а не из памяти забега: итог одинаков сразу после «Финиша»,
 /// после перезапуска и из истории. Чистая функция: данные сервера приходят в разное время, и итог просто пересобирается.
-///
-/// Визитов здесь пока нет: сервер отдаёт их в `RunResponse.visitedParcels` (25.09), телефон это число ещё не сохраняет.
 public struct RunResult: Equatable, Sendable {
     /// Состояние итога — выводится из данных.
     public enum Readiness: Equatable, Sendable {
         /// Телефону ещё есть что отправить: забег не доставлен целиком или заявки не ушли (нет сети, отложен).
         case waitingForNetwork
-        /// Всё у сервера, он считает: заявки ещё не решены или «+N га» ещё нет.
+        /// Всё у сервера, он считает: заявки ещё не решены, «+N га» или визитов ещё нет.
         case computing
         /// Больше ждать нечего.
         case ready
@@ -56,6 +54,9 @@ public struct RunResult: Equatable, Sendable {
     public var fogNewCells: Int?
     /// Они же в м² — на широте забега; `nil` — числа ещё нет (или широта забега неизвестна).
     public var fogNewSquareMeters: Double?
+    /// Визиты — сколько участков освежил забег (`RunResponse.visitedParcels`); `nil` — сервер ещё не посчитал
+    /// (не раньше публичной задержки, 20 минут после конца забега): строка «позже».
+    public var visitedParcels: Int?
     /// Разрывы следа по причинам (`TrackIssue.rawValue`).
     public var breaks: [String: Int]
     /// Забег отвергнут сервером (`replay_forbidden`, `run_invalid`…): итог говорит об этом вместо площадей.
@@ -95,6 +96,7 @@ public struct RunResult: Equatable, Sendable {
         } else {
             fogNewSquareMeters = nil
         }
+        visitedParcels = run.visitedParcels
         breaks = summary.breaks
         rejectCode = run.serverState == .rejected ? run.rejectCode : nil
 
@@ -106,7 +108,8 @@ public struct RunResult: Equatable, Sendable {
         {
             readiness = .waitingForNetwork
         } else if claims.allSatisfy(\.isSettled)
-            && (run.fogNewCells != nil || StoragePrecision.milliseconds(now) > fogExpiredMs)
+            && (run.fogNewCells != nil && run.visitedParcels != nil
+                || StoragePrecision.milliseconds(now) > fogExpiredMs)
         {
             readiness = .ready
         } else {

@@ -45,17 +45,18 @@ struct RussianTextTests {
         #expect(CountText.pieces(5_349) == NumberText.integer(5_349) + " кусков")
     }
 
-    @Test("Плашка забега: «1,23 км» и «2 петли · туман 0,12 га», а не «1.23 км» и «Петель 2»")
+    @Test("Плашка забега: «1,23 км · 6:45 /км · +0,12 га тумана», а не «1.23 км»")
     func runActivity() {
-        var stats = RunStats()
-        stats.distanceMeters = 1_234
-        stats.loops = 2
-        stats.fogAreaSquareMeters = 1_234
+        var state = TrackerState()
+        state.isRunning = true
+        state.startedAtMs = 1_790_000_000_000
+        state.stats.distanceMeters = 1_234
+        state.stats.fogNewSquareMeters = 1_234
 
-        let content = RunController.activityContent(stats)
+        let content = RunController.activityContent(state, now: 1_790_000_500)
 
-        #expect(content.title == "Забег · 1,23\u{00A0}км")
-        #expect(content.detail == "2 петли · туман 0,12\u{00A0}га")
+        #expect(content.title == "Забег · Ждём GPS…")
+        #expect(content.detail == "1,23\u{00A0}км · 6:45\u{00A0}/км · +0,12\u{00A0}га тумана")
     }
 
     @Test("Плашка прогулки: «1,23 км», «21 петля · 5 точек»")

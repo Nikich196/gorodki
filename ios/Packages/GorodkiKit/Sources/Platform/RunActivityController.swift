@@ -29,9 +29,18 @@ public enum RunActivityController {
         return activity.id
     }
 
-    public static func update(id: String, state: RunActivityAttributes.ContentState) async {
+    /// - Parameter alert: оповещение (заголовок, текст) — экран загорается, телефон вибрирует: так Live Activity
+    ///   говорит о событии в кармане (PLAN.md, §6.9: «Захват — Live Activity `AlertConfiguration` + голос»).
+    public static func update(
+        id: String, state: RunActivityAttributes.ContentState, alert: (title: String, body: String)? = nil
+    ) async {
+        let configuration = alert.map {
+            AlertConfiguration(
+                title: LocalizedStringResource(stringLiteral: $0.title),
+                body: LocalizedStringResource(stringLiteral: $0.body), sound: .default)
+        }
         for activity in Activity<RunActivityAttributes>.activities where activity.id == id {
-            await activity.update(ActivityContent(state: state, staleDate: nil))
+            await activity.update(ActivityContent(state: state, staleDate: nil), alertConfiguration: configuration)
         }
     }
 

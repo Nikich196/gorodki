@@ -51,6 +51,7 @@
   <string>Датчики движения отличают бег от поездки на транспорте — так игра остаётся честной.</string>
   <key>UIBackgroundModes</key>
   <array>
+    <string>audio</string>
     <string>fetch</string>
     <string>location</string>
     <string>processing</string>

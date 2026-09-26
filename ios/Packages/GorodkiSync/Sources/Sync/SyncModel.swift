@@ -60,6 +60,10 @@ public struct LocalRun: Codable, Sendable, Hashable, Identifiable {
     /// «+N га» забега от сервера — новые клетки тумана за всё время (`RunResponse.fogNewCells`); `nil` — сервер ещё
     /// не открыл туман по забегу или телефон ещё не спросил. Число меняется один раз (fog.md), после него не спрашиваем.
     public var fogNewCells: Int?
+    /// Визиты забега от сервера — сколько участков он освежил (`RunResponse.visitedParcels`); `nil` — сервер ещё не
+    /// посчитал (не раньше публичной задержки, 20 минут после конца) или телефон ещё не спросил. Спрашивается вместе
+    /// с `fogNewCells`. Необязательное — старые записи очереди без него читаются.
+    public var visitedParcels: Int?
 
     public init(
         id: UUID, ownerId: String, league: League, source: Source = .live, configVersion: Int, startedAtMs: Int64,
