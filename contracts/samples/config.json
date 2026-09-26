@@ -160,6 +160,21 @@
       ],
       "enemyLandBonus": 0.5,
       "levelRemovedBonus": 0.5,
+      "holdTiers": [
+        {
+          "upToSotki": 100,
+          "rate": 0.1
+        },
+        {
+          "upToSotki": 500,
+          "rate": 0.05
+        },
+        {
+          "upToSotki": null,
+          "rate": 0.02
+        }
+      ],
+      "holdCapSotki": 2000,
       "landValue": {
         "city": 1,
         "rural": 0.5,

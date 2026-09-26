@@ -1,0 +1,17 @@
+{
+  "myCode": "R4T8-KD2M",
+  "friends": [
+    {
+      "playerId": "6f1e0c2a-94b7-4d38-a51e-2c7b9d4e8f10",
+      "name": "Игрок #4771",
+      "colorIndex": 2,
+      "status": "incoming"
+    },
+    {
+      "playerId": "b3a7d9e1-5c2f-4e86-9a0d-71f4c8e2b6a3",
+      "name": "Муха",
+      "colorIndex": 11,
+      "status": "friend"
+    }
+  ]
+}

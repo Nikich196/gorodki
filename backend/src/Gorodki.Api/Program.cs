@@ -5,9 +5,15 @@ using System.Threading.RateLimiting;
 using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Clans;
+using Gorodki.Api.Features.Collection;
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.Fog;
+using Gorodki.Api.Features.HallOfFame;
 using Gorodki.Api.Features.Health;
+using Gorodki.Api.Features.Inbox;
+using Gorodki.Api.Features.Inventory;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Osm;
@@ -15,6 +21,9 @@ using Gorodki.Api.Features.Players;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
+using Gorodki.Api.Features.Segments;
+using Gorodki.Api.Features.Social;
+using Gorodki.Api.Features.Streaks;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Jobs;
 using Gorodki.Api.Infrastructure.OpenApi;
@@ -262,6 +271,19 @@ if (withDatabase)
     app.MapFogEndpoints();
     app.MapLeaderboardEndpoints();
     app.MapPlayerEndpoints();
+
+    // Заготовки задач Егора (C15): адреса-заглушки // ЗАДАЧА #NN, контракт уже в openapi.v1.json (egor-server.md, раздел 5).
+    app.MapWeeklyCardEndpoints();
+    app.MapStreakEndpoints();
+    app.MapClanEndpoints();
+    app.MapHallOfFameEndpoints();
+    app.MapInboxEndpoints();
+    app.MapInventoryEndpoints();
+    app.MapFriendEndpoints();
+    app.MapFeedEndpoints();
+    app.MapCollectionEndpoints();
+    app.MapSegmentEndpoints();
+    app.MapDuelEndpoints();
 }
 
 await app.RunAsync();

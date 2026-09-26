@@ -1,0 +1,31 @@
+{
+  "id": "0c9d8e7f-6a5b-4c3d-8e2f-1a0b9c8d7e6f",
+  "name": "Бегуны БрГТУ",
+  "hue": 4,
+  "full": true,
+  "members": [
+    {
+      "playerId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+      "name": "Бегун-1234",
+      "colorIndex": 7,
+      "role": "leader",
+      "me": true
+    },
+    {
+      "playerId": "6f1e0c2a-94b7-4d38-a51e-2c7b9d4e8f10",
+      "name": "Игрок #4771",
+      "colorIndex": 2,
+      "role": "officer",
+      "me": false
+    },
+    {
+      "playerId": "b3a7d9e1-5c2f-4e86-9a0d-71f4c8e2b6a3",
+      "name": "Муха",
+      "colorIndex": 11,
+      "role": "member",
+      "me": false
+    }
+  ],
+  "myRole": "leader",
+  "inviteCode": "K7M2-9QXA"
+}

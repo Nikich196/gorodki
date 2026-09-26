@@ -1,0 +1,54 @@
+{
+  "duels": [
+    {
+      "id": "2b1a0918-7e6d-4c5b-a493-82716f5e4d3c",
+      "status": "active",
+      "league": "run",
+      "metric": "distance",
+      "segmentId": null,
+      "days": 3,
+      "me": {
+        "playerId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+        "name": "Бегун-1234",
+        "colorIndex": 7,
+        "score": 8420.5,
+        "staked": true
+      },
+      "opponent": {
+        "playerId": "b3a7d9e1-5c2f-4e86-9a0d-71f4c8e2b6a3",
+        "name": "Муха",
+        "colorIndex": 11,
+        "score": 9010,
+        "staked": true
+      },
+      "startsAtMs": 1790000000000,
+      "endsAtMs": 1790259200000,
+      "winnerId": null
+    },
+    {
+      "id": "1a09187e-6d5c-4b4a-9382-716f5e4d3c2b",
+      "status": "pending",
+      "league": "run",
+      "metric": "segmentTime",
+      "segmentId": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+      "days": 1,
+      "me": {
+        "playerId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+        "name": "Бегун-1234",
+        "colorIndex": 7,
+        "score": null,
+        "staked": false
+      },
+      "opponent": {
+        "playerId": "6f1e0c2a-94b7-4d38-a51e-2c7b9d4e8f10",
+        "name": "Игрок #4771",
+        "colorIndex": 2,
+        "score": null,
+        "staked": false
+      },
+      "startsAtMs": null,
+      "endsAtMs": null,
+      "winnerId": null
+    }
+  ]
+}
