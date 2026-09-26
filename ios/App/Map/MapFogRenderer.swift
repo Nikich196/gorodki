@@ -4,37 +4,54 @@ import MapKit
 import os
 
 /// Туман «Исследования» на карте игры (PLAN.md, §6.4; docs/design/tokens.md, §2 «Туман»): дымка `FogStyle.haze`
-/// над дорогами, из которой вырезано открытое, и кромка открытого `FogStyle.edge` шириной `FogStyle.edgeBandWidth`
-/// на экране.
+/// над дорогами, из которой вырезано открытое, кромка открытого `FogStyle.edge` шириной `FogStyle.edgeBandWidth`
+/// на экране и мягкий край дымки за ней.
 ///
 /// Растр — как у стенда S4 (`FogRenderer`, «Лаборатория → Карта»): клетка тумана — пиксель z22, тайл z14 — ровно
-/// 16 384 × 16 384 точки карты, маска тайла 256 × 256 растягивается со сглаживанием — края мягкие. Кромка — та же маска,
-/// сдвинутая на ширину полосы в восемь сторон (расширение), минус само открытое. MapKit рисует из нескольких потоков,
-/// поэтому данные — неизменяемый снимок под блокировкой, маски — неизменяемые `CGImage`.
+/// 16 384 × 16 384 точки карты, маска тайла 256 × 256. У тайла две маски:
+/// - **чёткая** — открытые клетки: по ней кромка (маска, сдвинутая на ширину полосы в восемь сторон) и прозрачное
+///   открытое;
+/// - **мягкая** — та же, размытая σ ≈ 2 клетки (`FogStyle.softEdgeSigmaCells`) с краями соседних тайлов, чтобы на линии
+///   тайла не было шва: по ней дымка нарастает за кромкой, а не обрывается.
+///
+/// MapKit рисует из нескольких потоков, поэтому данные — неизменяемый снимок под блокировкой, маски — неизменяемые
+/// `CGImage`.
 final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
     private struct State: Sendable {
         var tiles: [FogTileKey: FogTileBits] = [:]
         var haze = FogStyle.haze.day
         var edge = FogStyle.edge.day
-        var masks: [FogTileKey: Mask] = [:]
+        var masks: [FogTileKey: Masks] = [:]
     }
 
-    /// Маска тайла: `CGImage` неизменяем, его можно отдавать потокам отрисовки MapKit.
-    private struct Mask: @unchecked Sendable {
-        let image: CGImage
+    /// Маски тайла: `CGImage` неизменяем, его можно отдавать потокам отрисовки MapKit.
+    private struct Masks: @unchecked Sendable {
+        let sharp: CGImage
+        let soft: CGImage
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Точек карты в тайле z14.
     private static let tileSize = 16_384.0
+    private static let side = 256
+    /// Окно размытия: два прохода окна 2r + 1 по строкам и столбцам — σ² = 2 · ((2r + 1)² − 1) / 12. При r = 2 — σ = 2
+    /// клетки, как в `FogStyle.softEdgeSigmaCells`.
+    private static let blurRadius = Int(
+        ((FogStyle.softEdgeSigmaCells * FogStyle.softEdgeSigmaCells * 6 + 1).squareRoot() - 1) / 2)
+    /// Сколько клеток соседних тайлов нужно размытию: два прохода по r.
+    private static let margin = 2 * blurRadius
 
     /// Новый туман и тема. Вызывается из главного потока, когда пришли тайлы или сменилась тема.
     func update(_ tiles: [FogTileKey: FogTileBits], theme: Theme) {
         state.withLock { state in
-            // Маски пересобираются только у изменившихся тайлов.
-            for (key, bits) in tiles where state.tiles[key] != bits {
-                state.masks[key] = nil
+            // Маски пересобираются только у изменившихся тайлов и их соседей: мягкая маска берёт их края.
+            for key in Set(tiles.keys).union(state.tiles.keys) where state.tiles[key] != tiles[key] {
+                for dx in -1...1 {
+                    for dy in -1...1 {
+                        state.masks[FogTileKey(x: key.x + dx, y: key.y + dy)] = nil
+                    }
+                }
             }
             state.tiles = tiles
             state.haze = FogStyle.haze[theme]
@@ -45,53 +62,61 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
         let snapshot = state.withLock { $0 }
-        let drawRect = rect(for: mapRect)
         context.setFillColor(Self.cgColor(snapshot.haze))
-        context.fill(drawRect)
+        context.fill(rect(for: mapRect))
 
-        // Кромка шириной 1,8 pt на экране — в точках карты это 1,8 / zoomScale. Тайл, чья кромка заходит в эту часть
-        // карты, рисуется, даже если сам он за её краем.
+        // Кромка шириной 1,8 pt на экране — в точках карты это 1,8 / zoomScale; мягкий край — до `margin` клеток
+        // (по 64 точки карты). Тайл, чей край заходит в эту часть карты, рисуется, даже если сам он за её краем.
         let band = FogStyle.edgeBandWidth / Double(zoomScale)
-        let minX = Int(((mapRect.minX - band) / Self.tileSize).rounded(.down))
-        let maxX = Int(((mapRect.maxX + band) / Self.tileSize).rounded(.down))
-        let minY = Int(((mapRect.minY - band) / Self.tileSize).rounded(.down))
-        let maxY = Int(((mapRect.maxY + band) / Self.tileSize).rounded(.down))
-        var visible: [(rect: CGRect, mask: CGImage)] = []
+        let reach = max(band, Double(Self.margin) * Self.tileSize / Double(Self.side))
+        let minX = Int(((mapRect.minX - reach) / Self.tileSize).rounded(.down))
+        let maxX = Int(((mapRect.maxX + reach) / Self.tileSize).rounded(.down))
+        let minY = Int(((mapRect.minY - reach) / Self.tileSize).rounded(.down))
+        let maxY = Int(((mapRect.maxY + reach) / Self.tileSize).rounded(.down))
+        var visible: [(rect: CGRect, masks: Masks)] = []
         for x in minX...maxX {
             for y in minY...maxY {
                 let key = FogTileKey(x: x, y: y)
-                guard let mask = mask(for: key, in: snapshot) else { continue }
+                guard let masks = masks(for: key, in: snapshot) else { continue }
                 let tileRect = rect(
                     for: MKMapRect(
                         x: Double(x) * Self.tileSize, y: Double(y) * Self.tileSize,
                         width: Self.tileSize, height: Self.tileSize))
-                visible.append((tileRect, mask))
+                visible.append((tileRect, masks))
             }
         }
         guard !visible.isEmpty else { return }
         context.interpolationQuality = .high
 
-        // Кромка: открытое, сдвинутое в восемь сторон, одной прозрачной «плёнкой» — перекрытия не темнеют.
+        // 1. Мягкий край: дымка нарастает от открытого наружу.
+        context.saveGState()
+        context.setBlendMode(.clear)
+        for (tileRect, masks) in visible {
+            fill(tileRect, through: masks.soft, in: context)
+        }
+        context.restoreGState()
+
+        // 2. Кромка: открытое, сдвинутое в восемь сторон, одной прозрачной «плёнкой» — перекрытия не темнеют.
         let offset = CGFloat(band)
         context.saveGState()
         context.setAlpha(snapshot.edge.alpha)
         context.beginTransparencyLayer(auxiliaryInfo: nil)
         context.setFillColor(Self.cgColor(snapshot.edge.withAlpha(1)))
-        for (tileRect, mask) in visible {
+        for (tileRect, masks) in visible {
             for dx in [-offset, 0, offset] {
                 for dy in [-offset, 0, offset] where dx != 0 || dy != 0 {
-                    fill(tileRect.offsetBy(dx: dx, dy: dy), through: mask, in: context)
+                    fill(tileRect.offsetBy(dx: dx, dy: dy), through: masks.sharp, in: context)
                 }
             }
         }
         context.endTransparencyLayer()
         context.restoreGState()
 
-        // Открытое — прозрачно: стираются и дымка, и кромка внутри.
+        // 3. Открытое — прозрачно: стираются и дымка, и кромка внутри.
         context.saveGState()
         context.setBlendMode(.clear)
-        for (tileRect, mask) in visible {
-            fill(tileRect, through: mask, in: context)
+        for (tileRect, masks) in visible {
+            fill(tileRect, through: masks.sharp, in: context)
         }
         context.restoreGState()
     }
@@ -107,52 +132,83 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
         context.restoreGState()
     }
 
-    private func mask(for key: FogTileKey, in snapshot: State) -> CGImage? {
+    /// Маски тайла: есть открытое в нём — обе; нет, но рядом есть — только мягкая заходит в него, чёткая пустая.
+    private func masks(for key: FogTileKey, in snapshot: State) -> Masks? {
         if let cached = snapshot.masks[key] {
-            return cached.image
+            return cached
         }
-        guard let bits = snapshot.tiles[key], bits.count > 0, let image = Self.mask(from: bits) else { return nil }
-        let mask = Mask(image: image)
-        state.withLock { state in
-            if state.tiles[key] == bits {
-                state.masks[key] = mask
+        var neighbors: [FogTileBits?] = []
+        for dy in -1...1 {
+            for dx in -1...1 {
+                neighbors.append(snapshot.tiles[FogTileKey(x: key.x + dx, y: key.y + dy)])
             }
         }
-        return image
+        guard neighbors.contains(where: { ($0?.count ?? 0) > 0 }),
+            let sharp = Self.image(Self.cells(neighbors[4])),
+            let soft = Self.image(Self.softCells(neighbors))
+        else { return nil }
+        let masks = Masks(sharp: sharp, soft: soft)
+        let tiles = snapshot.tiles
+        state.withLock { state in
+            if state.tiles == tiles {
+                state.masks[key] = masks
+            }
+        }
+        return masks
     }
 
-    /// Маска тайла 256 × 256 в оттенках серого без альфы — такую принимает `clip(to:mask:)`: белое — открыто.
-    /// Строка 0 — северный край тайла (y веб-меркатора растёт на юг). Край мягкий: размытие σ ≈ 2 клетки
-    /// (`FogStyle.softEdgeSigmaCells`, tokens.md: «размывать один раз при сборке растра тайла») — два прохода окна
-    /// 5 клеток по строкам и столбцам (σ² = 2 · (5² − 1) / 12 = 4). У края тайла значения повторяются: открытое,
-    /// которое идёт через край, не тускнеет.
-    static func mask(from bits: FogTileBits) -> CGImage? {
-        var bytes = [UInt8](repeating: 0, count: 256 * 256)
-        for index in 0..<(256 * 256) where bits.isSet(index) {
+    /// Клетки тайла: 255 — открыто. Строка 0 — северный край (y веб-меркатора растёт на юг).
+    static func cells(_ bits: FogTileBits?) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: side * side)
+        guard let bits else { return bytes }
+        for index in 0..<(side * side) where bits.isSet(index) {
             bytes[index] = 255
         }
-        let radius = Int((FogStyle.softEdgeSigmaCells * FogStyle.softEdgeSigmaCells * 12 / 2 + 1).squareRoot()) / 2
-        for _ in 0..<2 {
-            bytes = boxBlur(bytes, radius: radius, horizontal: true)
-            bytes = boxBlur(bytes, radius: radius, horizontal: false)
-        }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
-        return CGImage(
-            width: 256, height: 256, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: 256,
-            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        return bytes
     }
 
-    /// Среднее по окну 2 · `radius` + 1 клеток вдоль строк или столбцов; за краем тайла — крайнее значение.
-    static func boxBlur(_ source: [UInt8], radius: Int, horizontal: Bool) -> [UInt8] {
+    /// Мягкая маска тайла: его клетки с полосой `margin` клеток соседей (порядок `neighbors` — строки с севера,
+    /// в строке с запада, центр — пятый), размытые двумя проходами окна по строкам и столбцам, без полосы.
+    static func softCells(_ neighbors: [FogTileBits?]) -> [UInt8] {
+        let padded = side + 2 * margin
+        var bytes = [UInt8](repeating: 0, count: padded * padded)
+        for (index, bits) in neighbors.enumerated() {
+            guard let bits, bits.count > 0 else { continue }
+            let offsetX = (index % 3 - 1) * side + margin
+            let offsetY = (index / 3 - 1) * side + margin
+            for y in 0..<side {
+                let row = offsetY + y
+                guard (0..<padded).contains(row) else { continue }
+                for x in 0..<side where bits.isSet(y * side + x) {
+                    let column = offsetX + x
+                    if (0..<padded).contains(column) {
+                        bytes[row * padded + column] = 255
+                    }
+                }
+            }
+        }
+        for _ in 0..<2 {
+            bytes = boxBlur(bytes, side: padded, radius: blurRadius, horizontal: true)
+            bytes = boxBlur(bytes, side: padded, radius: blurRadius, horizontal: false)
+        }
+        var result = [UInt8](repeating: 0, count: side * side)
+        for y in 0..<side {
+            for x in 0..<side {
+                result[y * side + x] = bytes[(y + margin) * padded + x + margin]
+            }
+        }
+        return result
+    }
+
+    /// Среднее по окну 2 · `radius` + 1 вдоль строк или столбцов квадрата `side` × `side`; за краем — нули.
+    static func boxBlur(_ source: [UInt8], side: Int, radius: Int, horizontal: Bool) -> [UInt8] {
         guard radius > 0 else { return source }
-        let side = 256
         let window = 2 * radius + 1
         var result = [UInt8](repeating: 0, count: source.count)
         for line in 0..<side {
             func at(_ position: Int) -> Int {
-                let clamped = min(max(position, 0), side - 1)
-                return Int(horizontal ? source[line * side + clamped] : source[clamped * side + line])
+                guard (0..<side).contains(position) else { return 0 }
+                return Int(horizontal ? source[line * side + position] : source[position * side + line])
             }
             var sum = 0
             for position in -radius...radius {
@@ -169,6 +225,15 @@ final class MapFogRenderer: MKOverlayRenderer, @unchecked Sendable {
             }
         }
         return result
+    }
+
+    /// Маска 256 × 256 в оттенках серого без альфы — такую принимает `clip(to:mask:)`: белое — открыто.
+    static func image(_ bytes: [UInt8]) -> CGImage? {
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        return CGImage(
+            width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: side,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
     private static func cgColor(_ color: RGBA) -> CGColor {

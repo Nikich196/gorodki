@@ -174,7 +174,10 @@ struct GameMapView: UIViewRepresentable {
 
         /// Слои земли заново: заливки, над ними кромки. Порядок: земля, туман над ней (когда он есть, земли нет).
         private func rebuildLand(on map: MKMapView, visible: Bool) {
-            map.removeOverlays(landOverlays)
+            // Прежние слои живы, пока не добавлены новые: иначе новый объект занял бы адрес только что освобождённого,
+            // и MapKit взял бы для него прежний рендерер — «Отношения» оставались с цветами «Игроков» (снимок 28).
+            let previous = landOverlays
+            defer { map.removeOverlays(previous) }
             landOverlays = []
             styles = [:]
             guard visible else { return }
