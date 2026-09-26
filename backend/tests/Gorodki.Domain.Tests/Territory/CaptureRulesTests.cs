@@ -19,6 +19,7 @@ public sealed class CaptureRulesTests
         Level = level,
         LastVisitAt = visited ?? T0.AddDays(-2),
         LastLevelUpAt = T0.AddDays(-2),
+        TouchedAt = visited ?? T0.AddDays(-2),
     };
 
     private static (ParcelState? State, PieceOutcome Outcome) Attack(ParcelState? piece, Guid attacker, DateTimeOffset at) =>

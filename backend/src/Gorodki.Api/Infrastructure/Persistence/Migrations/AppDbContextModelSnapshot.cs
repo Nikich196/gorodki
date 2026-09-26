@@ -267,6 +267,10 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("tile_y");
 
+                    b.Property<DateTimeOffset>("TouchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("touched_at");
+
                     b.HasKey("Id")
                         .HasName("pk_capture_journal_pieces");
 
@@ -395,6 +399,103 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.ToTable("contested_zones", "app");
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DistrictEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<double>("AreaWithoutMasks")
+                        .HasColumnType("double precision")
+                        .HasColumnName("area_without_masks");
+
+                    b.Property<MultiPolygon>("Geometry")
+                        .IsRequired()
+                        .HasColumnType("geometry(MultiPolygon, 32634)")
+                        .HasColumnName("geometry");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<long?>("OsmId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("osm_id");
+
+                    b.Property<bool>("Proposal")
+                        .HasColumnType("boolean")
+                        .HasColumnName("proposal");
+
+                    b.Property<int>("ReachableCells")
+                        .HasColumnType("integer")
+                        .HasColumnName("reachable_cells");
+
+                    b.Property<int>("SetVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("set_version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_districts");
+
+                    b.HasIndex("SetVersion", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_districts_set_version_key");
+
+                    b.ToTable("districts", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_districts_geometry_valid", "extensions.st_isvalid(geometry)");
+
+                            t.HasCheckConstraint("ck_districts_kind", "kind BETWEEN 1 AND 4");
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DistrictTileEntity", b =>
+                {
+                    b.Property<long>("DistrictId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("district_id");
+
+                    b.Property<int>("TileX")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_x");
+
+                    b.Property<int>("TileY")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_y");
+
+                    b.Property<byte[]>("Bits")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("bits");
+
+                    b.Property<int>("CellCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("cell_count");
+
+                    b.HasKey("DistrictId", "TileX", "TileY")
+                        .HasName("pk_district_tiles");
+
+                    b.ToTable("district_tiles", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_district_tiles_cells", "cell_count BETWEEN 1 AND 65536");
+                        });
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FogTileEntity", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -511,6 +612,50 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.LandZoneEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Polygon>("Geometry")
+                        .IsRequired()
+                        .HasColumnType("geometry(Polygon, 32634)")
+                        .HasColumnName("geometry");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("SetVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("set_version");
+
+                    b.Property<int>("TileX")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_x");
+
+                    b.Property<int>("TileY")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_y");
+
+                    b.HasKey("Id")
+                        .HasName("pk_land_zones");
+
+                    b.HasIndex("SetVersion", "TileX", "TileY")
+                        .HasDatabaseName("ix_land_zones_set_version_tile_x_tile_y");
+
+                    b.ToTable("land_zones", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_land_zones_geometry_valid", "extensions.st_isvalid(geometry)");
+
+                            t.HasCheckConstraint("ck_land_zones_kind", "kind = 1");
+                        });
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.LeaderboardSnapshotEntity", b =>
                 {
                     b.Property<DateOnly>("Day")
@@ -551,6 +696,122 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_leaderboard_snapshots_day_board_layer_season_rank");
 
                     b.ToTable("leaderboard_snapshots", "app");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.MaskEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Polygon>("Geometry")
+                        .IsRequired()
+                        .HasColumnType("geometry(Polygon, 32634)")
+                        .HasColumnName("geometry");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("SetVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("set_version");
+
+                    b.Property<int>("TileX")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_x");
+
+                    b.Property<int>("TileY")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_y");
+
+                    b.HasKey("Id")
+                        .HasName("pk_masks");
+
+                    b.HasIndex("SetVersion", "TileX", "TileY")
+                        .HasDatabaseName("ix_masks_set_version_tile_x_tile_y");
+
+                    b.ToTable("masks", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_masks_geometry_valid", "extensions.st_isvalid(geometry)");
+
+                            t.HasCheckConstraint("ck_masks_kind", "kind BETWEEN 1 AND 8");
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.OsmSetEntity", b =>
+                {
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.Property<DateTimeOffset>("BuiltAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("built_at");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<int>("FrameMaxX")
+                        .HasColumnType("integer")
+                        .HasColumnName("frame_max_x");
+
+                    b.Property<int>("FrameMaxY")
+                        .HasColumnType("integer")
+                        .HasColumnName("frame_max_y");
+
+                    b.Property<int>("FrameMinX")
+                        .HasColumnType("integer")
+                        .HasColumnName("frame_min_x");
+
+                    b.Property<int>("FrameMinY")
+                        .HasColumnType("integer")
+                        .HasColumnName("frame_min_y");
+
+                    b.Property<DateTimeOffset>("ImportedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("imported_at");
+
+                    b.Property<string>("Metadata")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("metadata");
+
+                    b.Property<short>("PlayZone")
+                        .HasColumnType("smallint")
+                        .HasColumnName("play_zone");
+
+                    b.Property<int>("ReachableCells")
+                        .HasColumnType("integer")
+                        .HasColumnName("reachable_cells");
+
+                    b.Property<string>("SourceSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_sha256");
+
+                    b.Property<DateTimeOffset?>("SourceTimestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("source_timestamp");
+
+                    b.HasKey("Version")
+                        .HasName("pk_osm_sets");
+
+                    b.ToTable("osm_sets", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_osm_sets_frame", "frame_min_x <= frame_max_x AND frame_min_y <= frame_max_y");
+
+                            t.HasCheckConstraint("ck_osm_sets_play_zone", "play_zone BETWEEN 0 AND 2");
+
+                            t.HasCheckConstraint("ck_osm_sets_version", "version >= 1");
+                        });
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.ParcelEntity", b =>
@@ -612,6 +873,10 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("tile_y");
 
+                    b.Property<DateTimeOffset>("TouchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("touched_at");
+
                     b.HasKey("Id")
                         .HasName("pk_parcels");
 
@@ -666,6 +931,38 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.ToTable("privacy_zones", "app", t =>
                         {
                             t.HasCheckConstraint("ck_privacy_zones_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180");
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.ReachableTileEntity", b =>
+                {
+                    b.Property<int>("SetVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("set_version");
+
+                    b.Property<int>("TileX")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_x");
+
+                    b.Property<int>("TileY")
+                        .HasColumnType("integer")
+                        .HasColumnName("tile_y");
+
+                    b.Property<byte[]>("Bits")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("bits");
+
+                    b.Property<int>("CellCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("cell_count");
+
+                    b.HasKey("SetVersion", "TileX", "TileY")
+                        .HasName("pk_reachable_tiles");
+
+                    b.ToTable("reachable_tiles", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_reachable_tiles_cells", "cell_count BETWEEN 1 AND 65536");
                         });
                 });
 
@@ -924,17 +1221,113 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.ScoreEventEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<double>("Basis")
+                        .HasColumnType("double precision")
+                        .HasColumnName("basis");
+
+                    b.Property<Guid?>("CaptureId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("capture_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("EffectiveAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("effective_at");
+
+                    b.Property<DateOnly>("GameDay")
+                        .HasColumnType("date")
+                        .HasColumnName("game_day");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("kind");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<int>("Points")
+                        .HasColumnType("integer")
+                        .HasColumnName("points");
+
+                    b.Property<Guid?>("RunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("run_id");
+
+                    b.Property<int?>("Season")
+                        .HasColumnType("integer")
+                        .HasColumnName("season");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("VisibleAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("visible_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_score_events");
+
+                    b.HasIndex("CaptureId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_score_events_capture_id")
+                        .HasFilter("capture_id IS NOT NULL");
+
+                    b.HasIndex("RunId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_score_events_distance_per_run")
+                        .HasFilter("kind = 2");
+
+                    b.HasIndex("League", "Season", "VisibleAt")
+                        .HasDatabaseName("ix_score_events_league_season_visible_at");
+
+                    b.HasIndex("UserId", "League", "GameDay", "Kind")
+                        .HasDatabaseName("ix_score_events_user_id_league_game_day_kind");
+
+                    b.ToTable("score_events", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_score_events_capture", "kind <> 1 OR capture_id IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_score_events_distance", "kind <> 2 OR run_id IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 2");
+
+                            t.HasCheckConstraint("ck_score_events_values", "points >= 0 AND basis >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.SeasonEntity", b =>
                 {
                     b.Property<int>("Number")
                         .HasColumnType("integer")
                         .HasColumnName("number");
 
+                    b.Property<bool>("CleanStart")
+                        .HasColumnType("boolean")
+                        .HasColumnName("clean_start");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("name");
+
+                    b.Property<DateTimeOffset?>("ResetAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reset_at");
 
                     b.Property<DateTimeOffset>("StartsAt")
                         .HasColumnType("timestamp with time zone")
@@ -954,18 +1347,21 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         new
                         {
                             Number = 0,
+                            CleanStart = true,
                             Name = "Сезон 0 (бета)",
                             StartsAt = new DateTimeOffset(new DateTime(2026, 11, 15, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         },
                         new
                         {
                             Number = 1,
+                            CleanStart = false,
                             Name = "Сезон 1",
                             StartsAt = new DateTimeOffset(new DateTime(2026, 11, 29, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         },
                         new
                         {
                             Number = 2,
+                            CleanStart = false,
                             Name = "Сезон 2",
                             StartsAt = new DateTimeOffset(new DateTime(2026, 12, 13, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         });
@@ -1138,6 +1534,26 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_contested_zones_captures_capture_id");
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DistrictEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.OsmSetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SetVersion")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_districts_osm_sets_set_version");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DistrictTileEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.DistrictEntity", null)
+                        .WithMany()
+                        .HasForeignKey("DistrictId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_district_tiles_districts_district_id");
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FogTileEntity", b =>
                 {
                     b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
@@ -1148,6 +1564,16 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_fog_tiles_users_user_id");
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.LandZoneEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.OsmSetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SetVersion")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_land_zones_osm_sets_set_version");
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.LeaderboardSnapshotEntity", b =>
                 {
                     b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
@@ -1156,6 +1582,16 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_leaderboard_snapshots_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.MaskEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.OsmSetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SetVersion")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_masks_osm_sets_set_version");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.ParcelEntity", b =>
@@ -1176,6 +1612,16 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_privacy_zones_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.ReachableTileEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.OsmSetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SetVersion")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_reachable_tiles_osm_sets_set_version");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.RefreshTokenEntity", b =>
@@ -1213,6 +1659,28 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_runs_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.ScoreEventEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.CaptureEntity", null)
+                        .WithMany()
+                        .HasForeignKey("CaptureId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_score_events_captures_capture_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.RunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_score_events_runs_run_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_score_events_users_user_id");
                 });
 #pragma warning restore 612, 618
         }

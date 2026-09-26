@@ -51,6 +51,20 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<LeaderboardSnapshotEntity> LeaderboardSnapshots => Set<LeaderboardSnapshotEntity>();
 
+    public DbSet<OsmSetEntity> OsmSets => Set<OsmSetEntity>();
+
+    public DbSet<MaskEntity> Masks => Set<MaskEntity>();
+
+    public DbSet<ReachableTileEntity> ReachableTiles => Set<ReachableTileEntity>();
+
+    public DbSet<DistrictEntity> Districts => Set<DistrictEntity>();
+
+    public DbSet<DistrictTileEntity> DistrictTiles => Set<DistrictTileEntity>();
+
+    public DbSet<LandZoneEntity> LandZones => Set<LandZoneEntity>();
+
+    public DbSet<ScoreEventEntity> ScoreEvents => Set<ScoreEventEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -318,8 +332,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             });
 
             // Даты — из плана (PLAN.md, §3.4): С0 16–29.11 (бета), С1 30.11–13.12, С2 14.12 → показ. Полночь по Минску.
+            // Сезон 0 стартует с чистой карты (§3.4; #30, п. 3): земля полевых тестов стирается.
             season.HasData(
-                new SeasonEntity { Number = 0, Name = "Сезон 0 (бета)", StartsAt = new DateTimeOffset(2026, 11, 15, 21, 0, 0, TimeSpan.Zero) },
+                new SeasonEntity { Number = 0, Name = "Сезон 0 (бета)", StartsAt = new DateTimeOffset(2026, 11, 15, 21, 0, 0, TimeSpan.Zero), CleanStart = true },
                 new SeasonEntity { Number = 1, Name = "Сезон 1", StartsAt = new DateTimeOffset(2026, 11, 29, 21, 0, 0, TimeSpan.Zero) },
                 new SeasonEntity { Number = 2, Name = "Сезон 2", StartsAt = new DateTimeOffset(2026, 12, 13, 21, 0, 0, TimeSpan.Zero) });
         });
@@ -344,6 +359,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             snapshot.HasOne<UserEntity>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        ConfigureOsm(model);
+
+        model.Entity<ScoreEventEntity>(score =>
+        {
+            score.HasKey(e => e.Id);
+            score.Property(e => e.Id).UseIdentityAlwaysColumn();
+            score.HasOne<UserEntity>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            // Захват уходит (удаление аккаунта) — его начисление с ним; откат стирает начисление явно (CaptureRollback).
+            score.HasOne<CaptureEntity>().WithMany().HasForeignKey(e => e.CaptureId).OnDelete(DeleteBehavior.Cascade);
+            score.HasOne<RunEntity>().WithMany().HasForeignKey(e => e.RunId).OnDelete(DeleteBehavior.Cascade);
+            // Одно начисление на захват и одно за дистанцию забега: повтор обработки не начислит дважды — это гарантирует база.
+            score.HasIndex(e => e.CaptureId).IsUnique().HasFilter("capture_id IS NOT NULL");
+            score.HasIndex(e => e.RunId).IsUnique().HasFilter("kind = 2").HasDatabaseName("ux_score_events_distance_per_run");
+            // Ступени суток и потолок дистанции — сумма за (игрок, лига, сутки, вид); рейтинги — (лига, сезон) с границей.
+            score.HasIndex(e => new { e.UserId, e.League, e.GameDay, e.Kind });
+            score.HasIndex(e => new { e.League, e.Season, e.VisibleAt });
+            score.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 2");
+                t.HasCheckConstraint("ck_score_events_capture", "kind <> 1 OR capture_id IS NOT NULL");
+                t.HasCheckConstraint("ck_score_events_distance", "kind <> 2 OR run_id IS NOT NULL");
+                t.HasCheckConstraint("ck_score_events_values", "points >= 0 AND basis >= 0");
+            });
+        });
+
         model.Entity<PrivacyZoneEntity>(zone =>
         {
             zone.HasKey(z => z.Id);
@@ -351,6 +391,87 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             zone.HasOne<UserEntity>().WithMany().HasForeignKey(z => z.UserId).OnDelete(DeleteBehavior.Cascade);
             zone.ToTable(t => t.HasCheckConstraint(
                 "ck_privacy_zones_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180"));
+        });
+    }
+
+    /// <summary>
+    /// Таблицы конвейера OSM (docs/architecture/osm-pipeline.md): наборы, куски масок, «достижимое», районы, ценность земли.
+    /// Строки набора удаляются вместе с ним (каскад); пишет их только инструмент конвейера.
+    /// </summary>
+    private static void ConfigureOsm(ModelBuilder model)
+    {
+        model.Entity<OsmSetEntity>(set =>
+        {
+            set.HasKey(s => s.Version);
+            set.Property(s => s.Version).ValueGeneratedNever();
+            set.Property(s => s.Fingerprint).HasMaxLength(64);
+            set.Property(s => s.SourceSha256).HasMaxLength(64);
+            set.Property(s => s.Metadata).HasColumnType("jsonb");
+            set.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_osm_sets_version", "version >= 1");
+                t.HasCheckConstraint("ck_osm_sets_frame", "frame_min_x <= frame_max_x AND frame_min_y <= frame_max_y");
+                t.HasCheckConstraint("ck_osm_sets_play_zone", "play_zone BETWEEN 0 AND 2");
+            });
+        });
+
+        model.Entity<MaskEntity>(mask =>
+        {
+            mask.HasKey(m => m.Id);
+            mask.Property(m => m.Id).UseIdentityAlwaysColumn();
+            mask.Property(m => m.Geometry).HasColumnType($"geometry(Polygon, {Utm34.Srid})");
+            mask.HasOne<OsmSetEntity>().WithMany().HasForeignKey(m => m.SetVersion).OnDelete(DeleteBehavior.Cascade);
+            mask.HasIndex(m => new { m.SetVersion, m.TileX, m.TileY });
+            mask.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_masks_kind", "kind BETWEEN 1 AND 8");
+                // Как у участков: неправильная геометрия в базу не попадает.
+                t.HasCheckConstraint("ck_masks_geometry_valid", "extensions.st_isvalid(geometry)");
+            });
+        });
+
+        model.Entity<ReachableTileEntity>(tile =>
+        {
+            tile.HasKey(t => new { t.SetVersion, t.TileX, t.TileY });
+            tile.HasOne<OsmSetEntity>().WithMany().HasForeignKey(t => t.SetVersion).OnDelete(DeleteBehavior.Cascade);
+            tile.ToTable(t => t.HasCheckConstraint("ck_reachable_tiles_cells", "cell_count BETWEEN 1 AND 65536"));
+        });
+
+        model.Entity<DistrictEntity>(district =>
+        {
+            district.HasKey(d => d.Id);
+            district.Property(d => d.Id).UseIdentityAlwaysColumn();
+            district.Property(d => d.Key).HasMaxLength(64);
+            district.Property(d => d.Name).HasMaxLength(100);
+            district.Property(d => d.Geometry).HasColumnType($"geometry(MultiPolygon, {Utm34.Srid})");
+            district.HasOne<OsmSetEntity>().WithMany().HasForeignKey(d => d.SetVersion).OnDelete(DeleteBehavior.Cascade);
+            district.HasIndex(d => new { d.SetVersion, d.Key }).IsUnique();
+            district.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_districts_kind", "kind BETWEEN 1 AND 4");
+                t.HasCheckConstraint("ck_districts_geometry_valid", "extensions.st_isvalid(geometry)");
+            });
+        });
+
+        model.Entity<DistrictTileEntity>(tile =>
+        {
+            tile.HasKey(t => new { t.DistrictId, t.TileX, t.TileY });
+            tile.HasOne<DistrictEntity>().WithMany().HasForeignKey(t => t.DistrictId).OnDelete(DeleteBehavior.Cascade);
+            tile.ToTable(t => t.HasCheckConstraint("ck_district_tiles_cells", "cell_count BETWEEN 1 AND 65536"));
+        });
+
+        model.Entity<LandZoneEntity>(zone =>
+        {
+            zone.HasKey(z => z.Id);
+            zone.Property(z => z.Id).UseIdentityAlwaysColumn();
+            zone.Property(z => z.Geometry).HasColumnType($"geometry(Polygon, {Utm34.Srid})");
+            zone.HasOne<OsmSetEntity>().WithMany().HasForeignKey(z => z.SetVersion).OnDelete(DeleteBehavior.Cascade);
+            zone.HasIndex(z => new { z.SetVersion, z.TileX, z.TileY });
+            zone.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_land_zones_kind", "kind = 1");
+                t.HasCheckConstraint("ck_land_zones_geometry_valid", "extensions.st_isvalid(geometry)");
+            });
         });
     }
 }

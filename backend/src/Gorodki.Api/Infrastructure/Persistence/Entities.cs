@@ -1,4 +1,5 @@
 using Gorodki.Domain.Leagues;
+using Gorodki.Domain.Osm;
 using NetTopologySuite.Geometries;
 
 namespace Gorodki.Api.Infrastructure.Persistence;
@@ -333,6 +334,9 @@ public sealed class ParcelEntity
 
     public Guid[] LossAttackers { get; set; } = [];
 
+    /// <summary>Касание владельца (<c>ParcelState.TouchedAt</c>): «касались в этом сезоне» — не раньше его начала (§3.4).</summary>
+    public DateTimeOffset TouchedAt { get; set; }
+
     /// <summary>Многоугольник в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
     public required Polygon Geometry { get; set; }
 }
@@ -345,6 +349,18 @@ public sealed class SeasonEntity
     public required string Name { get; set; }
 
     public DateTimeOffset StartsAt { get; set; }
+
+    /// <summary>
+    /// Старт с чистой карты (§3.4: «Старт Сезона 0 — с чистой карты, земля полевых тестов стирается»): смена на этот сезон
+    /// стирает всю землю, а не сбрасывает её мягко. Только у Сезона 0.
+    /// </summary>
+    public bool CleanStart { get; set; }
+
+    /// <summary>
+    /// Когда выполнена смена на этот сезон (мягкий сброс или чистая карта, <c>SeasonRollover</c>); <c>null</c> — ещё нет.
+    /// Отметка ставится в той же транзакции, что и сброс: повтор задачи второй раз не сбросит.
+    /// </summary>
+    public DateTimeOffset? ResetAt { get; set; }
 }
 
 /// <summary>
@@ -422,6 +438,8 @@ public sealed class CaptureJournalPieceEntity
     public DateTimeOffset? LossWindowSince { get; set; }
 
     public Guid[] LossAttackers { get; set; } = [];
+
+    public DateTimeOffset TouchedAt { get; set; }
 
     /// <summary>Геометрия в TWKB (сетка 0,1 м).</summary>
     public required byte[] Geometry { get; set; }
@@ -641,4 +659,201 @@ public sealed class LeaderboardSnapshotEntity
 
     /// <summary>Место: одинаковое значение — одинаковое место (1, 2, 2, 4).</summary>
     public int Rank { get; set; }
+}
+
+// ── Конвейер OSM (docs/architecture/osm-pipeline.md, «Предлагаемые таблицы») ──
+// Наборы готовит офлайн-инструмент backend/tools/Gorodki.OsmPipeline и загружает командой import одной транзакцией рядом с
+// прежним; сервер только читает. Набор после загрузки не меняется.
+
+/// <summary>
+/// Набор конвейера OSM: строка на набор. Вход (выгрузка, SHA-256), параметры и версии инструментов — в <see cref="Metadata"/>:
+/// это и «метод» для ODbL 4.6.
+/// </summary>
+public sealed class OsmSetEntity
+{
+    public int Version { get; set; }
+
+    /// <summary>SHA-256 содержимого набора (без времени сборки): повторная загрузка того же набора ничего не делает.</summary>
+    public required string Fingerprint { get; set; }
+
+    /// <summary>SHA-256 файла выгрузки Geofabrik.</summary>
+    public required string SourceSha256 { get; set; }
+
+    /// <summary>Дата репликации выгрузки.</summary>
+    public DateTimeOffset? SourceTimestamp { get; set; }
+
+    /// <summary><c>metadata.json</c> набора (jsonb): параметры, версии инструментов, числа, пометки.</summary>
+    public required string Metadata { get; set; }
+
+    /// <summary>Рамка конвейера — тайлы UTM 1×1 км. За ней масок нет; если захват ограничен зоной игры, тайл вне рамки — «вне поля».</summary>
+    public int FrameMinX { get; set; }
+
+    public int FrameMinY { get; set; }
+
+    public int FrameMaxX { get; set; }
+
+    public int FrameMaxY { get; set; }
+
+    public PlayZone PlayZone { get; set; }
+
+    /// <summary>Знаменатель «% Бреста»: сумма <c>reachable_tiles.cell_count</c>.</summary>
+    public int ReachableCells { get; set; }
+
+    public DateTimeOffset BuiltAt { get; set; }
+
+    public DateTimeOffset ImportedAt { get; set; }
+}
+
+/// <summary>Кусок маски: один простой многоугольник внутри одного тайла UTM (как у участков). Вид — причина для игрока.</summary>
+public sealed class MaskEntity
+{
+    public long Id { get; set; }
+
+    public int SetVersion { get; set; }
+
+    public MaskKind Kind { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    /// <summary>Многоугольник в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
+    public required Polygon Geometry { get; set; }
+}
+
+/// <summary>«Достижимые» клетки тайла тумана z14 — как <c>fog_tiles</c>: 8 КБ бит, сжатые Deflate.</summary>
+public sealed class ReachableTileEntity
+{
+    public int SetVersion { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    public required byte[] Bits { get; set; }
+
+    public int CellCount { get; set; }
+}
+
+/// <summary>Город, административный район, Арена или квартал Арены.</summary>
+public sealed class DistrictEntity
+{
+    public long Id { get; set; }
+
+    public int SetVersion { get; set; }
+
+    /// <summary>Ключ внутри набора: <c>city</c>, <c>district:3626404</c>, <c>arena</c>, <c>quarter:1</c>.</summary>
+    public required string Key { get; set; }
+
+    public DistrictKind Kind { get; set; }
+
+    public required string Name { get; set; }
+
+    /// <summary>Отношение OSM (для города и районов); у Арены и кварталов его нет — их строит рецепт.</summary>
+    public long? OsmId { get; set; }
+
+    /// <summary>Предложение Claude, ещё не утверждённое Никитой (Арена и кварталы, вопрос 3).</summary>
+    public bool Proposal { get; set; }
+
+    /// <summary>Контур в UTM 34N, вершины на сетке 0,1 м.</summary>
+    public required MultiPolygon Geometry { get; set; }
+
+    /// <summary>Площадь без масок, м²: знаменатель доли клана в квартале (§3.6).</summary>
+    public double AreaWithoutMasks { get; set; }
+
+    /// <summary>Сколько «достижимых» клеток внутри — знаменатель «%» района.</summary>
+    public int ReachableCells { get; set; }
+}
+
+/// <summary>«Достижимые» клетки района в тайле тумана: биты = район ∩ «достижимое».</summary>
+public sealed class DistrictTileEntity
+{
+    public long DistrictId { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    public required byte[] Bits { get; set; }
+
+    public int CellCount { get; set; }
+}
+
+/// <summary>Слой ценности земли (§3.5: «поле, лес, промзона 0,5»; вопрос 6.8) — по тайлам UTM, как маски. Прочитают очки SP (C9).</summary>
+public sealed class LandZoneEntity
+{
+    public long Id { get; set; }
+
+    public int SetVersion { get; set; }
+
+    public LandKind Kind { get; set; }
+
+    public int TileX { get; set; }
+
+    public int TileY { get; set; }
+
+    /// <summary>Многоугольник в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
+    public required Polygon Geometry { get; set; }
+}
+
+/// <summary>Вид начисления очков (PLAN.md, §3.5).</summary>
+public enum ScoreKind : short
+{
+    /// <summary>Захват: ступени по площади, бонусы, ценность земли — пишется в транзакции захвата.</summary>
+    Capture = 1,
+
+    /// <summary>Дистанция забега: +10 за км до 20 км в сутки, «Вело» ×0,33 — пишется вместе с визитами забега.</summary>
+    Distance = 2,
+}
+
+/// <summary>
+/// Начисление очков сезона (PLAN.md, §3.5) — книга очков: одна строка на захват или забег. Очки сезона игрока — сумма его
+/// строк лиги и сезона; «очки → 0» при смене сезона (§3.4) — это просто новый номер сезона, старые строки остаются
+/// историей. Откат захвата стирает его строку.
+/// </summary>
+/// <remarks>
+/// Приватность (§3.16): чужие видят начисление только с <see cref="VisibleAt"/> — у захвата это граница публичности его
+/// применения (как карта, <c>TerritoryReader.PublicAt</c>): иначе рейтинг выдал бы свежий захват раньше карты, а бонусы за
+/// вражескую землю — ещё скрытый чужой захват. Читать только через <c>ScoreBook</c>.
+/// </remarks>
+public sealed class ScoreEventEntity
+{
+    public long Id { get; set; }
+
+    public Guid UserId { get; set; }
+
+    public League League { get; set; }
+
+    /// <summary>Номер сезона по <see cref="EffectiveAt"/>; <c>null</c> — вне сезонов (предсезонье, полевые тесты).</summary>
+    public int? Season { get; set; }
+
+    /// <summary>Игровые сутки по Минску (по <see cref="EffectiveAt"/>) — для ступеней суток и суточного потолка дистанции.</summary>
+    public DateOnly GameDay { get; set; }
+
+    public ScoreKind Kind { get; set; }
+
+    public int Points { get; set; }
+
+    /// <summary>
+    /// Основа начисления: у захвата — зачётные сотки после ступеней захвата (их сумма за сутки двигает ступени суток), у
+    /// дистанции — засчитанные метры (их сумма за сутки упирается в потолок 20 км).
+    /// </summary>
+    public double Basis { get; set; }
+
+    /// <summary>Захват, за который начислено (у <see cref="ScoreKind.Capture"/>).</summary>
+    public Guid? CaptureId { get; set; }
+
+    /// <summary>Забег: у захвата — его забег, у дистанции — сам забег.</summary>
+    public Guid? RunId { get; set; }
+
+    /// <summary>
+    /// К какому моменту относится начисление: у захвата — время петли (§3.4: «петля относится к сезону по времени
+    /// замыкания, а не обработки»), у дистанции — начало забега по часам сервера (как сезонный туман).
+    /// </summary>
+    public DateTimeOffset EffectiveAt { get; set; }
+
+    /// <summary>С какого момента начисление видят другие (рейтинги, срез, «Мои данные»).</summary>
+    public DateTimeOffset VisibleAt { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
 }

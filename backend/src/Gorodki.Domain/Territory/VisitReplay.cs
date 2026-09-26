@@ -60,16 +60,22 @@ public static class VisitReplay
             times.Add(current.LastLevelUpAt);
         }
 
-        // Остальное объясняет последний визит (без повышения уровня или тот же, что и поднял уровень).
+        // Остальное объясняет последний визит (без повышения уровня или тот же, что и поднял уровень). Обычно его время —
+        // «последний визит», но если тот сдвинут вперёд (смена сезона, SeasonReset), а визит был раньше — время визита
+        // осталось только в касании владельца (TouchedAt): так бывает с забегом, кончившимся перед полуночью смены сезона.
         if (state != current)
         {
-            if (CaptureRules.Visit(state, current.LastVisitAt, rules) is not { } visited)
+            var visited = new[] { current.LastVisitAt, current.TouchedAt }
+                .Distinct()
+                .Select(at => (At: at, State: CaptureRules.Visit(state, at, rules)))
+                .FirstOrDefault(v => v.State == current);
+            if (visited.State is null)
             {
                 return null;
             }
 
-            state = visited;
-            times.Add(current.LastVisitAt);
+            state = visited.State;
+            times.Add(visited.At);
         }
 
         return state == current ? times : null;

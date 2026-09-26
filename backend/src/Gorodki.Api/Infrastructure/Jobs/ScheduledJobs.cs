@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Time;
 using Hangfire;
@@ -47,6 +48,12 @@ public static class ScheduledJobs
 
     /// <summary>Задача-образец: стереть истёкшие refresh-токены (раньше — часовая чистка <c>CaptureWorker</c>).</summary>
     public const string RefreshTokensJob = "refresh-tokens-purge";
+
+    /// <summary>
+    /// Смена сезона (PLAN.md, §3.4): каждый час в :00 по Минску — значит, и ровно в полночь начала сезона; в остальные часы
+    /// задача только проверяет, что смена уже была. Сброс — один раз на сезон (<see cref="SeasonRollover"/>).
+    /// </summary>
+    public const string SeasonRolloverJob = "season-rollover";
 
     public static bool IsEnabled(IConfiguration configuration) => configuration.GetValue(EnabledSetting, defaultValue: true);
 
@@ -113,6 +120,7 @@ public static class ScheduledJobs
         var minsk = new RecurringJobOptions { TimeZone = GameClock.MinskTimeZone };
 
         jobs.AddOrUpdate<RefreshTokenRetention>(RefreshTokensJob, r => r.PurgeExpiredAsync(CancellationToken.None), Cron.Hourly(), minsk);
+        jobs.AddOrUpdate<SeasonRollover>(SeasonRolloverJob, r => r.RunIfDueAsync(CancellationToken.None), Cron.Hourly(), minsk);
     }
 
     /// <summary>Строка подключения Hangfire: та же база, свой пул на <see cref="MaxPoolSize"/> и своё имя в <c>pg_stat_activity</c>.</summary>

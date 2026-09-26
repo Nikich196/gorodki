@@ -71,7 +71,7 @@ public sealed record CaptureResult(
 
 /// <summary>Итог отката.</summary>
 /// <param name="RestoredArea">Возвращено прежнее состояние, м².</param>
-/// <param name="SkippedArea">Земля следа, которую после захвата уже изменили (другой захват, смена сезона…), м²: не тронута.</param>
+/// <param name="SkippedArea">Земля следа, которую после захвата уже изменили (другой захват, удаление игрока…), м²: не тронута.</param>
 /// <param name="SliverArea">Площадь осколков, отданных соседям или ставших ничьими при сборке кусков, м².</param>
 /// <param name="ChangedTiles">Тайлы, которые переписаны (тайл, где откат ничего не вернул, остаётся как был).</param>
 public sealed record RestoreResult(double RestoredArea, double SkippedArea, double SliverArea, IReadOnlyList<TileKey> ChangedTiles);
@@ -172,7 +172,7 @@ public sealed class TerritoryMap(TerritoryRules rules, SliverSettings slivers)
 
     /// <summary>
     /// Откат захвата по записям журнала: внутри следа, там, где земля и сейчас такая, какой её оставил захват,
-    /// возвращается прежнее состояние. Где её с тех пор изменили (другой захват, смена сезона, удаление игрока), всё
+    /// возвращается прежнее состояние. Где её с тех пор изменили (другой захват, удаление игрока, другой откат), всё
     /// остаётся как есть — «откатываются только куски, которых после этого никто не трогал» (PLAN.md, §3.9, слой 5).
     /// Всё или ничего, как у захвата.
     /// </summary>

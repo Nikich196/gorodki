@@ -1,11 +1,16 @@
 using System.Text.Json;
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Osm;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Scoring;
+using Gorodki.Api.Features.Seasons;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Config;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Runs;
+using Gorodki.Domain.Scoring;
 using Gorodki.Domain.Territory;
 using Gorodki.Domain.Time;
 using Microsoft.EntityFrameworkCore;
@@ -23,7 +28,10 @@ public sealed class CaptureProcessor(
     AppDbContext db,
     GameConfigStore configs,
     RunJudgements judgements,
+    IMaskStore maskStore,
     RealtimeHints hints,
+    SeasonStore seasons,
+    TerritoryReader territory,
     TimeProvider time,
     ILogger<CaptureProcessor> logger)
 {
@@ -251,8 +259,13 @@ public sealed class CaptureProcessor(
             return await FinishAsync(claim.Id, token, CaptureStatus.Stale, "stale", cancellationToken, timing: timing);
         }
 
-        // Шаг A — вне транзакций: контур P (маски — когда появится osm-pipeline).
-        var shape = CaptureShapeBuilder.Build(ring.Ring, ring.ClosingTolerance, masks: null, rules.Capture.Shape);
+        // Шаг A — вне транзакций: контур P минус маски набора OSM, с которым начат забег (osm-pipeline.md, «Маски в
+        // обработке захвата»). Набора в конфиге нет — масок нет, как до конвейера. Все грани P лежат в рамке кольца,
+        // поэтому хватает масок тайлов, которые она задевает.
+        var masks = rules.Osm.SetVersion is { } set
+            ? await maskStore.CoveringAsync(EnvelopeOf(ring.Ring), set, cancellationToken)
+            : null;
+        var shape = CaptureShapeBuilder.Build(ring.Ring, ring.ClosingTolerance, masks, rules.Capture.Shape);
         if (!shape.IsAccepted)
         {
             return await FinishAsync(claim.Id, token, CaptureStatus.Rejected, LoopRing.Code(shape.Rejection), cancellationToken, timing: timing);
@@ -260,6 +273,17 @@ public sealed class CaptureProcessor(
 
         var canRemoveLevels = await CanRemoveLevelsAsync(run, claim, rules, judgement, effectiveAt, cancellationToken);
         return await ApplyAsync(claim, run.DeviceId, shape.Area, effectiveAt, evidenceAt, canRemoveLevels, token, cancellationToken);
+    }
+
+    private static Envelope EnvelopeOf(IReadOnlyList<Coordinate> ring)
+    {
+        var envelope = new Envelope();
+        foreach (var point in ring)
+        {
+            envelope.ExpandToInclude(point);
+        }
+
+        return envelope;
     }
 
     /// <summary>
@@ -347,6 +371,18 @@ public sealed class CaptureProcessor(
             await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({lockSpace}, {tile.LockKey})", cancellationToken);
         }
 
+        // Петля раньше начала идущего сезона, а смена на него уже прошла (петля последних минут, из офлайна — до 3 ч):
+        // изменённые ею куски проходят мягкий сброс, как если бы её применили до смены (SeasonReset.Late). Смена на сезон с
+        // чистой картой (С0) стёрла землю полевых тестов — петле до неё ложиться не на что. Под блокировками тайлов: смена
+        // берёт блокировки всех тайлов с землёй, поэтому прочитанное не устареет.
+        var now = time.GetUtcNow();
+        var reset = await seasons.ResetSeasonAsync(now, cancellationToken) is { } running && effectiveAt < running.StartsAt ? running : null;
+        if (reset is { CleanStart: true })
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return await FinishAsync(claim.Id, token, CaptureStatus.Stale, "season_wipe", cancellationToken, timing: (effectiveAt, evidenceAt));
+        }
+
         int minX = tiles[0].X, maxX = tiles[^1].X, minY = tiles.Min(t => t.Y), maxY = tiles.Max(t => t.Y);
         var stored = await db.Parcels
             .Where(p => p.League == claim.League && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
@@ -356,9 +392,9 @@ public sealed class CaptureProcessor(
         var bigLoop = current.Rules.Territory.IsBigLoop(claim.League, area.Area);
         var map = new TerritoryMap(current.Rules.Territory.ToRules(), new SliverSettings());
         map.Load(stored.Select(ToParcel));
-        var result = map.Apply(area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels, bigLoop));
+        var result = map.Apply(
+            area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels, bigLoop, reset?.StartsAt));
 
-        var now = time.GetUtcNow();
         var changedTiles = new List<TileKey>();
         foreach (var tile in result.ChangedTiles)
         {
@@ -389,6 +425,21 @@ public sealed class CaptureProcessor(
         })));
         var zoneOnlyTiles = result.Contested.Select(z => z.Tile).Distinct().Where(t => !changedTiles.Contains(t)).ToList();
         changedTiles.AddRange(zoneOnlyTiles);
+
+        // Очки за захват (§3.5) — тоже в этой транзакции и под блокировкой игрока (ступени суток — по сумме за сутки). Сезон и
+        // сутки — по времени петли (§3.4), видимость другим — с границы публичности применения, как у карты (§3.16).
+        var season = (await seasons.CalendarAsync(cancellationToken)).At(effectiveAt)?.Number;
+        await ScoreBook.AddCaptureAsync(
+            db,
+            claim,
+            result.AreaByOutcome,
+            LandValue.Factor(area, current.Rules.Scoring.LandValue),
+            effectiveAt,
+            await territory.VisibleAtAsync(claim.UserId, now, cancellationToken),
+            season,
+            current.Rules.Scoring,
+            now,
+            cancellationToken);
 
         // Журнал — в той же транзакции: земля без записи для отката (или запись без земли) не сохраняется никогда.
         // Только тайлы, версия которых выросла: публичная проекция считает скрытые захваты по журналу и вычитает их
@@ -572,6 +623,7 @@ public sealed class CaptureProcessor(
             SiegeUntil = p.SiegeUntil,
             LossWindowSince = p.LossWindowSince,
             LossAttackers = AttackerSet.Of(p.LossAttackers),
+            TouchedAt = p.TouchedAt,
         });
 
     internal static ParcelEntity ToEntity(Parcel p, Gorodki.Domain.Leagues.League league) => new()
@@ -587,6 +639,7 @@ public sealed class CaptureProcessor(
         SiegeUntil = p.State.SiegeUntil,
         LossWindowSince = p.State.LossWindowSince,
         LossAttackers = [.. p.State.LossAttackers.Ids],
+        TouchedAt = p.State.TouchedAt,
         Geometry = p.Geometry,
     };
 }

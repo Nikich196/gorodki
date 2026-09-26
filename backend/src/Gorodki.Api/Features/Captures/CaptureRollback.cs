@@ -36,6 +36,9 @@ public sealed class CaptureRollback(
         RolledBack,
         AlreadyRolledBack,
         Conflict,
+
+        /// <summary>Журнала захвата уже нет (стёрт за давностью или сменой сезона с чистой картой) — откатывать не по чему.</summary>
+        WithoutJournal,
     }
 
     /// <summary>
@@ -105,6 +108,9 @@ public sealed class CaptureRollback(
                         restoredArea += restored;
                         skippedArea += skipped;
                         break;
+                    case Outcome.WithoutJournal:
+                        withoutJournal++;
+                        break;
                     case Outcome.Conflict:
                         failed++;
                         lastError = $"Захват {captureId}: тайлы менялись {MaxWriteAttempts} раз подряд.";
@@ -172,14 +178,18 @@ public sealed class CaptureRollback(
         return captures.Select(c => (c.Id, c.League)).ToList();
     }
 
+    /// <param name="journal">
+    /// Журнал, прочитанный до попыток: по нему — тайлы и прежние владельцы (смена сезона их не меняет). Сами записи каждая
+    /// попытка читает заново.
+    /// </param>
     private async Task<(Outcome Outcome, double Restored, double Skipped)> RollBackAsync(
-        Guid captureId, League league, IReadOnlyList<TileChange> changes, Guid rollbackId, Guid userId, CancellationToken cancellationToken)
+        Guid captureId, League league, IReadOnlyList<TileChange> journal, Guid rollbackId, Guid userId, CancellationToken cancellationToken)
     {
-        var tiles = changes.Select(c => c.Tile).Distinct().Order().ToList();
+        var tiles = journal.Select(c => c.Tile).Distinct().Order().ToList();
         int minX = tiles.Min(t => t.X), maxX = tiles.Max(t => t.X), minY = tiles.Min(t => t.Y), maxY = tiles.Max(t => t.Y);
 
         // Землю нельзя вернуть тому, чьего аккаунта уже нет, — она становится ничьей (внешний ключ на владельца).
-        var owners = changes.SelectMany(c => c.Before).Select(p => p.State.OwnerId).Distinct().ToList();
+        var owners = journal.SelectMany(c => c.Before).Select(p => p.State.OwnerId).Distinct().ToList();
         var existing = (await db.Users.AsNoTracking().Where(u => owners.Contains(u.Id)).Select(u => u.Id).ToListAsync(cancellationToken))
             .ToHashSet();
         var rules = (await configs.GetCurrentAsync(cancellationToken)).Rules.Territory.ToRules(); // визиты — по тем же правилам
@@ -189,6 +199,17 @@ public sealed class CaptureRollback(
             // Расчёт — без блокировок: только чтение.
             db.ChangeTracker.Clear();
             var versions = await VersionsAsync(league, tiles, cancellationToken);
+
+            // Журнал — заново в каждой попытке и строго после версий. Смена сезона переписывает его (мягкий сброс) или стирает
+            // (чистая карта) тем же оператором, что поднимает версии тайлов: журнал, прочитанный раньше неё, при тех же
+            // версиях не прочитать, и запись с ним отвергнет проверка версий. Иначе повтор после конфликта вернул бы в новый
+            // сезон землю «до» в несброшенном виде — с уровнем, щитом и прежним «последним визитом».
+            var changes = await CaptureJournal.LoadAsync(db, captureId, cancellationToken);
+            if (changes.Count == 0)
+            {
+                return (Outcome.WithoutJournal, 0, 0);
+            }
+
             var stored = (await db.Parcels.AsNoTracking()
                     .Where(p => p.League == league && p.TileX >= minX && p.TileX <= maxX && p.TileY >= minY && p.TileY <= maxY)
                     .ToListAsync(cancellationToken))
@@ -288,6 +309,10 @@ public sealed class CaptureRollback(
             .Select(z => new TileKey(z.TileX, z.TileY));
         await db.ContestedZones.Where(z => z.CaptureId == captureId).ExecuteDeleteAsync(cancellationToken);
         changedTiles.AddRange(zoneTiles.Where(t => !changedTiles.Contains(t)));
+
+        // Очки за захват (§3.5) уходят вместе с ним — в той же транзакции: откаченный захват очков не даёт. Рейтинги считают
+        // сумму начислений, поэтому следующий срез уже без них.
+        await db.ScoreEvents.Where(e => e.CaptureId == captureId).ExecuteDeleteAsync(cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
         foreach (var tile in changedTiles)
