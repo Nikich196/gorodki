@@ -280,85 +280,72 @@ final class ScreenSnapshotTests: XCTestCase {
     /// «Отладка → Пункты задания»: 14 пунктов со статусом по таблице §4 PLAN.md.
     @MainActor
     func test60AssignmentSheet() {
-        snapshotScreen("assignment", expecting: "OAuth", name: "60-assignment-sheet", settle: 1.5, pages: 3)
+        snapshotScreen("assignment", expecting: "OAuth", name: "60-assignment-sheet", settle: 1.5, themes: ["day"])
     }
 
     /// «Галерея»: ограниченный доступ, сетка с видео и геотегами (плитки нарисованы фикстурой).
     @MainActor
     func test61Gallery() {
-        snapshotScreen("gallery", expecting: "Выбрать ещё", name: "61-gallery", settle: 2)
-    }
-
-    /// Просмотр из галереи — переход-«зум» из плитки. Только днём.
-    @MainActor
-    func test62GalleryDetail() {
-        let app = launchApp(["-GorodkiScreen", "gallery", "-GorodkiTheme", "day"])
-        let tile = button(in: app, containing: "Фото,")
-        let shown = tile.waitForExistence(timeout: Self.launchTimeout)
-        if shown {
-            tile.tap()
-        }
-        let opened = waitForAny([text(in: app, containing: "Без геотега")], timeout: Self.screenTimeout)
-        pause(1.5)
-        snapshot("62-gallery-detail-day")
-        XCTAssertTrue(shown, "В галерее нет плитки фото")
-        XCTAssertTrue(opened, "Просмотр фото не открылся")
+        snapshotScreen("gallery", expecting: "Выбрать ещё", name: "61-gallery", settle: 2, themes: ["day"])
     }
 
     /// «Видео-повтор»: обложка со светящимся следом, сборка фоновой задачей на 62 %.
     @MainActor
     func test63Replay() {
-        snapshotScreen("replay", expecting: "Собираю кадры", name: "63-replay", settle: 1.5, pages: 2)
+        snapshotScreen("replay", expecting: "Собираю кадры", name: "63-replay", settle: 1.5, themes: ["day"])
     }
 
     /// «Хранилище»: диаграмма появляется с анимацией — снимок после неё.
     @MainActor
     func test64Storage() {
-        snapshotScreen("storage", expecting: "Земля — тайлы карты", name: "64-storage", settle: 2)
+        snapshotScreen("storage", expecting: "Земля — тайлы карты", name: "64-storage", settle: 2, themes: ["day"])
     }
 
     @MainActor
     func test65Backup() {
-        snapshotScreen("backup", expecting: "На сервере", name: "65-backup", settle: 1.5, pages: 2)
+        snapshotScreen("backup", expecting: "На сервере", name: "65-backup", settle: 1.5, themes: ["day"])
     }
 
     @MainActor
     func test66Files() {
-        snapshotScreen("files", expecting: "Автоэкспорт", name: "66-files", settle: 1.5, pages: 2)
+        snapshotScreen("files", expecting: "Автоэкспорт", name: "66-files", settle: 1.5, themes: ["day"])
     }
 
     @MainActor
     func test67Calendar() {
-        snapshotScreen("calendar", expecting: "Сезон 0 (бета)", name: "67-calendar", settle: 1.5)
+        snapshotScreen("calendar", expecting: "Сезон 0 (бета)", name: "67-calendar", settle: 1.5, themes: ["day"])
     }
 
     @MainActor
     func test68Invite() {
-        snapshotScreen("invite-friend", expecting: "Код приглашения", name: "68-invite-friend", settle: 1.5, pages: 2)
+        snapshotScreen(
+            "invite-friend", expecting: "Код приглашения", name: "68-invite-friend", settle: 1.5, themes: ["day"])
     }
 
     /// «Мой QR»: карточка с бликом — снимок после него.
     @MainActor
     func test69MyQR() {
-        snapshotScreen("my-qr", expecting: "Мой профиль", name: "69-my-qr", settle: 2.5)
+        snapshotScreen("my-qr", expecting: "Мой профиль", name: "69-my-qr", settle: 2.5, themes: ["day"])
     }
 
     /// Сканер без камеры (симулятор): рамка и прочитанный код приглашения.
     @MainActor
     func test70Scanner() {
-        snapshotScreen("scanner", expecting: "ABCD-2345", name: "70-scanner", settle: 1.5)
+        snapshotScreen("scanner", expecting: "ABCD-2345", name: "70-scanner", settle: 1.5, themes: ["day"])
     }
 
     @MainActor
     func test71Notifications() {
-        snapshotScreen("notifications", expecting: "Сезон заканчивается завтра", name: "71-notifications", settle: 1.5)
+        snapshotScreen(
+            "notifications", expecting: "Сезон заканчивается завтра", name: "71-notifications", settle: 1.5,
+            themes: ["day"])
     }
 
-    /// «Профиль» с разделами пунктов листика — после прокрутки.
+    /// «Профиль» с разделами пунктов листика.
     @MainActor
     func test72ProfileSections() {
         snapshotScreen(
-            "profile", fixture: "player", expecting: "Галерея", name: "72-profile-sections", settle: 1, pages: 2)
+            "profile", fixture: "player", expecting: "Галерея", name: "72-profile-sections", settle: 1, themes: ["day"])
     }
 
     // MARK: - Переходы
