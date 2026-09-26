@@ -8,7 +8,7 @@
 
     /// Экраны профиля и настроек в режиме фикстур (`-GorodkiScreen settings`, `privacy-zones`, `home`,
     /// `exploration-stats`, `offline`, `map-home`): данные — образцы `contracts/samples` и простые значения, сервера нет.
-    /// Имена `-GorodkiFixture`: `empty` — зон нет; `shares` — сервер уже считает «% Бреста» и районы (поля E9);
+    /// Имена `-GorodkiFixture`: `empty` — зон нет; `no-osm` — у сервера нет набора OSM, «% Бреста» и районов нет;
     /// `offline`, `server-down` — статистика не загрузилась.
     struct ProfileFixtureScreen: View {
         let screen: FixtureScreen
@@ -60,8 +60,8 @@
                 radiusMeters: 400, createdAtMs: 1_790_300_000_000),
         ]
 
-        /// Статистика из образцов `fog-summary.json` и `seasons.json`; `shares` — с процентами (примеры, как в образце
-        /// контракта E9), `offline` и `server-down` — ошибка загрузки.
+        /// Статистика из образцов `fog-summary.json` (с «% Бреста» и районами, контракт E9) и `seasons.json`; `no-osm` —
+        /// те же числа без процентов, `offline` и `server-down` — ошибка загрузки.
         static func stats(_ fixture: String?) -> ExplorationStatsModel {
             switch fixture {
             case "offline": return ExplorationStatsModel(api: nil, failure: .offline)
@@ -73,15 +73,12 @@
             }
             var summary = ExplorationSummary(
                 summary: fog, seasons: Fixtures.sample("seasons", as: Components.Schemas.SeasonsResponse.self))
-            if fixture == "shares" {
-                summary.allTime.brestPercent = 1.37
-                summary.allTime.districts = [
-                    .init(key: "leninsky", name: "Ленинский район", percent: 2.41),
-                    .init(key: "moskovsky", name: "Московский район", percent: 0.52),
-                    .init(key: "arena", name: "Арена БрГТУ", percent: 18.9, proposal: true),
-                ]
+            if fixture == "no-osm" {
+                summary.allTime.brestPercent = nil
+                summary.allTime.districts = nil
                 for index in summary.seasons.indices {
-                    summary.seasons[index].brestPercent = 0.35
+                    summary.seasons[index].brestPercent = nil
+                    summary.seasons[index].districts = nil
                 }
             }
             return ExplorationStatsModel(api: nil, summary: summary)

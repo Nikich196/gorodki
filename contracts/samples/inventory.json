@@ -1,0 +1,21 @@
+{
+  "slots": 12,
+  "items": [
+    {
+      "id": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+      "kind": "radar",
+      "receivedAtMs": 1790000000000,
+      "expiresAtMs": 1790604800000,
+      "active": true,
+      "remainingMeters": 1850.5
+    },
+    {
+      "id": "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a",
+      "kind": "streakFreeze",
+      "receivedAtMs": 1789913600000,
+      "expiresAtMs": 1790518400000,
+      "active": false,
+      "remainingMeters": null
+    }
+  ]
+}

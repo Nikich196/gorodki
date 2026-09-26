@@ -327,20 +327,20 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen("home", expecting: "Перенести «Дом» сюда", name: "43-home", settle: 4, themes: ["day"])
     }
 
-    /// Статистика по контракту сейчас: гектары и клетки, «% Бреста» — «появится позже».
+    /// Статистика с полями E9 (образец fog-summary.json): «% Бреста», сезоны, районы.
     @MainActor
     func test44ExplorationStats() {
         snapshotScreen(
-            "exploration-stats", expecting: "появится позже", name: "44-exploration-stats", settle: 2,
+            "exploration-stats", expecting: "Бреста открыто", name: "44-exploration-stats", settle: 2, pages: 2,
             themes: ["day"])
     }
 
-    /// С полями E9: проценты и районы.
+    /// У сервера нет набора OSM: гектары и клетки, «% Бреста» — «появится позже».
     @MainActor
-    func test45ExplorationStatsShares() {
+    func test45ExplorationStatsNoOSM() {
         snapshotScreen(
-            "exploration-stats", fixture: "shares", expecting: "Бреста открыто", name: "45-exploration-stats-shares",
-            settle: 2, pages: 2, themes: ["day"])
+            "exploration-stats", fixture: "no-osm", expecting: "появится позже", name: "45-exploration-stats-no-osm",
+            settle: 2, themes: ["day"])
     }
 
     /// Профиль без сети — общий компонент состояний карточкой с «Повторить».

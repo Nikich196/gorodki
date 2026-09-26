@@ -6,8 +6,8 @@ import GorodkiAPI
 /// гектары и клетки; «% Бреста» и районы. Собирается из `GET /fog/summary` и `GET /seasons` — чистая функция, её
 /// проверяют тесты на Linux; экран только рисует.
 ///
-/// Проценты сервер считает от «достижимой» площади набора OSM и отдаёт необязательными полями (контракт E9). Пока их
-/// нет — `brestPercent` и `districts` пустые, экран пишет «появится позже».
+/// Проценты сервер считает от «достижимой» площади набора OSM и отдаёт необязательными полями (контракт E9,
+/// `brestPercent` и `districts`). Набора OSM нет — поля `null`, экран пишет «появится позже».
 public struct ExplorationSummary: Equatable, Sendable {
     /// Слой тумана: «Пешком» и «Вело» (вело — с Сезона 1).
     public enum Layer: String, Equatable, Sendable {
@@ -96,10 +96,17 @@ public struct ExplorationSummary: Equatable, Sendable {
             } else {
                 title = "За всё время"
             }
-            // Проценты (E9) — необязательные поля сводки; в этой версии контракта их нет.
+            // Проценты (E9) — необязательные поля сводки: нет набора OSM — `null`, пустой список районов — как без него.
+            let districts = row?.districts.flatMap { list in list.isEmpty ? nil : list }
             return Period(
                 season: season, title: title, squareMeters: row?.areaSquareMeters ?? 0,
-                cells: Int(row?.cellCount ?? 0), isCurrent: season != nil && season == current)
+                cells: Int(row?.cellCount ?? 0), isCurrent: season != nil && season == current,
+                brestPercent: row?.brestPercent,
+                districts: districts?.map { district in
+                    Share(
+                        key: district.key, name: district.name, percent: district.percent,
+                        proposal: district.proposal)
+                })
         }
         self.layer = layer
         self.allTime = period(rows.first { $0.season == nil }, season: nil)

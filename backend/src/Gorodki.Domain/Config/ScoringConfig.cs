@@ -38,6 +38,19 @@ public sealed record ScoringConfig
     /// </summary>
     public double LevelRemovedBonus { get; init; } = 0.5;
 
+    /// <summary>
+    /// Ступени удержания (§3.5: «удержание: ежедневный срез в 00:00 по Минску, ступени, потолок в зачёт»): сотки земли,
+    /// которой владелец касался в этом сезоне (<c>touched_at</c>), → зачётные сотки за сутки, × <see cref="PointsPerSotka"/>.
+    /// <b>Предварительно</b> (подберёт симуляция E23): до 1 га — 0,1 очка за сотку, до 5 га — 0,05, дальше — 0,02. Считает
+    /// срез E7 (задача Егора).
+    /// </summary>
+    public IReadOnlyList<ScoreTier> HoldTiers { get; init; } = [new(100, 0.1), new(500, 0.05), new(null, 0.02)];
+
+    /// <summary>
+    /// Потолок удержания в зачёт, сотки (§3.5): земля сверх него за сутки очков не добавляет. <b>Предварительно:</b> 20 га.
+    /// </summary>
+    public double HoldCapSotki { get; init; } = 2_000;
+
     /// <summary>Ценность земли (§3.5).</summary>
     public LandValueConfig LandValue { get; init; } = new();
 

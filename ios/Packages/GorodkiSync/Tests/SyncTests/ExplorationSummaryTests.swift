@@ -41,6 +41,28 @@ struct ExplorationSummaryTests {
         #expect(ExplorationText.area(stats.allTime.squareMeters) == "4,26\u{00A0}га")
     }
 
+    @Test("Поля E9: «% Бреста» и районы с пометкой «предложение»; пустой список районов — как без них")
+    func shares() throws {
+        let json = """
+            {"layers":[
+              {"layer":"foot","season":null,"tiles":3,"cellCount":1234,"areaSquareMeters":42580.5,"brestPercent":1.37,
+               "districts":[
+                 {"key":"leninsky","name":"Ленинский район","kind":"district","proposal":false,"percent":2.41},
+                 {"key":"arena","name":"Арена БрГТУ","kind":"arena","proposal":true,"percent":18.9}]},
+              {"layer":"foot","season":0,"tiles":1,"cellCount":321,"areaSquareMeters":11074.9,"brestPercent":0.35,
+               "districts":[]}
+            ],"osmSetVersion":1}
+            """
+        let stats = ExplorationSummary(
+            summary: try Self.decode(json, as: Components.Schemas.FogSummaryResponse.self),
+            seasons: try Self.decode(Self.seasons, as: Components.Schemas.SeasonsResponse.self))
+
+        #expect(stats.hasShares && stats.allTime.brestPercent == 1.37)
+        #expect(stats.allTime.districts?.map(\.name) == ["Ленинский район", "Арена БрГТУ"])
+        #expect(stats.allTime.districts?.last?.proposal == true)
+        #expect(stats.seasons.first?.brestPercent == 0.35 && stats.seasons.first?.districts == nil)
+    }
+
     @Test("Слой «Вело» — свои строки; пустая сводка — нули, а не ошибка; сезон без имени — «Сезон N»")
     func otherLayers() throws {
         let summary = try Self.decode(Self.summary, as: Components.Schemas.FogSummaryResponse.self)

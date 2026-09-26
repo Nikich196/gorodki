@@ -1,6 +1,7 @@
 import DesignSystem
 import GameCore
 import SwiftUI
+import Sync
 import UIKit
 
 /// Вкладка «Карта» (PLAN.md, §5, экраны 4–5; docs/design/tokens.md, §8): слой «Захват | Исследование», лига
@@ -85,7 +86,9 @@ private struct MapControls: View {
                         .frame(maxWidth: 280)
                         Spacer(minLength: 0)
                     case .explore:
-                        ExploreCard(squareMeters: model.profile.exploredSquareMeters, glass: glass)
+                        ExploreCard(
+                            squareMeters: model.profile.exploredSquareMeters,
+                            brestPercent: model.profile.exploration?.allTime.brestPercent, glass: glass)
                     }
                     MapGlassButton("Где я", systemImage: "location.fill") { model.locateTapped() }
                 }
@@ -189,6 +192,8 @@ private struct MapLocationPrompts: ViewModifier {
 /// Процент Бреста и «+N га сегодня» — после маски «достижимого» (fog.md, «Что дальше»).
 private struct ExploreCard: View {
     let squareMeters: Double?
+    /// «% Бреста» из той же сводки (поля E9); `nil` — сервер ещё не считает.
+    let brestPercent: Double?
     let glass: Namespace.ID
 
     var body: some View {
@@ -216,7 +221,9 @@ private struct ExploreCard: View {
     /// «Открыто 4,26 га»; сводка ещё не пришла — так и сказать.
     private var summary: String {
         guard let squareMeters else { return "Открытое загрузится с профилем" }
-        return "Открыто " + NumberText.hectares(fromSquareMeters: squareMeters, fractionDigits: 2)
+        let area = NumberText.hectares(fromSquareMeters: squareMeters, fractionDigits: 2)
+        guard let brestPercent else { return "Открыто " + area }
+        return "Открыто " + ExplorationText.percent(brestPercent) + " Бреста · " + area
     }
 }
 

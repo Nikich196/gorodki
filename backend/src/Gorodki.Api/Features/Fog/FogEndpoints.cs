@@ -5,6 +5,7 @@ using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Fog;
+using Gorodki.Domain.Osm;
 using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -21,11 +22,33 @@ public sealed record FogTileView(int X, int Y, long Version, int CellCount, byte
 /// <param name="Season">Номер сезона; <c>null</c> — за всё время.</param>
 public sealed record FogResponse(FogLayerKind Layer, int? Season, IReadOnlyList<FogTileView> Tiles, IReadOnlyList<TileRef> Unchanged);
 
+/// <summary>Доля открытого в районе (PLAN.md, §3.10: «% по районам и кварталам Арены»).</summary>
+/// <param name="Key">Постоянный ключ района в наборе OSM (например, <c>leninsky</c>).</param>
+/// <param name="Proposal">Граница — ещё предложение (Арена и кварталы ждут утверждения Никиты).</param>
+/// <param name="Percent">Открыто от «достижимого» района, %, округлено до 0,01.</param>
+public sealed record DistrictPercent(string Key, string Name, DistrictKind Kind, bool Proposal, double Percent);
+
 /// <summary>Сколько открыто в слое.</summary>
 /// <param name="Season">Номер сезона; <c>null</c> — за всё время.</param>
-public sealed record FogLayerSummary(FogLayerKind Layer, int? Season, int Tiles, int CellCount, double AreaSquareMeters);
+/// <param name="BrestPercent">
+/// «% Бреста»: открыто от «достижимого» города (§3.10), округлено до 0,01; <c>null</c> — набора OSM нет
+/// (<c>osmSetVersion</c> — <c>null</c>).
+/// </param>
+/// <param name="Districts">Доли районов (Ленинский, Московский, Арена, кварталы); <c>null</c> — набора OSM нет.</param>
+public sealed record FogLayerSummary(
+    FogLayerKind Layer,
+    int? Season,
+    int Tiles,
+    int CellCount,
+    double AreaSquareMeters,
+    double? BrestPercent = null,
+    IReadOnlyList<DistrictPercent>? Districts = null);
 
-public sealed record FogSummaryResponse(IReadOnlyList<FogLayerSummary> Layers);
+/// <param name="OsmSetVersion">
+/// Набор OSM, по которому посчитаны проценты; <c>null</c> — набора нет, процентов нет. Сменился — телефон может сказать
+/// «пересчитано по новой карте»: пожизненный процент при смене набора сдвигается в обе стороны.
+/// </param>
+public sealed record FogSummaryResponse(IReadOnlyList<FogLayerSummary> Layers, int? OsmSetVersion = null);
 
 /// <summary>
 /// Туман «Исследования» (PLAN.md, §3.10). Только свой: где человек ходит — личные данные. Точка «Дом» и её круг сервер
@@ -45,7 +68,10 @@ public static class FogEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest);
         fog.MapGet("/summary", GetSummary)
             .WithName("getFogSummary")
-            .WithSummary("Сколько открыто: клетки и площадь по слоям — за всё время и за текущий сезон");
+            .WithSummary("Сколько открыто: клетки, площадь и «% Бреста» по слоям — за всё время и за текущий сезон")
+            .WithDescription(
+                "«% Бреста» и районов — от «достижимой» площади набора OSM (пешеходные пути с буфером 25 м в границах города минус "
+                + "маски); открытое вне неё идёт в гектары, но не в процент. Набора OSM нет — проценты null. Только свой туман.");
         fog.MapDelete("", ClearFog)
             .WithName("clearFog")
             .WithSummary("Очистить историю исследований: весь свой туман — оба слоя, за всё время и по сезонам (необратимо)")
@@ -142,6 +168,11 @@ public static class FogEndpoints
                 g.Sum(t => t.CellCount),
                 Math.Round(g.Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY))), 1)))
             .ToList();
+
+        // ЗАДАЧА #138 (Егор): «% Бреста» и районов — новые поля BrestPercent, Districts, OsmSetVersion (сейчас null, как
+        // «набора нет»). ReachableStore.CurrentSetVersionAsync → LoadAsync(set) → OsmReach.SharesOf(explored) по своим тайлам
+        // слоя и сезона (FogTileCodec.Decompress); только свои тайлы — процент выведен из карты исследования (§3.10). Набора
+        // нет — поля null. Тесты — FogPercentTests (образец — OsmSetTests, ReachableAreaTests).
         return TypedResults.Ok(new FogSummaryResponse(layers));
     }
 
