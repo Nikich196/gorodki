@@ -37,6 +37,7 @@ public static class AdminEndpoints
         admin.MapPost("/users/{userId:guid}/rollback", RequestRollback);
         admin.MapGet("/rollbacks/{rollbackId:guid}", GetRollback);
         admin.MapInviteEndpoints(); // инвайты — InviteEndpoints.cs
+        admin.MapTrustEndpoints(); // оценка доверия и бан — TrustEndpoints.cs
         return app;
     }
 

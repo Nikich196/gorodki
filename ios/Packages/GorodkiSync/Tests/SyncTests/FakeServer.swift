@@ -348,6 +348,99 @@ actor FakeServer: APIProtocol {
         throw Unused()
     }
 
+    // MARK: - Заготовки задач Егора (C15): синхронизации не нужны
+
+    func getTerritoryLeaderboard(_ input: Operations.getTerritoryLeaderboard.Input) async throws
+        -> Operations.getTerritoryLeaderboard.Output
+    { throw Unused() }
+    func getWeeklyCard(_ input: Operations.getWeeklyCard.Input) async throws -> Operations.getWeeklyCard.Output {
+        throw Unused()
+    }
+    func getStreak(_ input: Operations.getStreak.Input) async throws -> Operations.getStreak.Output { throw Unused() }
+    func getHallOfFame(_ input: Operations.getHallOfFame.Input) async throws -> Operations.getHallOfFame.Output {
+        throw Unused()
+    }
+    func getCollection(_ input: Operations.getCollection.Input) async throws -> Operations.getCollection.Output {
+        throw Unused()
+    }
+    func createClan(_ input: Operations.createClan.Input) async throws -> Operations.createClan.Output {
+        throw Unused()
+    }
+    func getMyClan(_ input: Operations.getMyClan.Input) async throws -> Operations.getMyClan.Output { throw Unused() }
+    func getClanHues(_ input: Operations.getClanHues.Input) async throws -> Operations.getClanHues.Output {
+        throw Unused()
+    }
+    func getClan(_ input: Operations.getClan.Input) async throws -> Operations.getClan.Output { throw Unused() }
+    func joinClan(_ input: Operations.joinClan.Input) async throws -> Operations.joinClan.Output { throw Unused() }
+    func leaveClan(_ input: Operations.leaveClan.Input) async throws -> Operations.leaveClan.Output { throw Unused() }
+    func removeClanMember(_ input: Operations.removeClanMember.Input) async throws -> Operations.removeClanMember.Output
+    { throw Unused() }
+    func setClanMemberRole(_ input: Operations.setClanMemberRole.Input) async throws
+        -> Operations.setClanMemberRole.Output
+    { throw Unused() }
+    func renameClan(_ input: Operations.renameClan.Input) async throws -> Operations.renameClan.Output {
+        throw Unused()
+    }
+    func newClanCode(_ input: Operations.newClanCode.Input) async throws -> Operations.newClanCode.Output {
+        throw Unused()
+    }
+    func getInbox(_ input: Operations.getInbox.Input) async throws -> Operations.getInbox.Output { throw Unused() }
+    func markInboxRead(_ input: Operations.markInboxRead.Input) async throws -> Operations.markInboxRead.Output {
+        throw Unused()
+    }
+    func getInventory(_ input: Operations.getInventory.Input) async throws -> Operations.getInventory.Output {
+        throw Unused()
+    }
+    func activateItem(_ input: Operations.activateItem.Input) async throws -> Operations.activateItem.Output {
+        throw Unused()
+    }
+    func listFriends(_ input: Operations.listFriends.Input) async throws -> Operations.listFriends.Output {
+        throw Unused()
+    }
+    func addFriend(_ input: Operations.addFriend.Input) async throws -> Operations.addFriend.Output { throw Unused() }
+    func acceptFriend(_ input: Operations.acceptFriend.Input) async throws -> Operations.acceptFriend.Output {
+        throw Unused()
+    }
+    func removeFriend(_ input: Operations.removeFriend.Input) async throws -> Operations.removeFriend.Output {
+        throw Unused()
+    }
+    func getFeed(_ input: Operations.getFeed.Input) async throws -> Operations.getFeed.Output { throw Unused() }
+    func respectPost(_ input: Operations.respectPost.Input) async throws -> Operations.respectPost.Output {
+        throw Unused()
+    }
+    func reportPost(_ input: Operations.reportPost.Input) async throws -> Operations.reportPost.Output {
+        throw Unused()
+    }
+    func listBlocks(_ input: Operations.listBlocks.Input) async throws -> Operations.listBlocks.Output {
+        throw Unused()
+    }
+    func blockPlayer(_ input: Operations.blockPlayer.Input) async throws -> Operations.blockPlayer.Output {
+        throw Unused()
+    }
+    func unblockPlayer(_ input: Operations.unblockPlayer.Input) async throws -> Operations.unblockPlayer.Output {
+        throw Unused()
+    }
+    func listSegments(_ input: Operations.listSegments.Input) async throws -> Operations.listSegments.Output {
+        throw Unused()
+    }
+    func getSegment(_ input: Operations.getSegment.Input) async throws -> Operations.getSegment.Output {
+        throw Unused()
+    }
+    func getSegmentLeaderboard(_ input: Operations.getSegmentLeaderboard.Input) async throws
+        -> Operations.getSegmentLeaderboard.Output
+    { throw Unused() }
+    func listDuels(_ input: Operations.listDuels.Input) async throws -> Operations.listDuels.Output { throw Unused() }
+    func createDuel(_ input: Operations.createDuel.Input) async throws -> Operations.createDuel.Output {
+        throw Unused()
+    }
+    func getDuel(_ input: Operations.getDuel.Input) async throws -> Operations.getDuel.Output { throw Unused() }
+    func acceptDuel(_ input: Operations.acceptDuel.Input) async throws -> Operations.acceptDuel.Output {
+        throw Unused()
+    }
+    func declineDuel(_ input: Operations.declineDuel.Input) async throws -> Operations.declineDuel.Output {
+        throw Unused()
+    }
+
     // MARK: - Общее
 
     private func gate<T>(_ name: String, _ handle: () throws -> T) throws -> T {

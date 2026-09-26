@@ -1,0 +1,32 @@
+{
+  "id": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+  "name": "Набережная Мухавца",
+  "lengthMeters": 640.5,
+  "line": [
+    52.0826,
+    23.6534,
+    52.0831,
+    23.6582,
+    52.0839,
+    23.6621
+  ],
+  "league": "run",
+  "seasonCrown": {
+    "rank": 1,
+    "name": "Муха",
+    "timeMs": 71400,
+    "me": false
+  },
+  "allTimeCrown": {
+    "rank": 1,
+    "name": "Муха",
+    "timeMs": 71400,
+    "me": false
+  },
+  "legend": {
+    "name": "Бегун-1234",
+    "efforts": 14,
+    "me": true
+  },
+  "myBestTimeMs": 80120
+}

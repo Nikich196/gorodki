@@ -14,17 +14,19 @@
         init(screen: FixtureScreen, fixture: String?) {
             self.screen = screen
             _onboarding = State(initialValue: Fixtures.onboarding(screen, fixture: fixture))
-            let profile = Fixtures.profile(screen.isRun ? "player" : fixture)
+            let profile = Fixtures.profile(screen.isMap || screen.isRun ? "player" : fixture)
             _shell = State(
                 initialValue: ShellModel(
-                    tab: Fixtures.tab(screen), profile: profile, run: RunFixture.model(screen, profile: profile)))
+                    tab: Fixtures.tab(screen), profile: profile, run: RunFixture.model(screen, profile: profile),
+                    map: Fixtures.map(screen, fixture: fixture, profile: profile)))
         }
 
         var body: some View {
             switch screen {
             case .intro, .invite, .age, .terms, .consent, .signIn:
                 OnboardingView(model: onboarding, browseWithoutSignIn: { @MainActor in })
-            case .map, .leaderboards, .clan, .profile, .hud, .hudCeremony, .hudCollapsed, .runResult:
+            case .map, .mapParcel, .mapExplore, .leaderboards, .clan, .profile, .hud, .hudCeremony, .hudCollapsed,
+                .runResult:
                 AppShell(model: shell)
             case .runDetails:
                 NavigationStack {
@@ -48,6 +50,8 @@
 
     /// Данные режима фикстур. Имена `-GorodkiFixture`:
     /// - `player` — вошедший игрок: `me.json`, `fog-summary.json`, `seasons.json`;
+    /// - `player-map` — он же и карта с землёй и туманом (`MapFixture`); экраны `map-parcel` и `map-explore`
+    ///   берут её сами;
     /// - `google-ready` — вход через Google настроен (кнопка активна, но никуда не ходит);
     /// - `offline`, `invite-invalid`, `google-rejected`, `account-deleting` — ошибка входа с текстом `SignInFailure`.
     @MainActor
@@ -100,8 +104,28 @@
             }
         }
 
+        /// Карта: с землёй и туманом — для `player-map` и экранов карты, иначе пустая.
+        static func map(_ screen: FixtureScreen, fixture: String?, profile: ProfileModel) -> MapModel {
+            guard screen.isMap || fixture == "player-map" else { return MapModel(profile: profile) }
+            let model = MapModel(
+                profile: profile, names: FixturePlayerNames(),
+                initialWindow: MapFixture.window,
+                clock: { [now = MapFixture.nowMs] in Date(timeIntervalSince1970: Double(now) / 1_000) })
+            model.apply(land: MapFixture.land())
+            model.apply(fog: MapFixture.fog())
+            switch screen {
+            case .mapParcel:
+                model.select(at: MapFixture.parcelTap, tolerance: 5)
+            case .mapExplore:
+                model.layer = .explore
+            default:
+                break
+            }
+            return model
+        }
+
         static func profile(_ fixture: String?) -> ProfileModel {
-            guard fixture == "player" else { return ProfileModel() }
+            guard fixture == "player" || fixture == "player-map" else { return ProfileModel() }
             let profile = ProfileModel(signedIn: true)
             if let me = sample("me", as: Components.Schemas.MeResponse.self) {
                 profile.apply(me)
@@ -117,7 +141,9 @@
         }
 
         /// Образец ответа сервера из ресурсов (`samples/<имя>.json`); `nil` — нет файла или он не разобрался.
-        static func sample<Value: Decodable>(_ name: String, as type: Value.Type, bundle: Bundle = .main) -> Value? {
+        nonisolated static func sample<Value: Decodable>(_ name: String, as type: Value.Type, bundle: Bundle = .main)
+            -> Value?
+        {
             guard let url = bundle.url(forResource: name, withExtension: "json", subdirectory: "samples"),
                 let data = try? Data(contentsOf: url)
             else { return nil }

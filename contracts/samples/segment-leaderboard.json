@@ -1,0 +1,25 @@
+{
+  "segmentId": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",
+  "league": "run",
+  "season": 0,
+  "entries": [
+    {
+      "rank": 1,
+      "name": "Муха",
+      "timeMs": 71400,
+      "me": false
+    },
+    {
+      "rank": 2,
+      "name": "Игрок #4771",
+      "timeMs": 74950,
+      "me": false
+    }
+  ],
+  "mine": {
+    "rank": 9,
+    "name": "Бегун-1234",
+    "timeMs": 80120,
+    "me": true
+  }
+}

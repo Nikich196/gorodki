@@ -1,0 +1,33 @@
+{
+  "posts": [
+    {
+      "id": "9e8d7c6b-5a49-4382-a716-f5e4d3c2b1a0",
+      "authorId": "b3a7d9e1-5c2f-4e86-9a0d-71f4c8e2b6a3",
+      "authorName": "Муха",
+      "authorColorIndex": 11,
+      "kind": "capture",
+      "league": "run",
+      "day": "2026-11-20",
+      "distanceMeters": null,
+      "capturedSquareMeters": 4120,
+      "respects": 3,
+      "respectedByMe": true,
+      "mine": false
+    },
+    {
+      "id": "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0",
+      "authorId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+      "authorName": "Бегун-1234",
+      "authorColorIndex": 7,
+      "kind": "run",
+      "league": "run",
+      "day": "2026-11-19",
+      "distanceMeters": 5230,
+      "capturedSquareMeters": null,
+      "respects": 0,
+      "respectedByMe": false,
+      "mine": true
+    }
+  ],
+  "nextCursor": null
+}
