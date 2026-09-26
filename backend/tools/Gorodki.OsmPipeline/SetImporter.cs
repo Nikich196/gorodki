@@ -28,7 +28,8 @@ public static class SetImporter
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
         // Две загрузки одного номера одновременно: вторая ждёт первую, а не падает на ключе посреди вставки. Пространство
-        // блокировок 5 — конвейер OSM (игрок — 1, туман — 2, устройство — 3, срез — 4, тайлы — 100 + лига; ADR 0005).
+        // блокировок 5 — конвейер OSM (игрок — 1, туман — 2, устройство — 3, срез — 4, тайлы — 100 + лига; список —
+        // docs/architecture/jobs.md, «Пространства блокировок»).
         await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(5, {set.Version})", cancellationToken);
         var existing = await db.OsmSets.AsNoTracking().SingleOrDefaultAsync(s => s.Version == set.Version, cancellationToken);
         if (existing is not null)

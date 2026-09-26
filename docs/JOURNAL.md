@@ -38,6 +38,10 @@
 - Записка: у цифр набора 1 в [05-exploration.md](report/05-exploration.md) — «© участники OpenStreetMap, ODbL 1.0» со
   ссылкой (ODbL 4.3, «Где атрибуция» в osm-pipeline.md); в правилах записки — пометка у цифр и рисунков по OSM и
   выгрузка Geofabrik в списке источников; та же пометка — у «Что показал набор 1» в osm-pipeline.md.
+- Пространства блокировок PostgreSQL — полным списком в [jobs.md](architecture/jobs.md#пространства-блокировок)
+  (1 игрок, 2 туман, 3 устройство, 4 сутки, 5 набор OSM, 100 + лига тайлы): ADR 0005 — запись на момент решения, в ней
+  ни 4, ни 5, а osm-pipeline.md ссылался на неё как на полный список. Архитектурный тест `LockSpacesTests` сверяет номера
+  `pg_advisory_xact_lock` в коде со списком. Проверил: без строки «5» и на прежнем jobs.md тест красный.
 
 **01:32 — конвейер OSM v1 (C6): маски, «достижимое», районы, Арена — предложение.** [osm-pipeline.md](architecture/osm-pipeline.md), [как запускать](guides/osm-pipeline-run.md).
 - Инструмент `backend/tools/Gorodki.OsmPipeline` (вариант B: osmium → C#/NTS на сетке 0,1 м через `GeoOps`): `extract`
