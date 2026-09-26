@@ -30,7 +30,6 @@ struct RunCover: View {
 /// кнопки 64 pt: «Свернуть», «Финиш — удерживай», настройки голоса и вибрации. Поверх — церемония захвата.
 struct RunHUDView: View {
     @Bindable var model: RunScreenModel
-    @Environment(\.scenePhase) private var scenePhase
     @State private var compass = HeadingSource()
 
     var body: some View {

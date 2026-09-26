@@ -32,7 +32,7 @@ struct AppShell: View {
         }
         .tint(Palette.uiInk.color)  // активная вкладка — нейтральная (tokens.md, §6, п. 3)
         .runAccessory(run)
-        .sheet(isPresented: $run.startSheetShown, onDismiss: run.startSheetDismissed) {
+        .sheet(isPresented: $run.startSheetShown, onDismiss: { run.startSheetDismissed() }) {
             RunStartSheet(model: run)
                 .presentationDetents([.medium, .large])
                 .navigationTransition(.zoom(sourceID: RunTransitionID.start, in: runTransition))
