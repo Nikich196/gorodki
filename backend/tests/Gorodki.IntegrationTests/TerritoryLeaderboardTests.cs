@@ -104,6 +104,28 @@ public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Two_servers_taking_the_snapshot_at_once_take_it_once()
+    {
+        // Во время деплоя задача может пойти на двух экземплярах сразу: отметка проверяется ещё раз под блокировкой (6).
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var day = new DateOnly(2026, 11, 21);
+        await ForgetAsync(day.AddDays(1), finalSeason: 0);
+        GoTo(api, SeasonCalendar.MinskMidnight(day).AddHours(10));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100))).RunId);
+        GoTo(api, SeasonCalendar.MinskMidnight(day.AddDays(1)) + TimeSpan.FromSeconds(30));
+
+        var both = await Task.WhenAll(RunAsync(api), RunAsync(api));
+
+        Assert.Contains(0, both);
+        await using var db = database.CreateContext();
+        Assert.Equal(1, await db.ScoreEvents.CountAsync(e => e.UserId == annaId && e.Kind == ScoreKind.Hold, Cancel));
+        Assert.Equal(1, await db.LeaderboardSnapshots.CountAsync(
+            s => s.Board == LeaderboardBoard.Territory && s.UserId == annaId && s.Day == day.AddDays(1), Cancel));
+    }
+
+    [Fact]
     public async Task Last_season_is_preliminary_after_midnight_and_final_once_at_its_close()
     {
         database.RequireDatabase();
