@@ -14,11 +14,16 @@ internal static class Walks
     private static int _nextArea;
 
     /// <summary>Своё место для каждого теста: сдвиг на 1,5 км — отдельный тайл, соседние тесты не делят землю.</summary>
-    public static (double X, double Y) NewArea()
-    {
-        var n = Interlocked.Increment(ref _nextArea);
-        return (-6_000 + (1_500.0 * (n % 8)), -6_000 + (1_500.0 * (n / 8)));
-    }
+    public static (double X, double Y) NewArea() => Area(Interlocked.Increment(ref _nextArea));
+
+    /// <summary>
+    /// Место для фигуры, уходящей от своего места на восток дальше 0,5 км (полоса поперёк границы тайлов): заодно
+    /// занимает соседнее место справа. Места — через 1,5 км, тайлы — по 1 км: такая фигура легла бы в тайл соседа, и его
+    /// тест увидел бы чужую землю (база у тестов общая; так падал тест приватности, когда номера мест сдвинулись).
+    /// </summary>
+    public static (double X, double Y) NewWideArea() => Area(Interlocked.Add(ref _nextArea, 2) - 1);
+
+    private static (double X, double Y) Area(int n) => (-6_000 + (1_500.0 * (n % 8)), -6_000 + (1_500.0 * (n / 8)));
 
     public static (double X, double Y)[] Square((double X, double Y) area, double x, double y, double size) =>
     [
