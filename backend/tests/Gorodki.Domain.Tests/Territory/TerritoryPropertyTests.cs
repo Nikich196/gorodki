@@ -166,6 +166,81 @@ public sealed class TerritoryPropertyTests
     }
 
     /// <summary>
+    /// C8 (PLAN.md, §3.3: «земля соклановцев не отбирается; обводя её, ты освежаешь им угасание»): игроки 0 и 1 — один клан,
+    /// 2 и 3 — без клана. После каждого захвата: инварианты карты; живая земля соклановца автора не убыла нигде (ни внутри
+    /// петли, ни снаружи — кроме осколков); вся его живая земля внутри петли освежена (визит не раньше петли) и вся она —
+    /// исход <see cref="PieceOutcome.RefreshedForClanMate"/>; у его кусков нет нового щита, осады, окна и счётчиков снятия
+    /// уровней, а касание владельца (<c>TouchedAt</c>, удержание §3.4) соклановец не двигает. Угасшая до нуля земля
+    /// соклановца — ничья, как любая (её берут).
+    /// </summary>
+    [Fact]
+    public void Clan_mates_land_is_never_taken_only_refreshed()
+    {
+        HistoryGen.Sample(history =>
+        {
+            var map = new TerritoryMap();
+            var time = T0;
+            foreach (var step in history)
+            {
+                time = time.AddHours(step.HoursLater);
+                var shape = CaptureShapeBuilder.Build(TrailOf(step), 40, null, ShapeSettings);
+                if (!shape.IsAccepted)
+                {
+                    continue;
+                }
+
+                var capturer = Players[step.Player];
+                var mates = (step.Player < 2 ? Players[..2] : [capturer]).Where(p => p != capturer).ToHashSet();
+                var capture = shape.Area;
+                var at = time;
+                var liveBefore = mates.ToDictionary(m => m, m => LiveLandOf(map, m, at));
+                var statesBefore = map.Parcels.Where(p => mates.Contains(p.State.OwnerId)).Select(p => p.State).ToList();
+
+                var bigLoop = step.NoiseSeed % 4 == 0;
+                var result = map.Apply(capture, new CaptureContext(capturer, time, mates, BigLoop: bigLoop));
+
+                var errors = TerritoryInvariants.Check(map);
+                Assert.True(errors.Count == 0, $"{step}: {string.Join("; ", errors)}");
+                var tolerance = result.SliverArea + TerritoryMap.SnapTolerance(capture);
+                var insideBefore = 0.0;
+                foreach (var mate in mates)
+                {
+                    var before = liveBefore[mate];
+                    var after = LiveLandOf(map, mate, at);
+                    insideBefore += GeoOps.Intersection(before, capture).Area;
+                    Assert.True(
+                        GeoOps.Difference(before, after).Area <= tolerance,
+                        $"{step}: соклановец потерял {GeoOps.Difference(before, after).Area:0.##} м² живой земли");
+                    var refreshed = GeoOps.UnionAll(map.Parcels
+                        .Where(p => p.State.OwnerId == mate && p.State.LastVisitAt >= at)
+                        .Select(p => (Geometry)p.Geometry));
+                    var stale = GeoOps.Difference(GeoOps.Intersection(before, capture), refreshed).Area;
+                    Assert.True(stale <= tolerance, $"{step}: внутри петли не освежено {stale:0.##} м² земли соклановца");
+                }
+
+                Assert.True(
+                    Math.Abs(result.Area(PieceOutcome.RefreshedForClanMate) - insideBefore) <= tolerance,
+                    $"{step}: освежено {result.Area(PieceOutcome.RefreshedForClanMate):0.##}, а земли соклановцев внутри {insideBefore:0.##} м²");
+                foreach (var piece in map.Parcels.Where(p => mates.Contains(p.State.OwnerId)))
+                {
+                    Assert.True(
+                        statesBefore.Any(old => piece.State == old || piece.State == old with
+                        {
+                            LastVisitAt = old.LastVisitAt > at ? old.LastVisitAt : at,
+                            Level = Decay.EffectiveLevel(old, at, map.Rules),
+                        }),
+                        $"{step}: у куска соклановца новое состояние {piece.State}");
+                }
+            }
+        }, iter: Iterations);
+    }
+
+    private static Geometry LiveLandOf(TerritoryMap map, Guid player, DateTimeOffset at) =>
+        GeoOps.UnionAll(map.Parcels
+            .Where(p => p.State.OwnerId == player && Decay.EffectiveLevel(p.State, at, map.Rules) > 0)
+            .Select(p => (Geometry)p.Geometry));
+
+    /// <summary>
     /// I7: переписаны только тайлы, где изменилось состояние земли, и в каждом из них есть что записать; остальные тайлы —
     /// те же объекты кусков; кусок, чьи земля (множество точек) и состояние не изменились, — прежний объект, то есть в базе
     /// он сохраняет номер. Куски, чья граница сдвинулась на сантиметры (излом от snap-rounding у изменённой земли), здесь

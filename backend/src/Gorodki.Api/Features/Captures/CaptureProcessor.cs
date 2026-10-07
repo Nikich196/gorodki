@@ -390,10 +390,11 @@ public sealed class CaptureProcessor(
 
         // Большая петля (§3.3, #48) — по площади P после масок и порогу лиги из правил земли на момент применения.
         var bigLoop = current.Rules.Territory.IsBigLoop(claim.League, area.Area);
+        var clanMates = await ClanMatesAsync(claim.UserId, cancellationToken);
         var map = new TerritoryMap(current.Rules.Territory.ToRules(), new SliverSettings());
         map.Load(stored.Select(ToParcel));
         var result = map.Apply(
-            area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels, bigLoop, reset?.StartsAt));
+            area, new CaptureContext(claim.UserId, effectiveAt, clanMates, canRemoveLevels, bigLoop, reset?.StartsAt));
 
         var changedTiles = new List<TileKey>();
         foreach (var tile in result.ChangedTiles)
@@ -518,6 +519,19 @@ public sealed class CaptureProcessor(
         var before = now - JournalRetention;
         return await db.CaptureJournal.Where(j => j.AppliedAt < before).ExecuteDeleteAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Соклановцы игрока (C8, PLAN.md §3.3): их землю петля не отбирает, а освежает им угасание. Принадлежность — по
+    /// текущему составу клана, то есть на момент применения петли, а не её замыкания: вышел из клана (или исключён) до
+    /// применения — его земля снова чужая, вступил — уже своя. Читается в транзакции захвата; размер клана (3 и больше,
+    /// «полный») здесь не важен — «неполный» клан не участвует только в рейдах и контроле кварталов (§3.6).
+    /// </summary>
+    private async Task<IReadOnlySet<Guid>> ClanMatesAsync(Guid userId, CancellationToken cancellationToken) =>
+        (await db.ClanMembers.AsNoTracking()
+            .Where(m => m.UserId != userId && db.ClanMembers.Any(me => me.UserId == userId && me.ClanId == m.ClanId))
+            .Select(m => m.UserId)
+            .ToListAsync(cancellationToken))
+        .ToHashSet();
 
     /// <summary>Сколько захватов игрока уже применено в те же игровые сутки (по Минску).</summary>
     private async Task<int> AppliedOnGameDayAsync(Guid userId, DateTimeOffset effectiveAt, CancellationToken cancellationToken)
