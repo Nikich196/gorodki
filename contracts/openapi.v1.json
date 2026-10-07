@@ -2712,6 +2712,16 @@
             "items": {
               "$ref": "#/components/schemas/ExportScore"
             }
+          },
+          "clan": {
+            "$ref": "#/components/schemas/ExportClan"
+          },
+          "clanJoinAfterMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -3486,6 +3496,31 @@
               "null",
               "integer"
             ],
+            "format": "int64"
+          }
+        }
+      },
+      "ExportClan": {
+        "required": [
+          "id",
+          "name",
+          "role",
+          "joinedAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ClanRole"
+          },
+          "joinedAtMs": {
+            "type": "integer",
             "format": "int64"
           }
         }

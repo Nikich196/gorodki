@@ -4,6 +4,7 @@ using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Scoring;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Clans;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Runs;
@@ -29,6 +30,8 @@ namespace Gorodki.Api.Features.Me;
 /// разбивка итога захвата (иначе бонусы выдали бы ещё скрытый чужой захват). Сервер присылает всегда; в контракте поле
 /// необязательное — приложение, собранное раньше этого поля (и его тесты), разбирает выгрузку как прежде.
 /// </param>
+/// <param name="Clan">Свой клан и роль в нём; <c>null</c> — не в клане. Необязательное поле, как <paramref name="Scores"/>.</param>
+/// <param name="ClanJoinAfterMs">Вышел из клана или исключён — до этого момента нельзя вступить снова (72 ч); иначе <c>null</c>.</param>
 public sealed record AccountExportResponse(
     long ExportedAtMs,
     ExportProfile Profile,
@@ -39,7 +42,12 @@ public sealed record AccountExportResponse(
     IReadOnlyList<ExportFogTile> Fog,
     IReadOnlyList<PrivacyZoneResponse> PrivacyZones,
     IReadOnlyList<ExportRanking> Rankings,
-    IReadOnlyList<ExportScore>? Scores);
+    IReadOnlyList<ExportScore>? Scores,
+    ExportClan? Clan = null,
+    long? ClanJoinAfterMs = null);
+
+/// <summary>Свой клан в «Моих данных»: название, роль, когда вступил. Других участников здесь нет — это их данные.</summary>
+public sealed record ExportClan(Guid Id, string Name, ClanRole Role, long JoinedAtMs);
 
 /// <param name="Season">Номер сезона; <c>null</c> — вне сезонов (предсезонье).</param>
 /// <param name="Day">Игровые сутки по Минску, <c>yyyy-MM-dd</c>.</param>
@@ -258,6 +266,11 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
                 e.EffectiveAt.ToUnixTimeMilliseconds()))
             .ToList();
 
+        var clan = await db.ClanMembers.AsNoTracking()
+            .Where(m => m.UserId == userId)
+            .Join(db.Clans, m => m.ClanId, c => c.Id, (m, c) => new { c.Id, c.Name, m.Role, m.JoinedAt })
+            .SingleOrDefaultAsync(cancellationToken);
+
         return new AccountExportResponse(
             time.GetUtcNow().ToUnixTimeMilliseconds(),
             new ExportProfile(
@@ -279,6 +292,8 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
             fog,
             zones,
             rankings,
-            scores);
+            scores,
+            clan is null ? null : new ExportClan(clan.Id, clan.Name, clan.Role, clan.JoinedAt.ToUnixTimeMilliseconds()),
+            user.ClanJoinAfter > time.GetUtcNow() ? user.ClanJoinAfter.Value.ToUnixTimeMilliseconds() : null);
     }
 }

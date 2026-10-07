@@ -2,22 +2,22 @@ using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Leaderboards;
+using Gorodki.Domain.Clans;
 using Microsoft.EntityFrameworkCore;
 using static Gorodki.IntegrationTests.RunRequests;
 
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Кланы — <c>/clans</c> (PLAN.md, §3.3, §3.6). Задача #135 для Егора (E5a–c): тесты со <c>Skip</c> снимаются вместе с
-/// реализацией (egor-server.md, раздел 3.2). Правила имени — ещё и в <c>ClanRulesTests</c> (без Docker), когда появится
-/// <c>ClanRules</c>.
+/// Кланы — <c>/clans</c> (PLAN.md, §3.3, §3.6), задача #135 (E5a–c; сделано Claude 07.10). Правила названия, исключения и
+/// передачи лидерства — ещё и в <c>ClanRulesTests</c> (без Docker).
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class ClansTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #135")]
+    [Fact]
     public async Task Leader_creates_a_clan_and_others_join_by_its_code()
     {
         database.RequireDatabase();
@@ -44,7 +44,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Contains(seenByBoris.Members, m => m.PlayerId == borisId && m.Me);
     }
 
-    [Fact(Skip = "ЗАДАЧА #135")]
+    [Fact]
     public async Task Name_follows_the_rules_and_is_unique_ignoring_case()
     {
         database.RequireDatabase();
@@ -62,7 +62,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Equal((409, "clan_name_taken"), await Problems.OfAsync(await PostCreateAsync(boris, name.ToUpperInvariant()), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #135")]
+    [Fact]
     public async Task A_clan_holds_at_most_twelve_players()
     {
         database.RequireDatabase();
@@ -80,7 +80,34 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Equal((409, "clan_full"), await Problems.OfAsync(await JoinAsync(thirteenth, clan.InviteCode!), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #135")]
+    [Fact]
+    public async Task Simultaneous_joins_do_not_overfill_the_clan()
+    {
+        // Потолок проверяется под блокировкой строки клана: пятеро одновременно за последнее место — войдёт один.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (leader, _) = await api.CreatePlayerClientAsync();
+        var clan = await CreateAsync(leader, UniqueName());
+        for (var i = 2; i < ClanEndpoints.MaxMembers; i++)
+        {
+            var (member, _) = await api.CreatePlayerClientAsync();
+            Assert.Equal(HttpStatusCode.OK, (await JoinAsync(member, clan.InviteCode!)).StatusCode);
+        }
+
+        var racers = new List<HttpClient>();
+        for (var i = 0; i < 5; i++)
+        {
+            racers.Add((await api.CreatePlayerClientAsync()).Client);
+        }
+
+        var answers = await Task.WhenAll(racers.Select(r => JoinAsync(r, clan.InviteCode!)));
+
+        Assert.Single(answers, a => a.StatusCode == HttpStatusCode.OK);
+        var full = (await leader.GetFromJsonAsync<ClanResponse>($"/clans/{clan.Id}", Json, Cancel))!;
+        Assert.Equal(ClanEndpoints.MaxMembers, full.Members.Count);
+    }
+
+    [Fact]
     public async Task After_leaving_a_player_waits_72_hours_to_join_again_and_the_leader_passes_on()
     {
         database.RequireDatabase();
@@ -109,7 +136,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Equal(HttpStatusCode.OK, (await JoinAsync(anna, after.InviteCode!)).StatusCode);
     }
 
-    [Fact(Skip = "ЗАДАЧА #135")]
+    [Fact]
     public async Task Only_the_clans_own_leader_or_officer_removes_members_and_a_stranger_gets_404()
     {
         database.RequireDatabase();
@@ -137,7 +164,7 @@ public sealed class ClansTests(DatabaseFixture database)
             (await anna.GetFromJsonAsync<ClanResponse>($"/clans/{clan.Id}", Json, Cancel))!.Members, m => m.PlayerId == borisId);
     }
 
-    [Fact(Skip = "ЗАДАЧА #135")]
+    [Fact]
     public async Task Members_are_named_only_with_their_consent_and_officers_are_at_most_two()
     {
         database.RequireDatabase();
@@ -168,7 +195,7 @@ public sealed class ClansTests(DatabaseFixture database)
         Assert.Contains(LeaderboardEndpoints.Pseudonym(ids[0]), body);
     }
 
-    [Fact(Skip = "ЗАДАЧА #135")]
+    [Fact]
     public async Task Leader_renames_once_per_season_and_hues_come_from_the_palette()
     {
         database.RequireDatabase();
@@ -195,7 +222,67 @@ public sealed class ClansTests(DatabaseFixture database)
             await carl.PostAsJsonAsync("/clans", new CreateClanRequest { Name = UniqueName(), Hue = ClanEndpoints.Hues }, Json, Cancel), Cancel));
     }
 
+    [Fact]
+    public async Task The_last_member_leaving_dissolves_the_clan_and_land_stays_with_the_player()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, _) = await api.CreatePlayerClientAsync();
+        var clan = await CreateAsync(anna, UniqueName());
+        await JoinAsync(boris, clan.InviteCode!);
+        await Walks.ProcessAsync(api, (await Walks.WalkAndClaimAsync(Cancel, api, anna, Walks.Square(Walks.NewArea(), 0, 0, 100))).RunId);
+        var landBefore = await LandAsync(annaId);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await anna.PostAsync("/clans/mine/leave", null, Cancel)).StatusCode);
+        Assert.Equal((404, "clan_not_member"), await Problems.OfAsync(await anna.PostAsync("/clans/mine/leave", null, Cancel), Cancel));
+        var left = (await boris.GetFromJsonAsync<ClanResponse>($"/clans/{clan.Id}", Json, Cancel))!;
+        Assert.Equal((ClanRole.Leader, false), (left.MyRole, left.Full)); // единственный оставшийся — лидер, клан «неполный»
+        Assert.Equal(HttpStatusCode.NoContent, (await boris.PostAsync("/clans/mine/leave", null, Cancel)).StatusCode);
+
+        Assert.Equal((404, "clan_not_found"), await Problems.OfAsync(await anna.GetAsync($"/clans/{clan.Id}", Cancel), Cancel));
+        Assert.Equal(landBefore, await LandAsync(annaId)); // земля личная: выход её не трогает (§3.3)
+        Assert.True(landBefore > 9_000);
+    }
+
+    [Fact]
+    public async Task Rights_are_checked_inside_ones_own_clan()
+    {
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (carl, carlId) = await api.CreatePlayerClientAsync();
+        var (loner, _) = await api.CreatePlayerClientAsync();
+        var clan = await CreateAsync(anna, UniqueName());
+        await JoinAsync(boris, clan.InviteCode!);
+        await JoinAsync(carl, clan.InviteCode!);
+        await SetRoleAsync(anna, borisId, ClanRole.Officer);
+
+        // Офицер исключает рядового, но не лидера и не другого офицера; меняет код, но не роли и не название.
+        Assert.Equal((403, "clan_forbidden"), await Problems.OfAsync(await boris.DeleteAsync($"/clans/mine/members/{annaId}", Cancel), Cancel));
+        Assert.Equal((403, "clan_forbidden"), await Problems.OfAsync(await SetRoleAsync(boris, carlId, ClanRole.Officer), Cancel));
+        Assert.Equal((403, "clan_forbidden"), await Problems.OfAsync(await SetRoleAsync(anna, annaId, ClanRole.Member), Cancel)); // себя — нет
+        var byOfficer = await Problems.BodyAsync<ClanResponse>(await boris.PostAsync("/clans/mine/code", null, Cancel), Cancel);
+        Assert.NotNull(byOfficer.InviteCode);
+        Assert.Equal((403, "clan_forbidden"), await Problems.OfAsync(await carl.PostAsync("/clans/mine/code", null, Cancel), Cancel));
+        Assert.Equal((403, "clan_forbidden"), await Problems.OfAsync(await loner.PostAsync("/clans/mine/code", null, Cancel), Cancel));
+        Assert.Equal(HttpStatusCode.NoContent, (await boris.DeleteAsync($"/clans/mine/members/{carlId}", Cancel)).StatusCode);
+
+        // Не в клане — не исключит никого; свой клан ему не показывают, а «можно вступать» — сразу.
+        Assert.Equal((404, "clan_member_not_found"), await Problems.OfAsync(await loner.DeleteAsync($"/clans/mine/members/{borisId}", Cancel), Cancel));
+        var mine = (await loner.GetFromJsonAsync<MyClanResponse>("/clans/mine", Json, Cancel))!;
+        Assert.Null(mine.Clan);
+        Assert.Null(mine.CanJoinAtMs);
+    }
+
     // MARK: — вспомогательное
+
+    private async Task<double> LandAsync(Guid userId)
+    {
+        await using var db = database.CreateContext();
+        return (await db.Parcels.Where(p => p.OwnerId == userId).Select(p => p.Geometry).ToListAsync(Cancel)).Sum(g => g.Area);
+    }
 
     /// <summary>Уникальное допустимое название: база общая для всех тестов.</summary>
     private static string UniqueName() => $"Клан {Guid.NewGuid().ToString("N")[..8]}";

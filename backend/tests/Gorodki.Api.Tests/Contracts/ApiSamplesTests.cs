@@ -22,6 +22,7 @@ using Gorodki.Api.Features.Streaks;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Jobs;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Clans;
 using Gorodki.Domain.Config;
 using Gorodki.Domain.Fog;
 using Gorodki.Domain.Leagues;

@@ -1,3 +1,4 @@
+using Gorodki.Domain.Clans;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Osm;
 using NetTopologySuite.Geometries;
@@ -59,6 +60,11 @@ public sealed class UserEntity
 
     /// <summary>Заморозка (PLAN.md, §3.9, слой 5): до этого момента захваты игрока не применяются.</summary>
     public DateTimeOffset? FrozenUntil { get; set; }
+
+    /// <summary>
+    /// Вышел из клана или исключён — до этого момента нельзя вступить в другой или создать свой (PLAN.md, §3.3: 72 ч).
+    /// </summary>
+    public DateTimeOffset? ClanJoinAfter { get; set; }
 }
 
 /// <summary>
@@ -856,4 +862,44 @@ public sealed class ScoreEventEntity
     public DateTimeOffset VisibleAt { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
+}
+
+// ── Кланы (PLAN.md, §3.3, §3.6; задача #135, E5a–c) ──
+
+/// <summary>
+/// Клан: 3–12 человек (меньше 3 — «неполный»), лидер и до 2 офицеров — роли у участников (<see cref="ClanMemberEntity"/>).
+/// Клан без участников не хранится: ушёл последний — строка удаляется.
+/// </summary>
+public sealed class ClanEntity
+{
+    public Guid Id { get; set; }
+
+    /// <summary>Название, как его видят (3–24 символа, <c>ClanRules.Clean</c>).</summary>
+    public required string Name { get; set; }
+
+    /// <summary>Название в нижнем регистре — уникально без учёта регистра (<c>ClanRules.Normalize</c>).</summary>
+    public required string NormalizedName { get; set; }
+
+    /// <summary>Оттенок клана: номер в палитре кланов из 12 (0–11).</summary>
+    public short Hue { get; set; }
+
+    /// <summary>Код-приглашение <c>XXXX-XXXX</c>; новый код отменяет старый.</summary>
+    public required string InviteCode { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Когда лидер последний раз переименовал клан: переименовать можно раз в сезон (§3.6).</summary>
+    public DateTimeOffset? RenamedAt { get; set; }
+}
+
+/// <summary>Участник клана: игрок состоит не больше чем в одном клане (ключ — игрок).</summary>
+public sealed class ClanMemberEntity
+{
+    public Guid UserId { get; set; }
+
+    public Guid ClanId { get; set; }
+
+    public ClanRole Role { get; set; }
+
+    public DateTimeOffset JoinedAt { get; set; }
 }

@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Clans;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -71,9 +73,6 @@ public sealed class IdorTests(DatabaseFixture database)
     {
         ["DELETE /admin/invites/{code}"] = "ЗАДАЧА #114",
         ["GET /players/{id:guid}"] = "ЗАДАЧА #115",
-        ["GET /clans/{id:guid}"] = "ЗАДАЧА #135",
-        ["DELETE /clans/mine/members/{userId:guid}"] = "ЗАДАЧА #135",
-        ["PUT /clans/mine/members/{userId:guid}/role"] = "ЗАДАЧА #135",
         ["POST /me/inventory/{id:guid}/activate"] = "ЗАДАЧА #140",
         ["POST /friends/{id:guid}/accept"] = "ЗАДАЧА #143",
         ["DELETE /friends/{id:guid}"] = "ЗАДАЧА #143",
@@ -134,6 +133,12 @@ public sealed class IdorTests(DatabaseFixture database)
         var rollback = await admin.PostAsJsonAsync($"/admin/users/{annaId}/rollback", new RollbackRequest("проверка IDOR"), Json, Cancel);
         Assert.True(rollback.IsSuccessStatusCode, $"Откат не заведён: {rollback.StatusCode}");
         var rollbackId = (await rollback.Content.ReadFromJsonAsync<RollbackResponse>(Json, Cancel))!.Id;
+        // Клан Анны (Борис — в своём): карточку видно всем, а участников из чужого клана не исключить и не повысить.
+        var annaClan = await anna.PostAsJsonAsync("/clans", new CreateClanRequest { Name = $"IDOR {Guid.NewGuid().ToString("N")[..8]}" }, Json, Cancel);
+        Assert.Equal(HttpStatusCode.Created, annaClan.StatusCode);
+        var annaClanId = (await annaClan.Content.ReadFromJsonAsync<ClanResponse>(Json, Cancel))!.Id;
+        var borisClan = await boris.PostAsJsonAsync("/clans", new CreateClanRequest { Name = $"IDOR {Guid.NewGuid().ToString("N")[..8]}" }, Json, Cancel);
+        Assert.Equal(HttpStatusCode.Created, borisClan.StatusCode);
         var before = await SnapshotAsync(claim.RunId, annaId);
 
         var now = api.Time.GetUtcNow().ToUnixTimeMilliseconds();
@@ -152,6 +157,10 @@ public sealed class IdorTests(DatabaseFixture database)
             ["POST /admin/users/{userId:guid}/rollback"] = await boris.PostAsJsonAsync(
                 $"/admin/users/{annaId}/rollback", new RollbackRequest("чужими руками"), Json, Cancel),
             ["GET /admin/rollbacks/{rollbackId:guid}"] = await boris.GetAsync($"/admin/rollbacks/{rollbackId}", Cancel),
+            ["GET /clans/{id:guid}"] = await boris.GetAsync($"/clans/{annaClanId}", Cancel),
+            ["DELETE /clans/mine/members/{userId:guid}"] = await boris.DeleteAsync($"/clans/mine/members/{annaId}", Cancel),
+            ["PUT /clans/mine/members/{userId:guid}/role"] = await boris.PutAsJsonAsync(
+                $"/clans/mine/members/{annaId}/role", new ClanRoleRequest { Role = ClanRole.Member }, Json, Cancel),
         };
 
         // Здесь нужен запрос Бориса к каждому адресу, кроме ждущих задачи Егора (AwaitingTasks).
@@ -184,7 +193,7 @@ public sealed class IdorTests(DatabaseFixture database)
         return await db.Users.Where(u => u.Id == userId).Select(u => u.DisplayName).SingleAsync(Cancel);
     }
 
-    /// <summary>Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката.</summary>
+    /// <summary>Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката, клан и роль в нём.</summary>
     private async Task<string> SnapshotAsync(Guid runId, Guid annaId)
     {
         await using var db = database.CreateContext();
@@ -192,6 +201,7 @@ public sealed class IdorTests(DatabaseFixture database)
         var chunks = await db.RunChunks.CountAsync(c => c.RunId == runId, Cancel);
         var captures = await db.Captures.Where(c => c.RunId == runId).Select(c => c.ClaimNo).OrderBy(n => n).ToListAsync(Cancel);
         var rollbacks = await db.CaptureRollbacks.CountAsync(r => r.UserId == annaId, Cancel);
-        return $"{run.UserId} {run.Status} {run.EndedAt} {chunks} [{string.Join(",", captures)}] {rollbacks}";
+        var clan = await db.ClanMembers.Where(m => m.UserId == annaId).Select(m => new { m.ClanId, m.Role }).SingleOrDefaultAsync(Cancel);
+        return $"{run.UserId} {run.Status} {run.EndedAt} {chunks} [{string.Join(",", captures)}] {rollbacks} {clan}";
     }
 }

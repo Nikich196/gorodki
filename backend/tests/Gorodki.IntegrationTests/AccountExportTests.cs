@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Clans;
 using Microsoft.Extensions.DependencyInjection;
 using static Gorodki.IntegrationTests.RunRequests;
 using static Gorodki.IntegrationTests.Walks;
@@ -42,6 +44,9 @@ public sealed class AccountExportTests(DatabaseFixture database)
 
         await Walks.ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(NewArea(), 0, 0, 100))).RunId);
 
+        var clanName = $"Выгрузка {Guid.NewGuid().ToString("N")[..8]}";
+        Assert.Equal(HttpStatusCode.Created, (await anna.PostAsJsonAsync("/clans", new CreateClanRequest { Name = clanName }, Json, Cancel)).StatusCode);
+
         var response = await anna.GetAsync("/me/export", Cancel);
         var mine = (await response.Content.ReadFromJsonAsync<AccountExportResponse>(Json, Cancel))!;
         var theirs = (await boris.GetFromJsonAsync<AccountExportResponse>("/me/export", Json, Cancel))!;
@@ -66,9 +71,13 @@ public sealed class AccountExportTests(DatabaseFixture database)
         Assert.True(parcel.Exterior.Count >= 8); // 4+ вершины: широта и долгота
         Assert.Equal(cells, mine.Fog.Where(f => f.Season == -1).Sum(f => f.CellCount));
 
+        Assert.Equal((clanName, ClanRole.Leader), (mine.Clan?.Name, mine.Clan?.Role));
+        Assert.Null(mine.ClanJoinAfterMs);
+
         // Ничего чужого: у Бориса — только его забеги и захваты.
         Assert.DoesNotContain(theirs.Runs, r => r.Id == walk.Id || r.Id == claim.RunId);
         Assert.DoesNotContain(theirs.Captures, c => c.Id == claim.CaptureId);
+        Assert.Null(theirs.Clan);
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
     }
 }

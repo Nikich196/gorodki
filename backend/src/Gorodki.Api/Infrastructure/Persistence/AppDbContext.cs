@@ -65,6 +65,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<ScoreEventEntity> ScoreEvents => Set<ScoreEventEntity>();
 
+    public DbSet<ClanEntity> Clans => Set<ClanEntity>();
+
+    public DbSet<ClanMemberEntity> ClanMembers => Set<ClanMemberEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -384,6 +388,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             });
         });
 
+        ConfigureClans(model);
+
         model.Entity<PrivacyZoneEntity>(zone =>
         {
             zone.HasKey(z => z.Id);
@@ -391,6 +397,39 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             zone.HasOne<UserEntity>().WithMany().HasForeignKey(z => z.UserId).OnDelete(DeleteBehavior.Cascade);
             zone.ToTable(t => t.HasCheckConstraint(
                 "ck_privacy_zones_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180"));
+        });
+    }
+
+    /// <summary>
+    /// Кланы (PLAN.md, §3.3, §3.6): игрок — не больше чем в одном клане (ключ участника — игрок), один лидер на клан,
+    /// название уникально без учёта регистра, код-приглашение уникален. Удалили игрока — его членство уходит каскадом
+    /// (лидерство до этого передаёт <c>AccountDeletion</c>); удалили клан — участники с ним.
+    /// </summary>
+    private static void ConfigureClans(ModelBuilder model)
+    {
+        model.Entity<ClanEntity>(clan =>
+        {
+            clan.HasKey(c => c.Id);
+            clan.Property(c => c.Name).HasMaxLength(Gorodki.Domain.Clans.ClanRules.NameMaxLength);
+            clan.Property(c => c.NormalizedName).HasMaxLength(Gorodki.Domain.Clans.ClanRules.NameMaxLength);
+            clan.Property(c => c.InviteCode).HasMaxLength(16);
+            clan.HasIndex(c => c.NormalizedName).IsUnique();
+            clan.HasIndex(c => c.InviteCode).IsUnique();
+            clan.ToTable(t => t.HasCheckConstraint("ck_clans_hue", "hue BETWEEN 0 AND 11"));
+        });
+
+        model.Entity<ClanMemberEntity>(member =>
+        {
+            member.HasKey(m => m.UserId);
+            member.Property(m => m.Role).HasConversion<short>();
+            member.HasIndex(m => m.ClanId, "ix_clan_members_clan_id");
+            member.HasIndex(m => m.ClanId, "ux_clan_members_one_leader")
+                .IsUnique()
+                .HasFilter("role = 2")
+                .HasDatabaseName("ux_clan_members_one_leader");
+            member.HasOne<UserEntity>().WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
+            member.HasOne<ClanEntity>().WithMany().HasForeignKey(m => m.ClanId).OnDelete(DeleteBehavior.Cascade);
+            member.ToTable(t => t.HasCheckConstraint("ck_clan_members_role", "role BETWEEN 0 AND 2"));
         });
     }
 

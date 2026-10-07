@@ -1,3 +1,4 @@
+using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Territory;
@@ -105,6 +106,14 @@ public sealed class AccountDeletion(
                 ON CONFLICT (league, tile_x, tile_y) DO UPDATE SET version = app.tile_versions.version + 1
                 """,
                 cancellationToken);
+        }
+
+        // Клан: членство уйдёт каскадом вместе с аккаунтом, но лидерство — нет. Ушёл лидер — лидер теперь офицер или самый
+        // давний участник, ушёл последний — клана больше нет (§3.6), как при выходе; 72 ч стёртому не ставятся.
+        if (await db.ClanMembers.Where(m => m.UserId == userId).Select(m => (Guid?)m.ClanId).SingleOrDefaultAsync(cancellationToken) is { } clanId)
+        {
+            await ClanEndpoints.LockClanAsync(db, clanId, cancellationToken);
+            await ClanEndpoints.RemoveMemberAsync(db, clanId, userId, joinAfter: null, cancellationToken);
         }
 
         // Захваты не удаляются вместе с забегом (история), поэтому — явно; журнал уходит с ними каскадом. Остальное

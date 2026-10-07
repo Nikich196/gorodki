@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Clans;
 using Gorodki.Domain.Geo;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,6 +46,11 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
             await db.SaveChangesAsync(Cancel);
         }
 
+        // Анна — лидер клана, Борис в нём: после удаления лидер — Борис, а членства Анны не остаётся.
+        var clan = await anna.PostAsJsonAsync("/clans", new CreateClanRequest { Name = $"Удаление {Guid.NewGuid().ToString("N")[..8]}" }, Json, Cancel);
+        var clanBody = (await clan.Content.ReadFromJsonAsync<ClanResponse>(Json, Cancel))!;
+        Assert.Equal(HttpStatusCode.OK, (await boris.PostAsJsonAsync("/clans/join", new JoinClanRequest { Code = clanBody.InviteCode! }, Json, Cancel)).StatusCode);
+
         // Запрос: принят, повтор не сдвигает срок, вход в удаляемый аккаунт закрыт.
         var first = await anna.DeleteAsync("/me", Cancel);
         var again = await anna.DeleteAsync("/me", Cancel);
@@ -79,9 +86,11 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
 
         Assert.True(await DeleteRequestedAsync(api) >= 1);
 
-        // Полнота: номер Анны остался только в журнале чужого захвата — «земля до» захвата Бориса.
+        // Полнота: номер Анны остался только в журнале чужого захвата — «земля до» захвата Бориса (членства в клане — нет).
         Assert.Equal(["capture_journal_pieces.owner_id"], await TablesMentioningAsync(annaId));
         Assert.InRange(await LandAreaAsync(borisId), 9_700, 10_300); // земля Бориса не тронута
+        var clanAfter = (await boris.GetFromJsonAsync<ClanResponse>($"/clans/{clanBody.Id}", Json, Cancel))!;
+        Assert.Equal(ClanRole.Leader, Assert.Single(clanAfter.Members).Role); // лидерство перешло, а не пропало
         Assert.True(await TileVersionAsync(tile) > versionBefore); // у соседей карта обновится
 
         // Захват Бориса ещё скрыт задержкой (20 минут): проекция вернула бы Вере землю Анны — но удалённый на карте
