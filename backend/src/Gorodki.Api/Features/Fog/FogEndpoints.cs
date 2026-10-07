@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Osm;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -149,32 +150,62 @@ public static class FogEndpoints
     }
 
     private static async Task<Ok<FogSummaryResponse>> GetSummary(
-        ClaimsPrincipal principal, AppDbContext db, SeasonStore seasons, TimeProvider time, CancellationToken cancellationToken)
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        SeasonStore seasons,
+        ReachableStore reachable,
+        TimeProvider time,
+        CancellationToken cancellationToken)
     {
         var userId = principal.UserId();
         var current = (await seasons.CalendarAsync(cancellationToken)).At(time.GetUtcNow())?.Number;
+
+        // «% Бреста» и районов (#138, PLAN §3.10, §7.3): popcount(открыто ∧ достижимо) / popcount(достижимо) по набору OSM из
+        // действующего конфига. Набора нет (или он не загружен) — процентов нет, поля null. Только свои тайлы: процент
+        // выведен из карты исследования, а она — персональные данные (§3.10).
+        var reach = await reachable.CurrentSetVersionAsync(cancellationToken) is { } set
+            ? await reachable.LoadAsync(set, cancellationToken)
+            : null;
+        var withBits = reach is not null; // без набора биты тайлов (до 8 КБ каждый) не читаются
         var tiles = await db.FogTiles.AsNoTracking()
             .Where(f => f.UserId == userId && (f.Season == SeasonCalendar.AllTime || f.Season == current))
-            .Select(f => new { f.Layer, f.Season, f.TileX, f.TileY, f.CellCount })
+            .Select(f => new { f.Layer, f.Season, f.TileX, f.TileY, f.CellCount, Bits = withBits ? f.Bits : null })
             .ToListAsync(cancellationToken);
         var layers = tiles
             .GroupBy(t => (t.Layer, t.Season))
             .OrderBy(g => g.Key.Season)
             .ThenBy(g => g.Key.Layer)
-            .Select(g => new FogLayerSummary(
-                g.Key.Layer,
-                g.Key.Season == SeasonCalendar.AllTime ? null : g.Key.Season,
-                g.Count(),
-                g.Sum(t => t.CellCount),
-                Math.Round(g.Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY))), 1)))
+            .Select(g =>
+            {
+                var summary = new FogLayerSummary(
+                    g.Key.Layer,
+                    g.Key.Season == SeasonCalendar.AllTime ? null : g.Key.Season,
+                    g.Count(),
+                    g.Sum(t => t.CellCount),
+                    Math.Round(g.Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY))), 1));
+                if (reach is null)
+                {
+                    return summary;
+                }
+
+                // Распаковываются только тайлы, где есть «достижимое» города или районов: остальное в процент не входит.
+                var explored = g
+                    .Where(t => t.Bits is not null && Covered(reach, new FogTileKey(t.TileX, t.TileY)))
+                    .ToDictionary(t => new FogTileKey(t.TileX, t.TileY), t => FogTileCodec.Decompress(t.Bits!));
+                var shares = reach.SharesOf(explored);
+                return summary with
+                {
+                    BrestPercent = Math.Round(shares.City.Percent, 2),
+                    Districts = [.. shares.Districts.Select(d => new DistrictPercent(d.Key, d.Name, d.Kind, d.Proposal, Math.Round(d.Share.Percent, 2)))],
+                };
+            })
             .ToList();
 
-        // ЗАДАЧА #138 (Егор): «% Бреста» и районов — новые поля BrestPercent, Districts, OsmSetVersion (сейчас null, как
-        // «набора нет»). ReachableStore.CurrentSetVersionAsync → LoadAsync(set) → OsmReach.SharesOf(explored) по своим тайлам
-        // слоя и сезона (FogTileCodec.Decompress); только свои тайлы — процент выведен из карты исследования (§3.10). Набора
-        // нет — поля null. Тесты — FogPercentTests (образец — OsmSetTests, ReachableAreaTests).
-        return TypedResults.Ok(new FogSummaryResponse(layers));
+        return TypedResults.Ok(new FogSummaryResponse(layers, reach?.SetVersion));
     }
+
+    private static bool Covered(OsmReach reach, FogTileKey key) =>
+        reach.City.Tiles.ContainsKey(key) || reach.Districts.Any(d => d.Reachable.Tiles.ContainsKey(key));
 
     private static async Task<Results<NoContent, UnauthorizedHttpResult, ProblemHttpResult>> ClearFog(
         ClaimsPrincipal principal, FogHistory history, CancellationToken cancellationToken)
