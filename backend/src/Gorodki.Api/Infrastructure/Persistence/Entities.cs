@@ -633,6 +633,12 @@ public enum LeaderboardBoard : short
 {
     /// <summary>«Кто открыл больше» (§3.10): открытая площадь тумана, м².</summary>
     Exploration = 1,
+
+    /// <summary>
+    /// Рейтинг территории (§3.5): очки сезона по лиге. Слой — лига: <see cref="LeaderboardLayer.Foot"/> — «Бег»,
+    /// <see cref="LeaderboardLayer.Bike"/> — «Вело» (#136, E7).
+    /// </summary>
+    Territory = 2,
 }
 
 /// <summary>Слой рейтинга «Исследования»: совпадает с <see cref="FogLayerKind"/>, плюс «Всего» — их сумма.</summary>
@@ -665,6 +671,12 @@ public sealed class LeaderboardSnapshotEntity
 
     /// <summary>Место: одинаковое значение — одинаковое место (1, 2, 2, 4).</summary>
     public int Rank { get; set; }
+
+    /// <summary>
+    /// Итог закрытого сезона (рейтинг территории): снят один раз в момент закрытия (<c>ScoreBook.ClosesAt</c>) и хранится
+    /// дольше недели — до удаления аккаунта. У ежедневных срезов — <c>false</c>.
+    /// </summary>
+    public bool Final { get; set; }
 }
 
 // ── Конвейер OSM (docs/architecture/osm-pipeline.md, «Предлагаемые таблицы») ──
@@ -810,6 +822,12 @@ public enum ScoreKind : short
 
     /// <summary>Дистанция забега: +10 за км до 20 км в сутки, «Вело» ×0,33 — пишется вместе с визитами забега.</summary>
     Distance = 2,
+
+    /// <summary>
+    /// Удержание за игровые сутки (§3.5): срез в 00:00 по Минску, ступени по площади земли, которой касались в сезоне, с
+    /// потолком в зачёт. Одна строка на (игрок, лига, сутки) — повтор среза второй раз не начисляет (#136, E7).
+    /// </summary>
+    Hold = 3,
 }
 
 /// <summary>
@@ -902,4 +920,18 @@ public sealed class ClanMemberEntity
     public ClanRole Role { get; set; }
 
     public DateTimeOffset JoinedAt { get; set; }
+}
+
+/// <summary>
+/// Отметка «задача по расписанию уже сделала эту работу» (PLAN.md, §7.3: <c>job_runs UNIQUE</c>): задача и ключ — сутки
+/// (номер дня) или сезон. Повтор задачи Hangfire (сбой, догонка после сна, второй экземпляр) видит отметку и ничего не
+/// делает второй раз; ставится в той же транзакции, что и сама работа.
+/// </summary>
+public sealed class JobRunEntity
+{
+    public required string Job { get; set; }
+
+    public int Key { get; set; }
+
+    public DateTimeOffset DoneAt { get; set; }
 }

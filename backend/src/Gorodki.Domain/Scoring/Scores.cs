@@ -13,6 +13,11 @@ public readonly record struct CaptureScore(int Points, double Basis);
 /// <summary>Очки за дистанцию и засчитанные метры, по которым считается суточный потолок.</summary>
 public readonly record struct DistanceScore(int Points, double CountedMeters);
 
+/// <summary>Очки удержания за сутки.</summary>
+/// <param name="Points">Очки (целые).</param>
+/// <param name="Basis">Зачётные сотки удержания: сотки в зачёт (до потолка) после ступеней удержания.</param>
+public readonly record struct HoldScore(int Points, double Basis);
+
 /// <summary>
 /// Очки сезона (PLAN.md, §3.5) — чистые функции: на входе итог захвата или путь забега, на выходе очки. Числа — раздел
 /// <c>scoring</c> игрового конфига (<see cref="ScoringConfig"/>). Как это собрано вместе — docs/architecture/scoring-and-seasons.md.
@@ -81,6 +86,19 @@ public static class Scores
         var room = (config.DistanceDailyCapKm * 1000) - Math.Max(0, dayMetersBefore);
         var counted = Math.Max(0, Math.Min(meters, room));
         return new DistanceScore(Round(counted / 1000 * config.DistancePointsPerKm * config.DistanceFactor.For(league)), counted);
+    }
+
+    /// <summary>
+    /// Очки удержания за игровые сутки (§3.5: «удержание: ежедневный срез в 00:00 по Минску, ступени, потолок в зачёт»):
+    /// сотки земли, которой владелец касался в этом сезоне (§3.4), — до потолка <c>holdCapSotki</c> → ступени
+    /// <c>holdTiers</c> → × очков за сотку. Площадь — как её видят другие на карте (срез E7 считает её через
+    /// <c>TerritoryReader.VisibleOwnedAreaAsync</c> с посторонним зрителем).
+    /// </summary>
+    public static HoldScore ForHold(double touchedSquareMeters, ScoringConfig config)
+    {
+        var sotki = Math.Clamp(touchedSquareMeters / SquareMetersPerSotka, 0, config.HoldCapSotki);
+        var basis = Tiered(sotki, config.HoldTiers);
+        return new HoldScore(Round(basis * config.PointsPerSotka), basis);
     }
 
     /// <summary>Ступени годятся для очков: границы растут, последняя — без границы, ставки не отрицательны и не растут.</summary>

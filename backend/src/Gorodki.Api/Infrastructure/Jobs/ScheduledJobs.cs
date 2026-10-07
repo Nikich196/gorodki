@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Time;
@@ -54,6 +55,12 @@ public static class ScheduledJobs
     /// задача только проверяет, что смена уже была. Сброс — один раз на сезон (<see cref="SeasonRollover"/>).
     /// </summary>
     public const string SeasonRolloverJob = "season-rollover";
+
+    /// <summary>
+    /// Суточный срез очков и рейтинг территории (PLAN.md, §3.5, #136): каждый час по Минску — значит, и в 00:00; срез —
+    /// раз в сутки, итог сезона — раз в сезон, в момент его закрытия (04:00 первого дня следующего) (<see cref="TerritorySnapshots"/>).
+    /// </summary>
+    public const string TerritorySnapshotJob = "territory-snapshot";
 
     public static bool IsEnabled(IConfiguration configuration) => configuration.GetValue(EnabledSetting, defaultValue: true);
 
@@ -121,6 +128,7 @@ public static class ScheduledJobs
 
         jobs.AddOrUpdate<RefreshTokenRetention>(RefreshTokensJob, r => r.PurgeExpiredAsync(CancellationToken.None), Cron.Hourly(), minsk);
         jobs.AddOrUpdate<SeasonRollover>(SeasonRolloverJob, r => r.RunIfDueAsync(CancellationToken.None), Cron.Hourly(), minsk);
+        jobs.AddOrUpdate<TerritorySnapshots>(TerritorySnapshotJob, t => t.RunIfDueAsync(CancellationToken.None), Cron.Hourly(), minsk);
     }
 
     /// <summary>Строка подключения Hangfire: та же база, свой пул на <see cref="MaxPoolSize"/> и своё имя в <c>pg_stat_activity</c>.</summary>

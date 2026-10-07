@@ -112,6 +112,7 @@ if (withDatabase)
     builder.Services.AddScoped<RefreshTokenRetention>();
     builder.Services.AddScoped<AccountDeletion>();
     builder.Services.AddScoped<LeaderboardSnapshots>();
+    builder.Services.AddScoped<TerritorySnapshots>();
     builder.Services.AddScoped<AccountExport>();
     builder.Services.AddScoped<CaptureProcessor>();
     builder.Services.AddScoped<CaptureRollback>();

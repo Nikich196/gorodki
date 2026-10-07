@@ -69,6 +69,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<ClanMemberEntity> ClanMembers => Set<ClanMemberEntity>();
 
+    public DbSet<JobRunEntity> JobRuns => Set<JobRunEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -376,12 +378,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             // Одно начисление на захват и одно за дистанцию забега: повтор обработки не начислит дважды — это гарантирует база.
             score.HasIndex(e => e.CaptureId).IsUnique().HasFilter("capture_id IS NOT NULL");
             score.HasIndex(e => e.RunId).IsUnique().HasFilter("kind = 2").HasDatabaseName("ux_score_events_distance_per_run");
+            // Удержание — одна строка на (игрок, лига, сутки): повтор среза E7 второй раз не начислит.
+            score.HasIndex(e => new { e.UserId, e.League, e.GameDay }, "ux_score_events_hold_per_day")
+                .IsUnique()
+                .HasFilter("kind = 3")
+                .HasDatabaseName("ux_score_events_hold_per_day");
             // Ступени суток и потолок дистанции — сумма за (игрок, лига, сутки, вид); рейтинги — (лига, сезон) с границей.
             score.HasIndex(e => new { e.UserId, e.League, e.GameDay, e.Kind });
             score.HasIndex(e => new { e.League, e.Season, e.VisibleAt });
             score.ToTable(t =>
             {
-                t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 2");
+                t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 3");
+                t.HasCheckConstraint("ck_score_events_hold", "kind <> 3 OR (capture_id IS NULL AND run_id IS NULL)");
                 t.HasCheckConstraint("ck_score_events_capture", "kind <> 1 OR capture_id IS NOT NULL");
                 t.HasCheckConstraint("ck_score_events_distance", "kind <> 2 OR run_id IS NOT NULL");
                 t.HasCheckConstraint("ck_score_events_values", "points >= 0 AND basis >= 0");
@@ -389,6 +397,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
 
         ConfigureClans(model);
+
+        model.Entity<JobRunEntity>(run =>
+        {
+            run.HasKey(r => new { r.Job, r.Key });
+            run.Property(r => r.Job).HasMaxLength(64);
+        });
 
         model.Entity<PrivacyZoneEntity>(zone =>
         {
