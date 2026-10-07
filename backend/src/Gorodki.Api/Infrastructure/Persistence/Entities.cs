@@ -1,3 +1,4 @@
+using Gorodki.Api.Features.Social;
 using Gorodki.Domain.Clans;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Osm;
@@ -934,4 +935,74 @@ public sealed class JobRunEntity
     public int Key { get; set; }
 
     public DateTimeOffset DoneAt { get; set; }
+}
+
+// ── Лента (PLAN.md, §3.8; задача #144, E14b) ──
+
+/// <summary>
+/// Пост ленты — только числа, без координат и времени (§3.16). Пишется вместе с захватом (взято ≥ 1 м²) или с визитами
+/// забега; виден с <see cref="VisibleAt"/> — у захвата это граница публичности его применения, как у карты
+/// (<c>TerritoryReader.VisibleAtAsync</c>), у забега — момент подсчёта визитов (он и так после границы конца забега).
+/// </summary>
+public sealed class FeedPostEntity
+{
+    /// <summary>Случайный номер (<c>Guid.NewGuid()</c>): в UUIDv7 было бы зашито время захвата.</summary>
+    public Guid Id { get; set; }
+
+    public Guid AuthorId { get; set; }
+
+    public FeedPostKind Kind { get; set; }
+
+    public League League { get; set; }
+
+    /// <summary>Игровые сутки по Минску — дата без времени: у захвата — по времени петли, у забега — по его началу.</summary>
+    public DateOnly GameDay { get; set; }
+
+    /// <summary>У забега — засчитанный путь, м (целые).</summary>
+    public double? DistanceMeters { get; set; }
+
+    /// <summary>У захвата — взятая площадь, м² (целые).</summary>
+    public double? CapturedSquareMeters { get; set; }
+
+    /// <summary>Захват поста (откат захвата стирает и пост).</summary>
+    public Guid? CaptureId { get; set; }
+
+    /// <summary>Забег поста (у захвата — забег петли).</summary>
+    public Guid? RunId { get; set; }
+
+    /// <summary>С какого момента пост видят (и сам автор): раньше его нет ни в ленте, ни для респекта и жалобы.</summary>
+    public DateTimeOffset VisibleAt { get; set; }
+}
+
+/// <summary>Респект: один от игрока на пост.</summary>
+public sealed class FeedRespectEntity
+{
+    public Guid PostId { get; set; }
+
+    public Guid UserId { get; set; }
+}
+
+/// <summary>Жалоба на пост — для админа: кто, на что, причина, когда. Одна от игрока на пост.</summary>
+public sealed class FeedReportEntity
+{
+    public long Id { get; set; }
+
+    public Guid PostId { get; set; }
+
+    public Guid ReporterId { get; set; }
+
+    /// <summary>Причина своими словами, до 200 символов.</summary>
+    public string? Reason { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+/// <summary>Блокировка: посты заблокированного и заблокировавшего друг другу не видны (в обе стороны).</summary>
+public sealed class PlayerBlockEntity
+{
+    public Guid BlockerId { get; set; }
+
+    public Guid BlockedId { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
 }

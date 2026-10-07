@@ -71,6 +71,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<JobRunEntity> JobRuns => Set<JobRunEntity>();
 
+    public DbSet<FeedPostEntity> FeedPosts => Set<FeedPostEntity>();
+
+    public DbSet<FeedRespectEntity> FeedRespects => Set<FeedRespectEntity>();
+
+    public DbSet<FeedReportEntity> FeedReports => Set<FeedReportEntity>();
+
+    public DbSet<PlayerBlockEntity> PlayerBlocks => Set<PlayerBlockEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -397,6 +405,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
 
         ConfigureClans(model);
+        ConfigureFeed(model);
 
         model.Entity<JobRunEntity>(run =>
         {
@@ -444,6 +453,57 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             member.HasOne<UserEntity>().WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
             member.HasOne<ClanEntity>().WithMany().HasForeignKey(m => m.ClanId).OnDelete(DeleteBehavior.Cascade);
             member.ToTable(t => t.HasCheckConstraint("ck_clan_members_role", "role BETWEEN 0 AND 2"));
+        });
+    }
+
+    /// <summary>
+    /// Лента (PLAN.md, §3.8): посты, респекты, жалобы, блокировки. Всё с номером игрока уходит каскадом вместе с аккаунтом;
+    /// пост — и вместе со своим захватом или забегом. Лента читается по <c>(visible_at, id)</c> от новых к старым.
+    /// </summary>
+    private static void ConfigureFeed(ModelBuilder model)
+    {
+        model.Entity<FeedPostEntity>(post =>
+        {
+            post.HasKey(p => p.Id);
+            post.Property(p => p.Kind).HasConversion<short>();
+            post.HasIndex(p => new { p.VisibleAt, p.Id });
+            post.HasIndex(p => p.AuthorId);
+            post.HasIndex(p => p.CaptureId).IsUnique().HasFilter("capture_id IS NOT NULL");
+            post.HasIndex(p => p.RunId, "ux_feed_posts_run_post").IsUnique().HasFilter("kind = 1").HasDatabaseName("ux_feed_posts_run_post");
+            post.HasOne<UserEntity>().WithMany().HasForeignKey(p => p.AuthorId).OnDelete(DeleteBehavior.Cascade);
+            post.HasOne<CaptureEntity>().WithMany().HasForeignKey(p => p.CaptureId).OnDelete(DeleteBehavior.Cascade);
+            post.HasOne<RunEntity>().WithMany().HasForeignKey(p => p.RunId).OnDelete(DeleteBehavior.Cascade);
+            post.ToTable(t => t.HasCheckConstraint(
+                "ck_feed_posts_numbers",
+                "(kind = 0 AND captured_square_meters IS NOT NULL AND distance_meters IS NULL) OR (kind = 1 AND distance_meters IS NOT NULL AND captured_square_meters IS NULL)"));
+        });
+
+        model.Entity<FeedRespectEntity>(respect =>
+        {
+            respect.HasKey(r => new { r.PostId, r.UserId });
+            respect.HasIndex(r => r.UserId);
+            respect.HasOne<FeedPostEntity>().WithMany().HasForeignKey(r => r.PostId).OnDelete(DeleteBehavior.Cascade);
+            respect.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        model.Entity<FeedReportEntity>(report =>
+        {
+            report.HasKey(r => r.Id);
+            report.Property(r => r.Id).UseIdentityAlwaysColumn();
+            report.Property(r => r.Reason).HasMaxLength(200);
+            report.HasIndex(r => new { r.PostId, r.ReporterId }).IsUnique();
+            report.HasIndex(r => r.ReporterId);
+            report.HasOne<FeedPostEntity>().WithMany().HasForeignKey(r => r.PostId).OnDelete(DeleteBehavior.Cascade);
+            report.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.ReporterId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        model.Entity<PlayerBlockEntity>(block =>
+        {
+            block.HasKey(b => new { b.BlockerId, b.BlockedId });
+            block.HasIndex(b => b.BlockedId);
+            block.HasOne<UserEntity>().WithMany().HasForeignKey(b => b.BlockerId).OnDelete(DeleteBehavior.Cascade);
+            block.HasOne<UserEntity>().WithMany().HasForeignKey(b => b.BlockedId).OnDelete(DeleteBehavior.Cascade);
+            block.ToTable(t => t.HasCheckConstraint("ck_player_blocks_not_self", "blocker_id <> blocked_id"));
         });
     }
 

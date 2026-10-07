@@ -5,6 +5,7 @@ using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Social;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Clans;
 using Microsoft.AspNetCore.Routing;
@@ -76,10 +77,6 @@ public sealed class IdorTests(DatabaseFixture database)
         ["POST /me/inventory/{id:guid}/activate"] = "ЗАДАЧА #140",
         ["POST /friends/{id:guid}/accept"] = "ЗАДАЧА #143",
         ["DELETE /friends/{id:guid}"] = "ЗАДАЧА #143",
-        ["POST /feed/{id:guid}/respect"] = "ЗАДАЧА #144",
-        ["POST /feed/{id:guid}/report"] = "ЗАДАЧА #144",
-        ["PUT /me/blocks/{id:guid}"] = "ЗАДАЧА #144",
-        ["DELETE /me/blocks/{id:guid}"] = "ЗАДАЧА #144",
         ["GET /segments/{id:guid}"] = "ЗАДАЧА #146",
         ["GET /segments/{id:guid}/leaderboard"] = "ЗАДАЧА #146",
         ["GET /duels/{id:guid}"] = "ЗАДАЧА #147",
@@ -139,6 +136,23 @@ public sealed class IdorTests(DatabaseFixture database)
         var annaClanId = (await annaClan.Content.ReadFromJsonAsync<ClanResponse>(Json, Cancel))!.Id;
         var borisClan = await boris.PostAsJsonAsync("/clans", new CreateClanRequest { Name = $"IDOR {Guid.NewGuid().ToString("N")[..8]}" }, Json, Cancel);
         Assert.Equal(HttpStatusCode.Created, borisClan.StatusCode);
+        // Пост Анны ещё до границы публичности (его захват скрыт): Борису его нет — ни для респекта, ни для жалобы.
+        var postId = Guid.NewGuid();
+        await using (var db = database.CreateContext())
+        {
+            db.FeedPosts.Add(new FeedPostEntity
+            {
+                Id = postId,
+                AuthorId = annaId,
+                Kind = FeedPostKind.Capture,
+                League = Gorodki.Domain.Leagues.League.Run,
+                GameDay = Gorodki.Domain.Time.GameClock.GameDayOf(api.Time.GetUtcNow()),
+                CapturedSquareMeters = 10_000,
+                VisibleAt = api.Time.GetUtcNow().AddMinutes(25),
+            });
+            await db.SaveChangesAsync(Cancel);
+        }
+
         var before = await SnapshotAsync(claim.RunId, annaId);
 
         var now = api.Time.GetUtcNow().ToUnixTimeMilliseconds();
@@ -161,6 +175,10 @@ public sealed class IdorTests(DatabaseFixture database)
             ["DELETE /clans/mine/members/{userId:guid}"] = await boris.DeleteAsync($"/clans/mine/members/{annaId}", Cancel),
             ["PUT /clans/mine/members/{userId:guid}/role"] = await boris.PutAsJsonAsync(
                 $"/clans/mine/members/{annaId}/role", new ClanRoleRequest { Role = ClanRole.Member }, Json, Cancel),
+            ["POST /feed/{id:guid}/respect"] = await boris.PostAsync($"/feed/{postId}/respect", null, Cancel),
+            ["POST /feed/{id:guid}/report"] = await boris.PostAsJsonAsync($"/feed/{postId}/report", new ReportPostRequest("чужое"), Json, Cancel),
+            ["PUT /me/blocks/{id:guid}"] = await boris.PutAsync($"/me/blocks/{annaId}", null, Cancel),
+            ["DELETE /me/blocks/{id:guid}"] = await boris.DeleteAsync($"/me/blocks/{annaId}", Cancel),
         };
 
         // Здесь нужен запрос Бориса к каждому адресу, кроме ждущих задачи Егора (AwaitingTasks).
@@ -202,6 +220,9 @@ public sealed class IdorTests(DatabaseFixture database)
         var captures = await db.Captures.Where(c => c.RunId == runId).Select(c => c.ClaimNo).OrderBy(n => n).ToListAsync(Cancel);
         var rollbacks = await db.CaptureRollbacks.CountAsync(r => r.UserId == annaId, Cancel);
         var clan = await db.ClanMembers.Where(m => m.UserId == annaId).Select(m => new { m.ClanId, m.Role }).SingleOrDefaultAsync(Cancel);
-        return $"{run.UserId} {run.Status} {run.EndedAt} {chunks} [{string.Join(",", captures)}] {rollbacks} {clan}";
+        var feed = await db.FeedPosts.Where(p => p.AuthorId == annaId)
+            .Select(p => new { p.Id, Respects = db.FeedRespects.Count(r => r.PostId == p.Id), Reports = db.FeedReports.Count(r => r.PostId == p.Id) })
+            .ToListAsync(Cancel);
+        return $"{run.UserId} {run.Status} {run.EndedAt} {chunks} [{string.Join(",", captures)}] {rollbacks} {clan} {string.Join(",", feed)}";
     }
 }

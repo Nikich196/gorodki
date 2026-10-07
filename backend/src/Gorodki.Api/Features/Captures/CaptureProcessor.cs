@@ -430,17 +430,37 @@ public sealed class CaptureProcessor(
         // Очки за захват (§3.5) — тоже в этой транзакции и под блокировкой игрока (ступени суток — по сумме за сутки). Сезон и
         // сутки — по времени петли (§3.4), видимость другим — с границы публичности применения, как у карты (§3.16).
         var season = (await seasons.CalendarAsync(cancellationToken)).At(effectiveAt)?.Number;
+        var visibleAt = await territory.VisibleAtAsync(claim.UserId, now, cancellationToken);
         await ScoreBook.AddCaptureAsync(
             db,
             claim,
             result.AreaByOutcome,
             LandValue.Factor(area, current.Rules.Scoring.LandValue),
             effectiveAt,
-            await territory.VisibleAtAsync(claim.UserId, now, cancellationToken),
+            visibleAt,
             season,
             current.Rules.Scoring,
             now,
             cancellationToken);
+
+        // Пост ленты (§3.8, #144) — только числа: взятая площадь и дата. Виден с той же границы, что сам захват на карте
+        // (§3.16), — и автору тоже, как очки. Петля, которая ничего не взяла (освежила свою землю, упёрлась в щит), поста не даёт.
+        var taken = result.Area(PieceOutcome.ClaimedNeutral) + result.Area(PieceOutcome.Transferred);
+        if (Math.Round(taken) >= 1)
+        {
+            db.FeedPosts.Add(new FeedPostEntity
+            {
+                Id = Guid.NewGuid(), // не v7: в нём было бы время захвата
+                AuthorId = claim.UserId,
+                Kind = Social.FeedPostKind.Capture,
+                League = claim.League,
+                GameDay = GameClock.GameDayOf(effectiveAt),
+                CapturedSquareMeters = Math.Round(taken),
+                CaptureId = claim.Id,
+                RunId = claim.RunId,
+                VisibleAt = visibleAt,
+            });
+        }
 
         // Журнал — в той же транзакции: земля без записи для отката (или запись без земли) не сохраняется никогда.
         // Только тайлы, версия которых выросла: публичная проекция считает скрытые захваты по журналу и вычитает их
@@ -468,7 +488,6 @@ public sealed class CaptureProcessor(
 
         var appliedSeq = await db.Database.SqlQuery<long>($"SELECT nextval('app.capture_apply_seq') AS \"Value\"").SingleAsync(cancellationToken);
         var areas = result.AreaByOutcome.ToDictionary(kv => JsonNamingPolicy.CamelCase.ConvertName(kv.Key.ToString()), kv => Math.Round(kv.Value, 1));
-        var taken = result.Area(PieceOutcome.ClaimedNeutral) + result.Area(PieceOutcome.Transferred);
         var updated = await db.Captures
             .Where(c => c.Id == claim.Id && c.LeaseToken == token && c.Status == CaptureStatus.Pending)
             .ExecuteUpdateAsync(

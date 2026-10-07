@@ -214,7 +214,8 @@ public sealed class TerritorySnapshots(
                 p => new { p.CaptureId, p.TileX, p.TileY },
                 j => new { j.CaptureId, j.TileX, j.TileY },
                 (p, j) => p.OwnerId);
-        return await owners.Union(takenRecently)
+        return await owners.Concat(takenRecently)
+            .Distinct()
             .Where(id => db.Users.Any(u => u.Id == id && u.DeletionRequestedAt == null))
             .OrderBy(id => id)
             .ToListAsync(cancellationToken);

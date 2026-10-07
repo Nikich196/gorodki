@@ -2722,6 +2722,44 @@
               "integer"
             ],
             "format": "int64"
+          },
+          "posts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExportPost"
+            }
+          },
+          "respected": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "reports": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExportReport"
+            }
+          },
+          "blocked": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },
@@ -3602,6 +3640,49 @@
           }
         }
       },
+      "ExportPost": {
+        "required": [
+          "id",
+          "kind",
+          "league",
+          "day",
+          "respects"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FeedPostKind"
+          },
+          "league": {
+            "$ref": "#/components/schemas/League"
+          },
+          "day": {
+            "type": "string"
+          },
+          "distanceMeters": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "capturedSquareMeters": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "respects": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "ExportProfile": {
         "required": [
           "id",
@@ -3701,6 +3782,29 @@
           "rank": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "ExportReport": {
+        "required": [
+          "postId",
+          "createdAtMs"
+        ],
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAtMs": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

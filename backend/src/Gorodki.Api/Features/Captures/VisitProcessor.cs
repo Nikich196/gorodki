@@ -9,6 +9,7 @@ using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Runs;
 using Gorodki.Domain.Territory;
+using Gorodki.Domain.Time;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 
@@ -236,6 +237,23 @@ public sealed class VisitProcessor(
         if (distanceMeters > 0)
         {
             await ScoreBook.AddDistanceAsync(db, run, distanceMeters, startedAt, season, current.Scoring, now, cancellationToken);
+        }
+
+        // Пост ленты о забеге (§3.8, #144): засчитанный путь и дата начала — без времени и места. Визиты считаются уже после
+        // границы публичности конца забега, поэтому пост виден сразу. Повтор записанного забега (демо) поста не даёт.
+        if (run.Source == RunSource.Live && Math.Round(acceptedMeters) >= 1)
+        {
+            db.FeedPosts.Add(new FeedPostEntity
+            {
+                Id = Guid.NewGuid(),
+                AuthorId = run.UserId,
+                Kind = Social.FeedPostKind.Run,
+                League = run.League,
+                GameDay = GameClock.GameDayOf(startedAt),
+                DistanceMeters = Math.Round(acceptedMeters),
+                RunId = run.Id,
+                VisibleAt = now,
+            });
         }
 
         await db.SaveChangesAsync(cancellationToken);

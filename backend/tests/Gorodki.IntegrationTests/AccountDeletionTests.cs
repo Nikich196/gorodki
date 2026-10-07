@@ -46,10 +46,11 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
             await db.SaveChangesAsync(Cancel);
         }
 
-        // Анна — лидер клана, Борис в нём: после удаления лидер — Борис, а членства Анны не остаётся.
+        // Анна — лидер клана, Вера в нём (не Борис: соклановец землю не отнимает): после удаления лидер — Вера, а членства
+        // Анны не остаётся.
         var clan = await anna.PostAsJsonAsync("/clans", new CreateClanRequest { Name = $"Удаление {Guid.NewGuid().ToString("N")[..8]}" }, Json, Cancel);
         var clanBody = (await clan.Content.ReadFromJsonAsync<ClanResponse>(Json, Cancel))!;
-        Assert.Equal(HttpStatusCode.OK, (await boris.PostAsJsonAsync("/clans/join", new JoinClanRequest { Code = clanBody.InviteCode! }, Json, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await vera.PostAsJsonAsync("/clans/join", new JoinClanRequest { Code = clanBody.InviteCode! }, Json, Cancel)).StatusCode);
 
         // Запрос: принят, повтор не сдвигает срок, вход в удаляемый аккаунт закрыт.
         var first = await anna.DeleteAsync("/me", Cancel);
@@ -77,6 +78,19 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
             await db.Database.ExecuteSqlAsync($"UPDATE app.capture_journal_pieces SET loss_attackers = ARRAY[{annaId}] WHERE owner_id = {borisId}", Cancel);
         }
 
+        // Лента: у Анны свой пост (её захват), респект и жалоба на пост Бориса, она заблокировала Веру, а Вера — её.
+        var veraId = await IdOfAsync(vera);
+        await using (var db = database.CreateContext())
+        {
+            Assert.True(await db.FeedPosts.AnyAsync(p => p.AuthorId == annaId, Cancel));
+            var borisPost = await db.FeedPosts.Where(p => p.AuthorId == borisId).Select(p => p.Id).SingleAsync(Cancel);
+            db.FeedRespects.Add(new FeedRespectEntity { PostId = borisPost, UserId = annaId });
+            db.FeedReports.Add(new FeedReportEntity { PostId = borisPost, ReporterId = annaId, Reason = "проверка", CreatedAt = api.Time.GetUtcNow() });
+            db.PlayerBlocks.Add(new PlayerBlockEntity { BlockerId = annaId, BlockedId = veraId, CreatedAt = api.Time.GetUtcNow() });
+            db.PlayerBlocks.Add(new PlayerBlockEntity { BlockerId = veraId, BlockedId = annaId, CreatedAt = api.Time.GetUtcNow() });
+            await db.SaveChangesAsync(Cancel);
+        }
+
         var versionBefore = await TileVersionAsync(tile);
         await using (var db = database.CreateContext())
         {
@@ -89,7 +103,7 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         // Полнота: номер Анны остался только в журнале чужого захвата — «земля до» захвата Бориса (членства в клане — нет).
         Assert.Equal(["capture_journal_pieces.owner_id"], await TablesMentioningAsync(annaId));
         Assert.InRange(await LandAreaAsync(borisId), 9_700, 10_300); // земля Бориса не тронута
-        var clanAfter = (await boris.GetFromJsonAsync<ClanResponse>($"/clans/{clanBody.Id}", Json, Cancel))!;
+        var clanAfter = (await vera.GetFromJsonAsync<ClanResponse>($"/clans/{clanBody.Id}", Json, Cancel))!;
         Assert.Equal(ClanRole.Leader, Assert.Single(clanAfter.Members).Role); // лидерство перешло, а не пропало
         Assert.True(await TileVersionAsync(tile) > versionBefore); // у соседей карта обновится
 
@@ -98,6 +112,9 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         var seen = await vera.GetFromJsonAsync<TerritoryResponse>($"/territory?league=run&tiles={tile.X}:{tile.Y}", Json, Cancel);
         Assert.DoesNotContain(Assert.Single(seen!.Tiles).Parcels, p => p.OwnerId == annaId);
     }
+
+    private async Task<Guid> IdOfAsync(HttpClient client) =>
+        (await client.GetFromJsonAsync<Gorodki.Api.Features.Me.MeResponse>("/me", Json, Cancel))!.Id;
 
     private static async Task<int> DeleteRequestedAsync(ApiFactory api)
     {
