@@ -25,8 +25,21 @@ struct SampleSocialSource: SocialBackend {
         guard !stub else { throw SocialFailure.notReady }
     }
 
+    /// Образец контракта — первые два места и свой 17-й ряд; экрану (снимки, «Посмотреть демо») с двумя строками пусто,
+    /// поэтому первая десятка дополнена никами образцов и `MapFixture` с очками по убыванию. Сам образец не меняется:
+    /// с ним сверяется контракт (`ApiSamplesTests`).
     func territory(league: Components.Schemas.League) async throws -> TerritoryBoard {
-        try sample("leaderboard-territory", as: TerritoryBoard.self)
+        var board = try sample("leaderboard-territory", as: TerritoryBoard.self)
+        let more: [(String, Int32)] = [
+            ("Лиса-2718", 905), ("Сова-9051", 812), ("Бегун-0815", 760), ("Игрок #4290", 644), ("Ёж-5120", 590),
+            ("Игрок #7342", 512), ("Бегун-3306", 471), ("Кот-6604", 433),
+        ]
+        let start = board.entries.count
+        board.entries += more.enumerated().map { index, entry in
+            Components.Schemas.TerritoryLeaderboardEntry(
+                rank: Int32(start + index + 1), name: entry.0, points: entry.1, me: false)
+        }
+        return board
     }
 
     /// Образца «Исследования» в контракте нет (адрес уже работает на сервере): таблица собрана здесь — ники

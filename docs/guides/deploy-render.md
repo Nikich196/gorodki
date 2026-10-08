@@ -52,9 +52,9 @@ UPDATE app.users SET role = 2 WHERE invite_code = '<код>' AND display_name = 
 
 ## Потом
 
-- **Вход через Google** — когда будет OAuth client ID в Google Cloud (твой аккаунт): Render → сервис → **Environment** →
-  `Auth__GoogleClientIds__0` = ID сборки Free, `Auth__GoogleClientIds__1` = ID сборки Paid (если есть). Без них вход через
-  Google отвечает 503 — так и задумано.
+- **Вход через Google** — когда будет OAuth client ID в Google Cloud (твой аккаунт, [как создать](google-sign-in.md)):
+  Render → сервис → **Environment** → `Auth__GoogleClientIds__0` = ID сборки Free, `Auth__GoogleClientIds__1` = ID сборки
+  Paid (если есть). Без них вход через Google отвечает 503 — так и задумано.
 - **Автодеплой**: новая версия уходит на Render сама, когда в `main` приходит изменение сервера (`backend/`) **и все
   проверки GitHub зелёные** (`autoDeployTrigger: checksPass`). План (§8) говорил о deploy hook; встроенная настройка Render
   делает то же самое без секрета в GitHub.

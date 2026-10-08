@@ -1,19 +1,42 @@
 import DesignSystem
 import SwiftUI
 
-/// Вкладки демо (`DemoMode`) и плашка «Демо» над ними: видно, что данные — образцы, и есть выход к онбордингу.
-/// Плашка — своей полосой (`safeAreaInset`), а не поверх: иначе закрыла бы переключатели карты и заголовки вкладок.
+/// Вкладки демо (`DemoMode`) и плашка «Демо» на каждой: видно, что данные — образцы, и есть выход к онбордингу.
 struct DemoShell: View {
     let model: ShellModel
 
     var body: some View {
         AppShell(model: model)
-            .safeAreaInset(edge: .top, spacing: 0) {
+            .environment(\.demoBadgeShown, true)
+    }
+}
+
+extension EnvironmentValues {
+    /// Показывать ли плашку «Демо» (`DemoShell`) — `demoBadgeInset()` экранов вкладок.
+    @Entry var demoBadgeShown = false
+}
+
+extension View {
+    /// Плашка «Демо» сверху экрана вкладки — под панелью навигации, своей полосой, а не поверх содержимого. Вешается на
+    /// корень каждой вкладки (внутри её `NavigationStack`), а не на всю оболочку: в iOS 26 панели навигации верхняя
+    /// вставка `TabView` не сдвигает, и плашка закрывала заголовки и переключатели («Захват | Исследование | Короли»).
+    func demoBadgeInset() -> some View {
+        modifier(DemoBadgeInset())
+    }
+}
+
+private struct DemoBadgeInset: ViewModifier {
+    @Environment(\.demoBadgeShown) private var shown
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .top, spacing: 0) {
+            if shown {
                 DemoBadge()
-                    .padding(.vertical, 4)
+                    .padding(.top, 4)
+                    .padding(.bottom, 8)
                     .frame(maxWidth: .infinity)
-                    .background(Palette.uiBackground.color)
             }
+        }
     }
 }
 

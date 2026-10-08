@@ -9,6 +9,10 @@ BASE_BUNDLE_ID = io.github.nikich196.gorodki
 // так: GORODKI_SERVER_URL = https:/$()/gorodki.example.com
 // Только адрес: без логина, пароля и ключей — Info.plist любой может прочитать из IPA.
 GORODKI_SERVER_URL =
+// Client ID iOS-клиента Google (Info.plist → GorodkiGoogleClientID, вход — App/Onboarding/GoogleSignIn.swift). У Free и
+// Paid разные bundle ID, поэтому и клиенты в Google Cloud разные (issue #4). Не секрет, но пока клиента нет — пусто:
+// кнопка «Войти через Google» выключена. Вид: 123456789012-abcdefg.apps.googleusercontent.com
+GORODKI_GOOGLE_CLIENT_ID =
 
 // Свой Team ID и прочие личные настройки — в Local.xcconfig (он в .gitignore).
 // Пример содержимого: DEVELOPMENT_TEAM = ABCDE12345

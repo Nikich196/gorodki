@@ -165,8 +165,18 @@ GORODKI_SERVER_URL = https:/$()/gorodki.example.com
 
 ## Вход
 
-`SignInService` (библиотека `Networking`) — `POST /auth/google` и `POST /auth/logout`. ID-токен даёт Google Sign-In
-на телефоне; он подключится вместе с экраном входа, когда будет Client ID (#4).
+`SignInService` (библиотека `Networking`) — `POST /auth/google` и `POST /auth/logout`. ID-токен даёт окно Google
+(`App/Onboarding/GoogleSignIn.swift`, без SDK — [отступление 12](../plan-deviations.md)):
+
+- `GoogleOAuth` — Client ID из Info.plist (`GorodkiGoogleClientID` ← `GORODKI_GOOGLE_CLIENT_ID`, ios/Config), страница
+  входа с PKCE S256 и `scope=openid` (почта и имя серверу не нужны), разбор возврата на схему
+  `com.googleusercontent.apps.<…>` (регистрировать её в Info.plist не нужно — возврат ловит само окно), обмен кода
+  на `oauth2.googleapis.com/token` без секрета.
+- `GoogleSignInSession` — системное окно `ASWebAuthenticationSession`. Закрыл окно или отказал на странице Google —
+  экран молчит; Google не ответил — «Google не ответил…» на шаге входа (`GoogleSignInError`).
+- Нет Client ID (сейчас — #4) или адреса сервера — кнопка выключена с надписью «Вход через Google появится после
+  настройки». Для Free и Paid нужны два iOS-клиента в Google Cloud (разные bundle ID) и оба Client ID — в
+  `Auth__GoogleClientIds__0/1` сервера.
 
 1. **Первая попытка — только ID-токен.** Существующий игрок входит сразу (`.signedIn`). Для нового сервер отвечает, чего
    не хватает; первым он проверяет возраст, поэтому `age_confirmation_required`, `consent_required` или
@@ -299,9 +309,9 @@ sequenceDiagram
   отметками черновика; второй копии текста нет. Отметку согласия экран рисует сам — флажком под текстом, подпись —
   строка «☐ …» из раздела «Отметка» документа. Имена файлов — `*-v<SignInService.consentVersion>`: поднимут версию —
   тест приложения не найдёт файлов новой версии в сборке.
-- **Google Sign-In ещё не подключён** (нет SDK и Client ID, #4): `OnboardingModel.googleToken` — `nil`, кнопка выключена
-  с надписью «Вход через Google появится после настройки». Появится Client ID — подключить SDK и передать сюда функцию,
-  которая возвращает ID-токен; остальное (`SignInService`, регистрация, ошибки) уже работает.
+- **Вход через Google** — окно без SDK ([«Вход»](#вход)); `OnboardingModel.googleToken` — `nil`, пока в сборке нет
+  Client ID (#4): кнопка выключена с надписью «Вход через Google появится после настройки». В Debug его заменяет
+  `-GorodkiDevSignIn` ([локальный сервер](../guides/local-server.md)).
 - **Отладочное меню** (`DebugMenuView`) — «Пункты задания» ([ниже](#пункты-листика)), «Лаборатория» и «Проверка
   установки», бывший стартовый экран. PLAN.md, §5:
   «только роли demo и admin». Сборки команды открывают его всем (`DebugAccess`): вход ждёт Client ID, а проверки на

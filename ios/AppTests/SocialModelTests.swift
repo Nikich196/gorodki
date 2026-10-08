@@ -15,8 +15,8 @@ struct SocialModelTests {
     func territoryPinsMine() async {
         let model = LeaderboardsModel(source: SampleSocialSource())
         await model.load()
-        #expect(model.rows.map(\.rank) == [1, 2])
-        #expect(model.rows.map(\.name) == ["Муха", "Игрок #4771"])
+        #expect(model.rows.map(\.rank) == Array(1...10))
+        #expect(model.rows.prefix(2).map(\.name) == ["Муха", "Игрок #4771"], "Первые два — из образца контракта")
         #expect(!model.mineInTop)
         #expect(model.pinnedRow(mineRowVisible: true)?.rank == 17)
         #expect(model.pinnedRow(mineRowVisible: true)?.me == true)

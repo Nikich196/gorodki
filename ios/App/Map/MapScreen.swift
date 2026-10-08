@@ -19,6 +19,7 @@ struct MapScreen: View {
                     .padding(.horizontal, Metrics.panelInset)
                     .padding(.top, 8)
             }
+            .demoBadgeInset()
             .safeAreaInset(edge: .bottom) {
                 // «Старт» — экраны забега: лист «Новый забег» с подсказками к разрешениям, HUD (`RunStartButton`).
                 // Справа — колокольчик «Входящих» (App/Social).

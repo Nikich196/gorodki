@@ -57,13 +57,17 @@ final class OnboardingModel {
         self.googleToken = googleToken
     }
 
-    /// Для запуска: вход — через `SignInService`, если задан адрес сервера. Google Sign-In ещё не подключён: нужен
-    /// Client ID (#4) — до тех пор кнопка входа выключена и объясняет почему.
-    static func live(_ dependencies: AppDependencies = .shared) -> OnboardingModel {
+    /// Для запуска: вход — через `SignInService`, если задан адрес сервера; ID-токен — из окна Google
+    /// (`GoogleSignInSession`), если в сборке есть Client ID (#4). Нет чего-то из двух — кнопка входа выключена
+    /// и объясняет почему.
+    static func live(_ dependencies: AppDependencies = .shared, bundle: Bundle = .main) -> OnboardingModel {
         let signIn = dependencies.signIn.map { service -> SignIn in
             { idToken, registration in await service.signIn(idToken: idToken, registration: registration) }
         }
-        return OnboardingModel(signIn: signIn, googleToken: devGoogleToken())
+        let google = GoogleOAuth(bundle: bundle).map { oauth -> GoogleToken in
+            { try await GoogleSignInSession.idToken(oauth) }
+        }
+        return OnboardingModel(signIn: signIn, googleToken: devGoogleToken() ?? google)
     }
 
     #if DEBUG
@@ -151,8 +155,11 @@ final class OnboardingModel {
         } else {
             do {
                 idToken = try await googleToken()
+            } catch let failure as GoogleSignInError {
+                // Игрок закрыл окно Google — не ошибка игры; нет связи или ответ не тот — сказать.
+                self.error = failure.message.map { StepError(step: .signIn, message: $0) }
+                return
             } catch {
-                // Игрок закрыл окно Google или оно не открылось — не ошибка игры.
                 return
             }
         }

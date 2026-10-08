@@ -127,7 +127,8 @@ final class ShellModel {
         let home = HomeModel.live()
         return ShellModel(
             profile: profile, run: .live(profile: profile), map: .live(profile: profile, home: home), home: home,
-            social: SocialScreens(backend: AppDependencies.shared.api.map { APISocialSource(api: $0) }))
+            social: SocialScreens(
+                backend: AppDependencies.shared.api.map { APISocialSource(api: $0) }, inboxEnabled: false))
     }
 
     /// История исследований очищена: карта перезапрашивает туман, профиль — сводку.
