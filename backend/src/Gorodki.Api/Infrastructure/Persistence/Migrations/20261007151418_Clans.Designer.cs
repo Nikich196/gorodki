@@ -3,6 +3,7 @@ using System;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Gorodki.Api.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261007151418_Clans")]
+    partial class Clans
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -585,132 +588,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("AuthorId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("author_id");
-
-                    b.Property<Guid?>("CaptureId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("capture_id");
-
-                    b.Property<double?>("CapturedSquareMeters")
-                        .HasColumnType("double precision")
-                        .HasColumnName("captured_square_meters");
-
-                    b.Property<double?>("DistanceMeters")
-                        .HasColumnType("double precision")
-                        .HasColumnName("distance_meters");
-
-                    b.Property<DateOnly>("GameDay")
-                        .HasColumnType("date")
-                        .HasColumnName("game_day");
-
-                    b.Property<short>("Kind")
-                        .HasColumnType("smallint")
-                        .HasColumnName("kind");
-
-                    b.Property<short>("League")
-                        .HasColumnType("smallint")
-                        .HasColumnName("league");
-
-                    b.Property<Guid?>("RunId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("run_id");
-
-                    b.Property<DateTimeOffset>("VisibleAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("visible_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_feed_posts");
-
-                    b.HasIndex("AuthorId")
-                        .HasDatabaseName("ix_feed_posts_author_id");
-
-                    b.HasIndex("CaptureId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_feed_posts_capture_id")
-                        .HasFilter("capture_id IS NOT NULL");
-
-                    b.HasIndex("VisibleAt", "Id")
-                        .HasDatabaseName("ix_feed_posts_visible_at_id");
-
-                    b.HasIndex(new[] { "RunId" }, "ux_feed_posts_run_post")
-                        .IsUnique()
-                        .HasDatabaseName("ux_feed_posts_run_post")
-                        .HasFilter("kind = 1");
-
-                    b.ToTable("feed_posts", "app", t =>
-                        {
-                            t.HasCheckConstraint("ck_feed_posts_numbers", "(kind = 0 AND captured_square_meters IS NOT NULL AND distance_meters IS NULL) OR (kind = 1 AND distance_meters IS NOT NULL AND captured_square_meters IS NULL)");
-                        });
-                });
-
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedReportEntity", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<Guid>("PostId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("post_id");
-
-                    b.Property<string>("Reason")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("reason");
-
-                    b.Property<Guid>("ReporterId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("reporter_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_feed_reports");
-
-                    b.HasIndex("ReporterId")
-                        .HasDatabaseName("ix_feed_reports_reporter_id");
-
-                    b.HasIndex("PostId", "ReporterId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_feed_reports_post_id_reporter_id");
-
-                    b.ToTable("feed_reports", "app");
-                });
-
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedRespectEntity", b =>
-                {
-                    b.Property<Guid>("PostId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("post_id");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("PostId", "UserId")
-                        .HasName("pk_feed_respects");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_feed_respects_user_id");
-
-                    b.ToTable("feed_respects", "app");
-                });
-
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FogTileEntity", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -827,27 +704,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.JobRunEntity", b =>
-                {
-                    b.Property<string>("Job")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("job");
-
-                    b.Property<int>("Key")
-                        .HasColumnType("integer")
-                        .HasColumnName("key");
-
-                    b.Property<DateTimeOffset>("DoneAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("done_at");
-
-                    b.HasKey("Job", "Key")
-                        .HasName("pk_job_runs");
-
-                    b.ToTable("job_runs", "app");
-                });
-
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.LandZoneEntity", b =>
                 {
                     b.Property<long>("Id")
@@ -913,10 +769,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
-
-                    b.Property<bool>("Final")
-                        .HasColumnType("boolean")
-                        .HasColumnName("final");
 
                     b.Property<int>("Rank")
                         .HasColumnType("integer")
@@ -1136,32 +988,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_parcels_geometry_valid", "extensions.st_isvalid(geometry)");
 
                             t.HasCheckConstraint("ck_parcels_level", "level BETWEEN 1 AND 3");
-                        });
-                });
-
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.PlayerBlockEntity", b =>
-                {
-                    b.Property<Guid>("BlockerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("blocker_id");
-
-                    b.Property<Guid>("BlockedId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("blocked_id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.HasKey("BlockerId", "BlockedId")
-                        .HasName("pk_player_blocks");
-
-                    b.HasIndex("BlockedId")
-                        .HasDatabaseName("ix_player_blocks_blocked_id");
-
-                    b.ToTable("player_blocks", "app", t =>
-                        {
-                            t.HasCheckConstraint("ck_player_blocks_not_self", "blocker_id <> blocked_id");
                         });
                 });
 
@@ -1563,20 +1389,13 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId", "League", "GameDay", "Kind")
                         .HasDatabaseName("ix_score_events_user_id_league_game_day_kind");
 
-                    b.HasIndex(new[] { "UserId", "League", "GameDay" }, "ux_score_events_hold_per_day")
-                        .IsUnique()
-                        .HasDatabaseName("ux_score_events_hold_per_day")
-                        .HasFilter("kind = 3");
-
                     b.ToTable("score_events", "app", t =>
                         {
                             t.HasCheckConstraint("ck_score_events_capture", "kind <> 1 OR capture_id IS NOT NULL");
 
                             t.HasCheckConstraint("ck_score_events_distance", "kind <> 2 OR run_id IS NOT NULL");
 
-                            t.HasCheckConstraint("ck_score_events_hold", "kind <> 3 OR (capture_id IS NULL AND run_id IS NULL)");
-
-                            t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 3");
+                            t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 2");
 
                             t.HasCheckConstraint("ck_score_events_values", "points >= 0 AND basis >= 0");
                         });
@@ -1848,62 +1667,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_district_tiles_districts_district_id");
                 });
 
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", b =>
-                {
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
-                        .WithMany()
-                        .HasForeignKey("AuthorId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_feed_posts_users_author_id");
-
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.CaptureEntity", null)
-                        .WithMany()
-                        .HasForeignKey("CaptureId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .HasConstraintName("fk_feed_posts_captures_capture_id");
-
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.RunEntity", null)
-                        .WithMany()
-                        .HasForeignKey("RunId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .HasConstraintName("fk_feed_posts_runs_run_id");
-                });
-
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedReportEntity", b =>
-                {
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", null)
-                        .WithMany()
-                        .HasForeignKey("PostId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_feed_reports_feed_posts_post_id");
-
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ReporterId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_feed_reports_users_reporter_id");
-                });
-
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedRespectEntity", b =>
-                {
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", null)
-                        .WithMany()
-                        .HasForeignKey("PostId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_feed_respects_feed_posts_post_id");
-
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_feed_respects_users_user_id");
-                });
-
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FogTileEntity", b =>
                 {
                     b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
@@ -1952,23 +1715,6 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_parcels_users_owner_id");
-                });
-
-            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.PlayerBlockEntity", b =>
-                {
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
-                        .WithMany()
-                        .HasForeignKey("BlockedId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_player_blocks_users_blocked_id");
-
-                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
-                        .WithMany()
-                        .HasForeignKey("BlockerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_player_blocks_users_blocker_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.PrivacyZoneEntity", b =>

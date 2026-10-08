@@ -314,6 +314,9 @@ public sealed class CaptureRollback(
         // сумму начислений, поэтому следующий срез уже без них.
         await db.ScoreEvents.Where(e => e.CaptureId == captureId).ExecuteDeleteAsync(cancellationToken);
 
+        // Пост ленты о захвате (#144) — тоже: откаченный захват не хвастается взятой землёй (респекты и жалобы — каскадом).
+        await db.FeedPosts.Where(p => p.CaptureId == captureId).ExecuteDeleteAsync(cancellationToken);
+
         await db.SaveChangesAsync(cancellationToken);
         foreach (var tile in changedTiles)
         {

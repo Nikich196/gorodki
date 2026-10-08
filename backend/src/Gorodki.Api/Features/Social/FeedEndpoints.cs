@@ -1,9 +1,13 @@
+using System.Globalization;
 using System.Security.Claims;
+using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Players;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Leagues;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
 
 namespace Gorodki.Api.Features.Social;
 
@@ -51,13 +55,21 @@ public sealed record ReportPostRequest(string? Reason);
 /// Лента (PLAN.md, §3.8: по умолчанию «друзья и клан»; респекты, жалобы, блокировки). Комментариев нет (карточка E14b).
 /// Посты — из захватов и забегов, только числа. <b>Граница публичности:</b> пост о захвате виден не раньше самого захвата на
 /// карте — <c>visible_at</c> через <c>TerritoryReader.VisibleAtAsync(автор, applied_at)</c>; пост о забеге — когда конец забега
-/// публичен (<c>runs.visits_processed_at</c>). До этого поста нет ни в ленте, ни для респекта и жалобы (404). Задача Егора
-/// E14b (docs/guides/egor-server.md, раздел 7).
+/// публичен (<c>runs.visits_processed_at</c>). До этого поста нет ни в ленте, ни для респекта и жалобы (404). Задача #144
+/// (E14b) — сделано Claude 07.10.
 /// </summary>
+/// <remarks>
+/// <b>«Друзья и клан».</b> Пока друзей нет (#143, задача Егора), лента <c>friends</c> — свои посты и посты соклановцев
+/// (текущий состав клана); друзья добавятся в <see cref="Circle"/> одной строкой. Курсор страницы — номер последнего поста
+/// (случайный), а не время: по курсору нельзя узнать, когда был захват.
+/// </remarks>
 public static class FeedEndpoints
 {
     /// <summary>Постов на странице.</summary>
     public const int PageSize = 30;
+
+    /// <summary>Причина жалобы — не длиннее.</summary>
+    public const int MaxReasonLength = 200;
 
     public static IEndpointRouteBuilder MapFeedEndpoints(this IEndpointRouteBuilder app)
     {
@@ -96,60 +108,198 @@ public static class FeedEndpoints
         return app;
     }
 
-    private static Task<Results<Ok<FeedResponse>, ProblemHttpResult>> GetFeed(
+    private static async Task<Results<Ok<FeedResponse>, ProblemHttpResult>> GetFeed(
         string? scope, string? cursor, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #144 (Егор): таблица постов (автор, вид, лига, игровые сутки, число, visible_at) — пишется после границы
-        // или с visible_at от помощников границы (egor-server.md, раздел 4). Отбор: visible_at ≤ now, scope friends — свои,
-        // друзей (E14a) и соклановцев (E5), all — все; без заблокированных в обе стороны. Номер поста — Guid.NewGuid().
-        // Курсор — (visible_at, номер). Тесты — FeedTests.
-        _ = (scope, cursor, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #144");
+        if (principal.UserId() is not { } me)
+        {
+            return Problem(StatusCodes.Status401Unauthorized, "unauthorized", "Нужен вход.");
+        }
+
+        var friendsOnly = scope is null or "friends";
+        if (!friendsOnly && scope != "all")
+        {
+            return FeedInvalid();
+        }
+
+        var now = time.GetUtcNow();
+        var source = db.FeedPosts.AsNoTracking();
+        if (cursor is not null)
+        {
+            // Курсор — номер последнего поста прошлой страницы; ищется тем же отбором, что сама лента.
+            if (!Guid.TryParse(cursor, out var after)
+                || await Visible(db, me, now).Where(p => p.Id == after).Select(p => new { p.VisibleAt, p.Id }).SingleOrDefaultAsync(cancellationToken)
+                    is not { } last)
+            {
+                return FeedInvalid();
+            }
+
+            source = db.FeedPosts.FromSql($"SELECT * FROM app.feed_posts WHERE (visible_at, id) < ({last.VisibleAt}, {last.Id})").AsNoTracking();
+        }
+
+        var posts = Visible(db, me, now, source);
+        if (friendsOnly)
+        {
+            posts = posts.Where(Circle(db, me));
+        }
+
+        var page = await posts
+            .OrderByDescending(p => p.VisibleAt)
+            .ThenByDescending(p => p.Id)
+            .Take(PageSize + 1)
+            .Join(db.Users, p => p.AuthorId, u => u.Id, (p, u) => new
+            {
+                Post = p,
+                u.DisplayName,
+                u.ColorIndex,
+                u.PublicProfile,
+                Respects = db.FeedRespects.Count(r => r.PostId == p.Id),
+                RespectedByMe = db.FeedRespects.Any(r => r.PostId == p.Id && r.UserId == me),
+            })
+            .ToListAsync(cancellationToken);
+        var ordered = page.OrderByDescending(r => r.Post.VisibleAt).ThenByDescending(r => r.Post.Id).Take(PageSize).ToList();
+        var result = ordered
+            .Select(r => new FeedPost(
+                r.Post.Id,
+                r.Post.AuthorId,
+                r.Post.AuthorId == me || r.PublicProfile ? r.DisplayName : LeaderboardEndpoints.Pseudonym(r.Post.AuthorId),
+                r.ColorIndex,
+                r.Post.Kind,
+                r.Post.League,
+                r.Post.GameDay.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                r.Post.DistanceMeters,
+                r.Post.CapturedSquareMeters,
+                r.Respects,
+                r.RespectedByMe,
+                r.Post.AuthorId == me))
+            .ToList();
+        return TypedResults.Ok(new FeedResponse(result, page.Count > PageSize ? ordered[^1].Post.Id.ToString() : null));
     }
 
-    private static Task<Results<NoContent, ProblemHttpResult>> RespectPost(
+    private static async Task<Results<NoContent, ProblemHttpResult>> RespectPost(
         Guid id, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #144 (Егор): пост ищется тем же отбором, что в ленте (visible_at ≤ now, без блокировок), — иначе 404
-        // post_not_found: по респекту нельзя проверить, есть ли ещё скрытый пост. Один респект от игрока на пост. Тесты —
-        // FeedTests; строка в IdorTests.AwaitingTasks.
-        _ = (id, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #144");
+        if (principal.UserId() is not { } me || !await Visible(db, me, time.GetUtcNow()).AnyAsync(p => p.Id == id, cancellationToken))
+        {
+            return PostNotFound();
+        }
+
+        await db.Database.ExecuteSqlAsync(
+            $"INSERT INTO app.feed_respects (post_id, user_id) VALUES ({id}, {me}) ON CONFLICT DO NOTHING", cancellationToken);
+        return TypedResults.NoContent();
     }
 
-    private static Task<Results<NoContent, ProblemHttpResult>> ReportPost(
+    private static async Task<Results<NoContent, ProblemHttpResult>> ReportPost(
         Guid id, ReportPostRequest request, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #144 (Егор): как RespectPost; жалоба — строка для админа (кто, на что, причина, когда). Тесты —
-        // FeedTests; строка в IdorTests.AwaitingTasks.
-        _ = (id, request, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #144");
+        if (request.Reason is { Length: > MaxReasonLength })
+        {
+            return Problem(StatusCodes.Status400BadRequest, "report_invalid", $"Причина — не длиннее {MaxReasonLength} символов.");
+        }
+
+        var now = time.GetUtcNow();
+        if (principal.UserId() is not { } me || !await Visible(db, me, now).AnyAsync(p => p.Id == id, cancellationToken))
+        {
+            return PostNotFound();
+        }
+
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO app.feed_reports (post_id, reporter_id, reason, created_at) VALUES ({id}, {me}, {reason}, {now})
+            ON CONFLICT (post_id, reporter_id) DO NOTHING
+            """,
+            cancellationToken);
+        return TypedResults.NoContent();
     }
 
-    private static Task<Ok<IReadOnlyList<PlayerResponse>>> ListBlocks(
+    private static async Task<Ok<IReadOnlyList<PlayerResponse>>> ListBlocks(
         ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #144 (Егор): заблокированные спрашивающим; карточка — как GET /players/{id} (#115). Тесты — FeedTests.
-        _ = (principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #144");
+        var me = principal.UserId();
+        var blocked = await db.PlayerBlocks.AsNoTracking()
+            .Where(b => b.BlockerId == me)
+            .Join(db.Users.Where(u => u.DeletionRequestedAt == null), b => b.BlockedId, u => u.Id, (b, u) => new
+            {
+                u.Id,
+                u.DisplayName,
+                u.ColorIndex,
+                u.PublicProfile,
+                b.CreatedAt,
+            })
+            .OrderBy(b => b.CreatedAt)
+            .ThenBy(b => b.Id)
+            .ToListAsync(cancellationToken);
+        return TypedResults.Ok<IReadOnlyList<PlayerResponse>>(
+        [
+            .. blocked.Select(b => new PlayerResponse(
+                b.Id, b.PublicProfile ? b.DisplayName : LeaderboardEndpoints.Pseudonym(b.Id), b.ColorIndex, IsMe: false)),
+        ]);
     }
 
-    private static Task<Results<NoContent, ProblemHttpResult>> BlockPlayer(
+    private static async Task<Results<NoContent, ProblemHttpResult>> BlockPlayer(
         Guid id, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #144 (Егор): запись блокировки (повтор — ничего) и снятие дружбы и заявок с этим игроком (E14a). Нет
-        // такого игрока — тоже 204: блокировка не должна подтверждать, что номер существует. Тесты — FeedTests; строка в
-        // IdorTests.AwaitingTasks.
-        _ = (id, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #144");
+        if (principal.UserId() is not { } me)
+        {
+            return Problem(StatusCodes.Status401Unauthorized, "unauthorized", "Нужен вход.");
+        }
+
+        if (id == me)
+        {
+            return Problem(StatusCodes.Status400BadRequest, "block_self", "Себя заблокировать нельзя.");
+        }
+
+        // Нет такого игрока — тоже 204, ничего не записано: блокировка не подтверждает, что номер существует.
+        var now = time.GetUtcNow();
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO app.player_blocks (blocker_id, blocked_id, created_at)
+            SELECT {me}, id, {now} FROM app.users WHERE id = {id}
+            ON CONFLICT DO NOTHING
+            """,
+            cancellationToken);
+
+        // ЗАДАЧА #143 (Егор, E14a): здесь же снять дружбу и заявки в обе стороны с этим игроком — когда появится таблица друзей.
+        return TypedResults.NoContent();
     }
 
-    private static Task<NoContent> UnblockPlayer(
+    private static async Task<NoContent> UnblockPlayer(
         Guid id, ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #144 (Егор): снять свою блокировку этого игрока; не было — тоже 204. Тесты — FeedTests; строка в
-        // IdorTests.AwaitingTasks.
-        _ = (id, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #144");
+        var me = principal.UserId();
+        await db.PlayerBlocks.Where(b => b.BlockerId == me && b.BlockedId == id).ExecuteDeleteAsync(cancellationToken);
+        return TypedResults.NoContent();
     }
+
+    // MARK: — общее
+
+    /// <summary>
+    /// Посты, которые видит <paramref name="me"/>: уже публичные (<c>visible_at ≤ now</c>, граница — как у карты), без
+    /// блокировок в обе стороны, без авторов, чей аккаунт удаляется. Один отбор для ленты, курсора, респекта и жалобы: по
+    /// ответу 404 нельзя проверить, есть ли ещё скрытый пост.
+    /// </summary>
+    private static IQueryable<FeedPostEntity> Visible(
+        AppDbContext db, Guid me, DateTimeOffset now, IQueryable<FeedPostEntity>? source = null) =>
+        (source ?? db.FeedPosts.AsNoTracking())
+            .Where(p => p.VisibleAt <= now
+                && !db.PlayerBlocks.Any(b => (b.BlockerId == me && b.BlockedId == p.AuthorId) || (b.BlockerId == p.AuthorId && b.BlockedId == me))
+                && db.Users.Any(u => u.Id == p.AuthorId && u.DeletionRequestedAt == null));
+
+    /// <summary>
+    /// «Друзья и клан» (§3.8): свои посты и посты соклановцев по текущему составу клана. Друзья (#143) добавятся сюда условием
+    /// «автор — взаимный друг».
+    /// </summary>
+    private static System.Linq.Expressions.Expression<Func<FeedPostEntity, bool>> Circle(AppDbContext db, Guid me) =>
+        p => p.AuthorId == me
+            || db.ClanMembers.Any(m => m.UserId == p.AuthorId && db.ClanMembers.Any(mine => mine.UserId == me && mine.ClanId == m.ClanId));
+
+    private static ProblemHttpResult FeedInvalid() =>
+        Problem(StatusCodes.Status400BadRequest, "feed_invalid", "scope — friends или all; курсор — из nextCursor прошлой страницы.");
+
+    private static ProblemHttpResult PostNotFound() =>
+        Problem(StatusCodes.Status404NotFound, "post_not_found", "Такого поста нет.");
+
+    private static ProblemHttpResult Problem(int status, string code, string title) =>
+        TypedResults.Problem(title: title, statusCode: status, extensions: new Dictionary<string, object?> { ["code"] = code });
 }

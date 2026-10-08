@@ -172,7 +172,7 @@ public sealed class TerritoryTests(DatabaseFixture database)
         var (boris, borisId) = await api.CreatePlayerClientAsync();
         var (vera, _) = await api.CreatePlayerClientAsync();
         var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
-        var area = NewArea();
+        var area = NewWideArea(); // полоса уходит на восток до 1,1 км — соседнее место занято вместе с этим
         var x0 = WalkOrigin.X + area.X;
         var east = 1_000 - (((x0 % 1_000) + 1_000) % 1_000); // до ближайшей границы тайлов на восток: 500 или 1000 м
 

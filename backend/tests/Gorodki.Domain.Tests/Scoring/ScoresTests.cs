@@ -164,4 +164,22 @@ public sealed class ScoresTests
         Assert.Equal(new DistanceScore(33, 10_000), Scores.ForDistance(10_000, 0, League.Bike, Config));
         Assert.Equal(66, Scores.ForDistance(30_000, 0, League.Bike, Config).Points); // тот же потолок 20 км
     }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(10_000, 10)] // 1 га: 100 соток × 0,1
+    [InlineData(50_000, 30)] // 5 га: 10 + 400 × 0,05
+    [InlineData(200_000, 60)] // 20 га: 30 + 1 500 × 0,02 — это и есть потолок в зачёт
+    [InlineData(1_000_000, 60)] // сверх потолка земля очков не добавляет
+    public void Hold_pays_by_tiers_up_to_the_cap(double squareMeters, int points)
+    {
+        Assert.Equal(points, Scores.ForHold(squareMeters, Config).Points);
+    }
+
+    [Fact]
+    public void Hold_never_shrinks_when_land_grows()
+    {
+        Gen.Double[0, 2_000_000].Select(Gen.Double[0, 100_000]).Sample((area, more) =>
+            Assert.True(Scores.ForHold(area + more, Config).Basis >= Scores.ForHold(area, Config).Basis));
+    }
 }

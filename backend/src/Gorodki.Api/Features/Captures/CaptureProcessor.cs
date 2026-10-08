@@ -390,10 +390,11 @@ public sealed class CaptureProcessor(
 
         // Большая петля (§3.3, #48) — по площади P после масок и порогу лиги из правил земли на момент применения.
         var bigLoop = current.Rules.Territory.IsBigLoop(claim.League, area.Area);
+        var clanMates = await ClanMatesAsync(claim.UserId, cancellationToken);
         var map = new TerritoryMap(current.Rules.Territory.ToRules(), new SliverSettings());
         map.Load(stored.Select(ToParcel));
         var result = map.Apply(
-            area, new CaptureContext(claim.UserId, effectiveAt, new HashSet<Guid>(), canRemoveLevels, bigLoop, reset?.StartsAt));
+            area, new CaptureContext(claim.UserId, effectiveAt, clanMates, canRemoveLevels, bigLoop, reset?.StartsAt));
 
         var changedTiles = new List<TileKey>();
         foreach (var tile in result.ChangedTiles)
@@ -429,17 +430,37 @@ public sealed class CaptureProcessor(
         // Очки за захват (§3.5) — тоже в этой транзакции и под блокировкой игрока (ступени суток — по сумме за сутки). Сезон и
         // сутки — по времени петли (§3.4), видимость другим — с границы публичности применения, как у карты (§3.16).
         var season = (await seasons.CalendarAsync(cancellationToken)).At(effectiveAt)?.Number;
+        var visibleAt = await territory.VisibleAtAsync(claim.UserId, now, cancellationToken);
         await ScoreBook.AddCaptureAsync(
             db,
             claim,
             result.AreaByOutcome,
             LandValue.Factor(area, current.Rules.Scoring.LandValue),
             effectiveAt,
-            await territory.VisibleAtAsync(claim.UserId, now, cancellationToken),
+            visibleAt,
             season,
             current.Rules.Scoring,
             now,
             cancellationToken);
+
+        // Пост ленты (§3.8, #144) — только числа: взятая площадь и дата. Виден с той же границы, что сам захват на карте
+        // (§3.16), — и автору тоже, как очки. Петля, которая ничего не взяла (освежила свою землю, упёрлась в щит), поста не даёт.
+        var taken = result.Area(PieceOutcome.ClaimedNeutral) + result.Area(PieceOutcome.Transferred);
+        if (Math.Round(taken) >= 1)
+        {
+            db.FeedPosts.Add(new FeedPostEntity
+            {
+                Id = Guid.NewGuid(), // не v7: в нём было бы время захвата
+                AuthorId = claim.UserId,
+                Kind = Social.FeedPostKind.Capture,
+                League = claim.League,
+                GameDay = GameClock.GameDayOf(effectiveAt),
+                CapturedSquareMeters = Math.Round(taken),
+                CaptureId = claim.Id,
+                RunId = claim.RunId,
+                VisibleAt = visibleAt,
+            });
+        }
 
         // Журнал — в той же транзакции: земля без записи для отката (или запись без земли) не сохраняется никогда.
         // Только тайлы, версия которых выросла: публичная проекция считает скрытые захваты по журналу и вычитает их
@@ -467,7 +488,6 @@ public sealed class CaptureProcessor(
 
         var appliedSeq = await db.Database.SqlQuery<long>($"SELECT nextval('app.capture_apply_seq') AS \"Value\"").SingleAsync(cancellationToken);
         var areas = result.AreaByOutcome.ToDictionary(kv => JsonNamingPolicy.CamelCase.ConvertName(kv.Key.ToString()), kv => Math.Round(kv.Value, 1));
-        var taken = result.Area(PieceOutcome.ClaimedNeutral) + result.Area(PieceOutcome.Transferred);
         var updated = await db.Captures
             .Where(c => c.Id == claim.Id && c.LeaseToken == token && c.Status == CaptureStatus.Pending)
             .ExecuteUpdateAsync(
@@ -518,6 +538,19 @@ public sealed class CaptureProcessor(
         var before = now - JournalRetention;
         return await db.CaptureJournal.Where(j => j.AppliedAt < before).ExecuteDeleteAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Соклановцы игрока (C8, PLAN.md §3.3): их землю петля не отбирает, а освежает им угасание. Принадлежность — по
+    /// текущему составу клана, то есть на момент применения петли, а не её замыкания: вышел из клана (или исключён) до
+    /// применения — его земля снова чужая, вступил — уже своя. Читается в транзакции захвата; размер клана (3 и больше,
+    /// «полный») здесь не важен — «неполный» клан не участвует только в рейдах и контроле кварталов (§3.6).
+    /// </summary>
+    private async Task<IReadOnlySet<Guid>> ClanMatesAsync(Guid userId, CancellationToken cancellationToken) =>
+        (await db.ClanMembers.AsNoTracking()
+            .Where(m => m.UserId != userId && db.ClanMembers.Any(me => me.UserId == userId && me.ClanId == m.ClanId))
+            .Select(m => m.UserId)
+            .ToListAsync(cancellationToken))
+        .ToHashSet();
 
     /// <summary>Сколько захватов игрока уже применено в те же игровые сутки (по Минску).</summary>
     private async Task<int> AppliedOnGameDayAsync(Guid userId, DateTimeOffset effectiveAt, CancellationToken cancellationToken)

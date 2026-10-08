@@ -2,8 +2,10 @@ using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Scoring;
+using Gorodki.Api.Features.Social;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Clans;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Runs;
@@ -29,6 +31,12 @@ namespace Gorodki.Api.Features.Me;
 /// разбивка итога захвата (иначе бонусы выдали бы ещё скрытый чужой захват). Сервер присылает всегда; в контракте поле
 /// необязательное — приложение, собранное раньше этого поля (и его тесты), разбирает выгрузку как прежде.
 /// </param>
+/// <param name="Clan">Свой клан и роль в нём; <c>null</c> — не в клане. Необязательное поле, как <paramref name="Scores"/>.</param>
+/// <param name="ClanJoinAfterMs">Вышел из клана или исключён — до этого момента нельзя вступить снова (72 ч); иначе <c>null</c>.</param>
+/// <param name="Posts">Свои посты ленты (в том числе ещё не публичные — о своих захватах игрок знает сам). Необязательное поле.</param>
+/// <param name="Respected">Посты, которым игрок поставил респект. Необязательное поле.</param>
+/// <param name="Reports">Свои жалобы на посты. Необязательное поле.</param>
+/// <param name="Blocked">Кого игрок заблокировал (номера). Кто заблокировал его — данные тех игроков, здесь их нет.</param>
 public sealed record AccountExportResponse(
     long ExportedAtMs,
     ExportProfile Profile,
@@ -39,7 +47,24 @@ public sealed record AccountExportResponse(
     IReadOnlyList<ExportFogTile> Fog,
     IReadOnlyList<PrivacyZoneResponse> PrivacyZones,
     IReadOnlyList<ExportRanking> Rankings,
-    IReadOnlyList<ExportScore>? Scores);
+    IReadOnlyList<ExportScore>? Scores,
+    ExportClan? Clan = null,
+    long? ClanJoinAfterMs = null,
+    IReadOnlyList<ExportPost>? Posts = null,
+    IReadOnlyList<Guid>? Respected = null,
+    IReadOnlyList<ExportReport>? Reports = null,
+    IReadOnlyList<Guid>? Blocked = null);
+
+/// <summary>Свой пост ленты: только числа и дата, как в ленте.</summary>
+/// <param name="Day">Игровые сутки по Минску, <c>yyyy-MM-dd</c>.</param>
+public sealed record ExportPost(
+    Guid Id, FeedPostKind Kind, League League, string Day, double? DistanceMeters, double? CapturedSquareMeters, int Respects);
+
+/// <summary>Своя жалоба на пост.</summary>
+public sealed record ExportReport(Guid PostId, string? Reason, long CreatedAtMs);
+
+/// <summary>Свой клан в «Моих данных»: название, роль, когда вступил. Других участников здесь нет — это их данные.</summary>
+public sealed record ExportClan(Guid Id, string Name, ClanRole Role, long JoinedAtMs);
 
 /// <param name="Season">Номер сезона; <c>null</c> — вне сезонов (предсезонье).</param>
 /// <param name="Day">Игровые сутки по Минску, <c>yyyy-MM-dd</c>.</param>
@@ -258,6 +283,35 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
                 e.EffectiveAt.ToUnixTimeMilliseconds()))
             .ToList();
 
+        var clan = await db.ClanMembers.AsNoTracking()
+            .Where(m => m.UserId == userId)
+            .Join(db.Clans, m => m.ClanId, c => c.Id, (m, c) => new { c.Id, c.Name, m.Role, m.JoinedAt })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        var posts = await db.FeedPosts.AsNoTracking()
+            .Where(p => p.AuthorId == userId)
+            .OrderBy(p => p.GameDay).ThenBy(p => p.Id)
+            .Select(p => new
+            {
+                p.Id,
+                p.Kind,
+                p.League,
+                p.GameDay,
+                p.DistanceMeters,
+                p.CapturedSquareMeters,
+                Respects = db.FeedRespects.Count(r => r.PostId == p.Id),
+            })
+            .ToListAsync(cancellationToken);
+        var respected = await db.FeedRespects.AsNoTracking()
+            .Where(r => r.UserId == userId).OrderBy(r => r.PostId).Select(r => r.PostId).ToListAsync(cancellationToken);
+        var reports = await db.FeedReports.AsNoTracking()
+            .Where(r => r.ReporterId == userId).OrderBy(r => r.CreatedAt).ThenBy(r => r.Id)
+            .Select(r => new ExportReport(r.PostId, r.Reason, r.CreatedAt.ToUnixTimeMilliseconds()))
+            .ToListAsync(cancellationToken);
+        var blocked = await db.PlayerBlocks.AsNoTracking()
+            .Where(b => b.BlockerId == userId).OrderBy(b => b.CreatedAt).ThenBy(b => b.BlockedId).Select(b => b.BlockedId)
+            .ToListAsync(cancellationToken);
+
         return new AccountExportResponse(
             time.GetUtcNow().ToUnixTimeMilliseconds(),
             new ExportProfile(
@@ -279,6 +333,19 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
             fog,
             zones,
             rankings,
-            scores);
+            scores,
+            clan is null ? null : new ExportClan(clan.Id, clan.Name, clan.Role, clan.JoinedAt.ToUnixTimeMilliseconds()),
+            user.ClanJoinAfter > time.GetUtcNow() ? user.ClanJoinAfter.Value.ToUnixTimeMilliseconds() : null,
+            [.. posts.Select(p => new ExportPost(
+                p.Id,
+                p.Kind,
+                p.League,
+                p.GameDay.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                p.DistanceMeters,
+                p.CapturedSquareMeters,
+                p.Respects))],
+            respected,
+            reports,
+            blocked);
     }
 }

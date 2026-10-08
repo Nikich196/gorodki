@@ -143,7 +143,7 @@ public sealed class ScoringTests(DatabaseFixture database)
     }
 
     [Fact]
-    public async Task Rolled_back_capture_loses_its_points_and_others_keep_theirs()
+    public async Task Rolled_back_capture_loses_its_points_and_its_post_and_others_keep_theirs()
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
@@ -168,6 +168,9 @@ public sealed class ScoringTests(DatabaseFixture database)
         Assert.NotNull((await db.Captures.AsNoTracking().SingleAsync(c => c.Id == borisClaim.CaptureId, Cancel)).RolledBackAt);
         Assert.False(await db.ScoreEvents.AnyAsync(e => e.UserId == borisId, Cancel));
         Assert.True(await db.ScoreEvents.AnyAsync(e => e.UserId == annaId && e.CaptureId == annaClaim.CaptureId, Cancel));
+        // И пост ленты (#144) об откаченном захвате уходит с ним; у Анны пост остаётся.
+        Assert.False(await db.FeedPosts.AnyAsync(p => p.CaptureId == borisClaim.CaptureId, Cancel));
+        Assert.True(await db.FeedPosts.AnyAsync(p => p.CaptureId == annaClaim.CaptureId, Cancel));
     }
 
     [Fact]

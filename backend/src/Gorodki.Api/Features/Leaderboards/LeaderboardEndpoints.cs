@@ -75,7 +75,7 @@ public static class LeaderboardEndpoints
         return app;
     }
 
-    private static Task<Results<Ok<TerritoryLeaderboardResponse>, ProblemHttpResult, UnauthorizedHttpResult>> GetTerritory(
+    private static async Task<Results<Ok<TerritoryLeaderboardResponse>, ProblemHttpResult, UnauthorizedHttpResult>> GetTerritory(
         string? league,
         int? season,
         ClaimsPrincipal principal,
@@ -84,14 +84,54 @@ public static class LeaderboardEndpoints
         TimeProvider time,
         CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #136 (Егор): копия GetExploration по доске LeaderboardBoard.Territory (новое значение перечисления):
-        // лига — run или bike (без неё — run), сезон — номер от 0 (без него — текущий: seasons.CalendarAsync(…).At(now)),
-        // иначе 400 leaderboard_invalid. Value среза — очки сезона (ScoreBook.SeasonTotalsAsync после записи удержания).
-        // Final — сезон закрыт: now ≥ ScoreBook.ClosesAt(календарь, сезон) и итоговый проход (ScoreBook.FinalTotalsAsync) уже
-        // сделан. Ник — как Entry в GetExploration. Сам срез — задача Hangfire в 00:00 (образец — LeaderboardSnapshots,
-        // egor-server.md, карточка E7). Тесты — TerritoryLeaderboardTests.
-        _ = (league, season, principal, db, seasons, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #136");
+        if (principal.UserId() is not { } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        if (!Enum.TryParse<League>(league ?? "run", ignoreCase: true, out var kind) || !Enum.IsDefined(kind)
+            || (league is not null && int.TryParse(league, out _)) || season < 0)
+        {
+            return TypedResults.Problem(
+                title: "Лига — run или bike; сезон — номер от 0.",
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?> { ["code"] = "leaderboard_invalid" });
+        }
+
+        // Без номера — текущий сезон; вне сезонов (до Сезона 0) рейтинга нет.
+        var seasonNumber = season ?? (await seasons.CalendarAsync(cancellationToken)).At(time.GetUtcNow())?.Number;
+        if (seasonNumber is not { } number)
+        {
+            return TypedResults.Ok(new TerritoryLeaderboardResponse(null, kind, null, false, [], null));
+        }
+
+        // Итог — когда итоговый проход в момент закрытия сезона уже сделан (TerritorySnapshots); тогда — его места, иначе —
+        // последний ежедневный срез (предварительно).
+        var final = await db.JobRuns.AsNoTracking().AnyAsync(j => j.Job == TerritorySnapshots.FinalJob && j.Key == number, cancellationToken);
+        var layer = TerritorySnapshots.LayerOf(kind);
+        var rows = db.LeaderboardSnapshots.AsNoTracking()
+            .Where(s => s.Board == LeaderboardBoard.Territory && s.Layer == layer && s.Season == number && s.Final == final);
+        if (await rows.MaxAsync(s => (DateOnly?)s.Day, cancellationToken) is not { } snapshotDay)
+        {
+            return TypedResults.Ok(new TerritoryLeaderboardResponse(null, kind, number, final, [], null));
+        }
+
+        var board = rows
+            .Where(s => s.Day == snapshotDay)
+            .Join(db.Users, s => s.UserId, u => u.Id, (s, u) => new { s.UserId, s.Rank, s.Value, u.DisplayName, u.PublicProfile });
+        var top = await board.OrderBy(r => r.Rank).ThenBy(r => r.UserId).Take(Top).ToListAsync(cancellationToken);
+        var mine = await board.Where(r => r.UserId == userId).SingleOrDefaultAsync(cancellationToken);
+
+        TerritoryLeaderboardEntry Entry(Guid id, int rank, double value, string displayName, bool publicProfile) =>
+            new(rank, id == userId || publicProfile ? displayName : Pseudonym(id), (int)Math.Round(value), id == userId);
+
+        return TypedResults.Ok(new TerritoryLeaderboardResponse(
+            snapshotDay.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            kind,
+            number,
+            final,
+            [.. top.Select(r => Entry(r.UserId, r.Rank, r.Value, r.DisplayName, r.PublicProfile))],
+            mine is null ? null : Entry(mine.UserId, mine.Rank, mine.Value, mine.DisplayName, mine.PublicProfile)));
     }
 
     private static async Task<Results<Ok<ExplorationLeaderboardResponse>, ProblemHttpResult, UnauthorizedHttpResult>> GetExploration(

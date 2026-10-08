@@ -15,8 +15,8 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// «% Бреста» и районов в <c>GET /fog/summary</c> (PLAN.md, §3.10; osm-pipeline.md, «Как считается % Бреста»). Задача #138
-/// для Егора: тест со <c>Skip</c> снимается вместе с реализацией; тест «набора нет» — контракт, он зелёный уже сейчас.
+/// «% Бреста» и районов в <c>GET /fog/summary</c> (PLAN.md, §3.10; osm-pipeline.md, «Как считается % Бреста»), задача #138
+/// (сделано Claude 07.10). Тест «набора нет» — ещё и контракт: старый телефон не ломается, пока набора нет.
 /// </summary>
 /// <remarks>
 /// Набор в действующем конфиге меняет захват для всех тестов, поэтому здесь конфиг с набором начинает действовать в 2200 году,
@@ -48,14 +48,16 @@ public sealed class FogPercentTests(DatabaseFixture database)
         Assert.All(summary.Layers, l => Assert.True(l.AreaSquareMeters > 0));
     }
 
-    [Fact(Skip = "ЗАДАЧА #138")]
+    [Fact]
     public async Task Percent_is_the_share_of_the_reachable_cells_and_districts_follow_the_same_rule()
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync(); // клиент — до сдвига часов: токен «из будущего» не пройдёт
+        var (boris, _) = await api.CreatePlayerClientAsync();
         var run = await WalkAndFinishAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100));
         await StampAsync(api, run.Id);
+        await StampAsync(api, (await WalkAndFinishAsync(Cancel, api, boris, Square(NewArea(), 0, 0, 100))).Id);
 
         // «Достижимое» набора: открытые Анной клетки её первого тайла и столько же закрытых клеток в далёком тайле — это 50 %
         // города. Район — только её клетки: 100 %.
@@ -94,6 +96,12 @@ public sealed class FogPercentTests(DatabaseFixture database)
         Assert.Equal((double?)50, allTime.BrestPercent);
         var leninsky = Assert.Single(allTime.Districts!);
         Assert.Equal(("leninsky", DistrictKind.District, 100.0), (leninsky.Key, leninsky.Kind, leninsky.Percent));
+        Assert.All(summary.Layers, l => Assert.NotNull(l.BrestPercent)); // и у сезонного слоя — по тому же правилу
+
+        // Процент — только по своим тайлам: Борис ходил в другом месте, «достижимое» Анны ему не засчитано.
+        var theirs = (await boris.GetFromJsonAsync<FogSummaryResponse>("/fog/summary", Json, Cancel))!;
+        Assert.Equal(version, theirs.OsmSetVersion);
+        Assert.Equal((double?)0, theirs.Layers.Single(l => l.Layer == FogLayerKind.Foot && l.Season is null).BrestPercent);
     }
 
     // MARK: — вспомогательное

@@ -65,6 +65,20 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<ScoreEventEntity> ScoreEvents => Set<ScoreEventEntity>();
 
+    public DbSet<ClanEntity> Clans => Set<ClanEntity>();
+
+    public DbSet<ClanMemberEntity> ClanMembers => Set<ClanMemberEntity>();
+
+    public DbSet<JobRunEntity> JobRuns => Set<JobRunEntity>();
+
+    public DbSet<FeedPostEntity> FeedPosts => Set<FeedPostEntity>();
+
+    public DbSet<FeedRespectEntity> FeedRespects => Set<FeedRespectEntity>();
+
+    public DbSet<FeedReportEntity> FeedReports => Set<FeedReportEntity>();
+
+    public DbSet<PlayerBlockEntity> PlayerBlocks => Set<PlayerBlockEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -372,16 +386,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             // Одно начисление на захват и одно за дистанцию забега: повтор обработки не начислит дважды — это гарантирует база.
             score.HasIndex(e => e.CaptureId).IsUnique().HasFilter("capture_id IS NOT NULL");
             score.HasIndex(e => e.RunId).IsUnique().HasFilter("kind = 2").HasDatabaseName("ux_score_events_distance_per_run");
+            // Удержание — одна строка на (игрок, лига, сутки): повтор среза E7 второй раз не начислит.
+            score.HasIndex(e => new { e.UserId, e.League, e.GameDay }, "ux_score_events_hold_per_day")
+                .IsUnique()
+                .HasFilter("kind = 3")
+                .HasDatabaseName("ux_score_events_hold_per_day");
             // Ступени суток и потолок дистанции — сумма за (игрок, лига, сутки, вид); рейтинги — (лига, сезон) с границей.
             score.HasIndex(e => new { e.UserId, e.League, e.GameDay, e.Kind });
             score.HasIndex(e => new { e.League, e.Season, e.VisibleAt });
             score.ToTable(t =>
             {
-                t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 2");
+                t.HasCheckConstraint("ck_score_events_kind", "kind BETWEEN 1 AND 3");
+                t.HasCheckConstraint("ck_score_events_hold", "kind <> 3 OR (capture_id IS NULL AND run_id IS NULL)");
                 t.HasCheckConstraint("ck_score_events_capture", "kind <> 1 OR capture_id IS NOT NULL");
                 t.HasCheckConstraint("ck_score_events_distance", "kind <> 2 OR run_id IS NOT NULL");
                 t.HasCheckConstraint("ck_score_events_values", "points >= 0 AND basis >= 0");
             });
+        });
+
+        ConfigureClans(model);
+        ConfigureFeed(model);
+
+        model.Entity<JobRunEntity>(run =>
+        {
+            run.HasKey(r => new { r.Job, r.Key });
+            run.Property(r => r.Job).HasMaxLength(64);
         });
 
         model.Entity<PrivacyZoneEntity>(zone =>
@@ -391,6 +420,90 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             zone.HasOne<UserEntity>().WithMany().HasForeignKey(z => z.UserId).OnDelete(DeleteBehavior.Cascade);
             zone.ToTable(t => t.HasCheckConstraint(
                 "ck_privacy_zones_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180"));
+        });
+    }
+
+    /// <summary>
+    /// Кланы (PLAN.md, §3.3, §3.6): игрок — не больше чем в одном клане (ключ участника — игрок), один лидер на клан,
+    /// название уникально без учёта регистра, код-приглашение уникален. Удалили игрока — его членство уходит каскадом
+    /// (лидерство до этого передаёт <c>AccountDeletion</c>); удалили клан — участники с ним.
+    /// </summary>
+    private static void ConfigureClans(ModelBuilder model)
+    {
+        model.Entity<ClanEntity>(clan =>
+        {
+            clan.HasKey(c => c.Id);
+            clan.Property(c => c.Name).HasMaxLength(Gorodki.Domain.Clans.ClanRules.NameMaxLength);
+            clan.Property(c => c.NormalizedName).HasMaxLength(Gorodki.Domain.Clans.ClanRules.NameMaxLength);
+            clan.Property(c => c.InviteCode).HasMaxLength(16);
+            clan.HasIndex(c => c.NormalizedName).IsUnique();
+            clan.HasIndex(c => c.InviteCode).IsUnique();
+            clan.ToTable(t => t.HasCheckConstraint("ck_clans_hue", "hue BETWEEN 0 AND 11"));
+        });
+
+        model.Entity<ClanMemberEntity>(member =>
+        {
+            member.HasKey(m => m.UserId);
+            member.Property(m => m.Role).HasConversion<short>();
+            member.HasIndex(m => m.ClanId, "ix_clan_members_clan_id");
+            member.HasIndex(m => m.ClanId, "ux_clan_members_one_leader")
+                .IsUnique()
+                .HasFilter("role = 2")
+                .HasDatabaseName("ux_clan_members_one_leader");
+            member.HasOne<UserEntity>().WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
+            member.HasOne<ClanEntity>().WithMany().HasForeignKey(m => m.ClanId).OnDelete(DeleteBehavior.Cascade);
+            member.ToTable(t => t.HasCheckConstraint("ck_clan_members_role", "role BETWEEN 0 AND 2"));
+        });
+    }
+
+    /// <summary>
+    /// Лента (PLAN.md, §3.8): посты, респекты, жалобы, блокировки. Всё с номером игрока уходит каскадом вместе с аккаунтом;
+    /// пост — и вместе со своим захватом или забегом. Лента читается по <c>(visible_at, id)</c> от новых к старым.
+    /// </summary>
+    private static void ConfigureFeed(ModelBuilder model)
+    {
+        model.Entity<FeedPostEntity>(post =>
+        {
+            post.HasKey(p => p.Id);
+            post.Property(p => p.Kind).HasConversion<short>();
+            post.HasIndex(p => new { p.VisibleAt, p.Id });
+            post.HasIndex(p => p.AuthorId);
+            post.HasIndex(p => p.CaptureId).IsUnique().HasFilter("capture_id IS NOT NULL");
+            post.HasIndex(p => p.RunId, "ux_feed_posts_run_post").IsUnique().HasFilter("kind = 1").HasDatabaseName("ux_feed_posts_run_post");
+            post.HasOne<UserEntity>().WithMany().HasForeignKey(p => p.AuthorId).OnDelete(DeleteBehavior.Cascade);
+            post.HasOne<CaptureEntity>().WithMany().HasForeignKey(p => p.CaptureId).OnDelete(DeleteBehavior.Cascade);
+            post.HasOne<RunEntity>().WithMany().HasForeignKey(p => p.RunId).OnDelete(DeleteBehavior.Cascade);
+            post.ToTable(t => t.HasCheckConstraint(
+                "ck_feed_posts_numbers",
+                "(kind = 0 AND captured_square_meters IS NOT NULL AND distance_meters IS NULL) OR (kind = 1 AND distance_meters IS NOT NULL AND captured_square_meters IS NULL)"));
+        });
+
+        model.Entity<FeedRespectEntity>(respect =>
+        {
+            respect.HasKey(r => new { r.PostId, r.UserId });
+            respect.HasIndex(r => r.UserId);
+            respect.HasOne<FeedPostEntity>().WithMany().HasForeignKey(r => r.PostId).OnDelete(DeleteBehavior.Cascade);
+            respect.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        model.Entity<FeedReportEntity>(report =>
+        {
+            report.HasKey(r => r.Id);
+            report.Property(r => r.Id).UseIdentityAlwaysColumn();
+            report.Property(r => r.Reason).HasMaxLength(200);
+            report.HasIndex(r => new { r.PostId, r.ReporterId }).IsUnique();
+            report.HasIndex(r => r.ReporterId);
+            report.HasOne<FeedPostEntity>().WithMany().HasForeignKey(r => r.PostId).OnDelete(DeleteBehavior.Cascade);
+            report.HasOne<UserEntity>().WithMany().HasForeignKey(r => r.ReporterId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        model.Entity<PlayerBlockEntity>(block =>
+        {
+            block.HasKey(b => new { b.BlockerId, b.BlockedId });
+            block.HasIndex(b => b.BlockedId);
+            block.HasOne<UserEntity>().WithMany().HasForeignKey(b => b.BlockerId).OnDelete(DeleteBehavior.Cascade);
+            block.HasOne<UserEntity>().WithMany().HasForeignKey(b => b.BlockedId).OnDelete(DeleteBehavior.Cascade);
+            block.ToTable(t => t.HasCheckConstraint("ck_player_blocks_not_self", "blocker_id <> blocked_id"));
         });
     }
 

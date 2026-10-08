@@ -68,7 +68,10 @@ public sealed class LeaderboardSnapshots(AppDbContext db, TimeProvider time, ILo
 
         db.LeaderboardSnapshots.AddRange(rows);
         await db.SaveChangesAsync(cancellationToken);
-        await db.LeaderboardSnapshots.Where(s => s.Day < day.AddDays(-KeepDays)).ExecuteDeleteAsync(cancellationToken);
+        // Только свои срезы: у рейтинга территории своя чистка, а его итог сезона хранится дольше недели (TerritorySnapshots).
+        await db.LeaderboardSnapshots
+            .Where(s => s.Board == LeaderboardBoard.Exploration && s.Day < day.AddDays(-KeepDays))
+            .ExecuteDeleteAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         logger.LogInformation("Срез рейтингов за {Day}: {Rows} строк", day, rows.Count);
         return rows.Count;

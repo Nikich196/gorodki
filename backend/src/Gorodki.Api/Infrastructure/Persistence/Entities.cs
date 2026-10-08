@@ -1,3 +1,5 @@
+using Gorodki.Api.Features.Social;
+using Gorodki.Domain.Clans;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Osm;
 using NetTopologySuite.Geometries;
@@ -59,6 +61,11 @@ public sealed class UserEntity
 
     /// <summary>Заморозка (PLAN.md, §3.9, слой 5): до этого момента захваты игрока не применяются.</summary>
     public DateTimeOffset? FrozenUntil { get; set; }
+
+    /// <summary>
+    /// Вышел из клана или исключён — до этого момента нельзя вступить в другой или создать свой (PLAN.md, §3.3: 72 ч).
+    /// </summary>
+    public DateTimeOffset? ClanJoinAfter { get; set; }
 }
 
 /// <summary>
@@ -627,6 +634,12 @@ public enum LeaderboardBoard : short
 {
     /// <summary>«Кто открыл больше» (§3.10): открытая площадь тумана, м².</summary>
     Exploration = 1,
+
+    /// <summary>
+    /// Рейтинг территории (§3.5): очки сезона по лиге. Слой — лига: <see cref="LeaderboardLayer.Foot"/> — «Бег»,
+    /// <see cref="LeaderboardLayer.Bike"/> — «Вело» (#136, E7).
+    /// </summary>
+    Territory = 2,
 }
 
 /// <summary>Слой рейтинга «Исследования»: совпадает с <see cref="FogLayerKind"/>, плюс «Всего» — их сумма.</summary>
@@ -659,6 +672,12 @@ public sealed class LeaderboardSnapshotEntity
 
     /// <summary>Место: одинаковое значение — одинаковое место (1, 2, 2, 4).</summary>
     public int Rank { get; set; }
+
+    /// <summary>
+    /// Итог закрытого сезона (рейтинг территории): снят один раз в момент закрытия (<c>ScoreBook.ClosesAt</c>) и хранится
+    /// дольше недели — до удаления аккаунта. У ежедневных срезов — <c>false</c>.
+    /// </summary>
+    public bool Final { get; set; }
 }
 
 // ── Конвейер OSM (docs/architecture/osm-pipeline.md, «Предлагаемые таблицы») ──
@@ -804,6 +823,12 @@ public enum ScoreKind : short
 
     /// <summary>Дистанция забега: +10 за км до 20 км в сутки, «Вело» ×0,33 — пишется вместе с визитами забега.</summary>
     Distance = 2,
+
+    /// <summary>
+    /// Удержание за игровые сутки (§3.5): срез в 00:00 по Минску, ступени по площади земли, которой касались в сезоне, с
+    /// потолком в зачёт. Одна строка на (игрок, лига, сутки) — повтор среза второй раз не начисляет (#136, E7).
+    /// </summary>
+    Hold = 3,
 }
 
 /// <summary>
@@ -854,6 +879,130 @@ public sealed class ScoreEventEntity
 
     /// <summary>С какого момента начисление видят другие (рейтинги, срез, «Мои данные»).</summary>
     public DateTimeOffset VisibleAt { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+// ── Кланы (PLAN.md, §3.3, §3.6; задача #135, E5a–c) ──
+
+/// <summary>
+/// Клан: 3–12 человек (меньше 3 — «неполный»), лидер и до 2 офицеров — роли у участников (<see cref="ClanMemberEntity"/>).
+/// Клан без участников не хранится: ушёл последний — строка удаляется.
+/// </summary>
+public sealed class ClanEntity
+{
+    public Guid Id { get; set; }
+
+    /// <summary>Название, как его видят (3–24 символа, <c>ClanRules.Clean</c>).</summary>
+    public required string Name { get; set; }
+
+    /// <summary>Название в нижнем регистре — уникально без учёта регистра (<c>ClanRules.Normalize</c>).</summary>
+    public required string NormalizedName { get; set; }
+
+    /// <summary>Оттенок клана: номер в палитре кланов из 12 (0–11).</summary>
+    public short Hue { get; set; }
+
+    /// <summary>Код-приглашение <c>XXXX-XXXX</c>; новый код отменяет старый.</summary>
+    public required string InviteCode { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Когда лидер последний раз переименовал клан: переименовать можно раз в сезон (§3.6).</summary>
+    public DateTimeOffset? RenamedAt { get; set; }
+}
+
+/// <summary>Участник клана: игрок состоит не больше чем в одном клане (ключ — игрок).</summary>
+public sealed class ClanMemberEntity
+{
+    public Guid UserId { get; set; }
+
+    public Guid ClanId { get; set; }
+
+    public ClanRole Role { get; set; }
+
+    public DateTimeOffset JoinedAt { get; set; }
+}
+
+/// <summary>
+/// Отметка «задача по расписанию уже сделала эту работу» (PLAN.md, §7.3: <c>job_runs UNIQUE</c>): задача и ключ — сутки
+/// (номер дня) или сезон. Повтор задачи Hangfire (сбой, догонка после сна, второй экземпляр) видит отметку и ничего не
+/// делает второй раз; ставится в той же транзакции, что и сама работа.
+/// </summary>
+public sealed class JobRunEntity
+{
+    public required string Job { get; set; }
+
+    public int Key { get; set; }
+
+    public DateTimeOffset DoneAt { get; set; }
+}
+
+// ── Лента (PLAN.md, §3.8; задача #144, E14b) ──
+
+/// <summary>
+/// Пост ленты — только числа, без координат и времени (§3.16). Пишется вместе с захватом (взято ≥ 1 м²) или с визитами
+/// забега; виден с <see cref="VisibleAt"/> — у захвата это граница публичности его применения, как у карты
+/// (<c>TerritoryReader.VisibleAtAsync</c>), у забега — момент подсчёта визитов (он и так после границы конца забега).
+/// </summary>
+public sealed class FeedPostEntity
+{
+    /// <summary>Случайный номер (<c>Guid.NewGuid()</c>): в UUIDv7 было бы зашито время захвата.</summary>
+    public Guid Id { get; set; }
+
+    public Guid AuthorId { get; set; }
+
+    public FeedPostKind Kind { get; set; }
+
+    public League League { get; set; }
+
+    /// <summary>Игровые сутки по Минску — дата без времени: у захвата — по времени петли, у забега — по его началу.</summary>
+    public DateOnly GameDay { get; set; }
+
+    /// <summary>У забега — засчитанный путь, м (целые).</summary>
+    public double? DistanceMeters { get; set; }
+
+    /// <summary>У захвата — взятая площадь, м² (целые).</summary>
+    public double? CapturedSquareMeters { get; set; }
+
+    /// <summary>Захват поста (откат захвата стирает и пост).</summary>
+    public Guid? CaptureId { get; set; }
+
+    /// <summary>Забег поста (у захвата — забег петли).</summary>
+    public Guid? RunId { get; set; }
+
+    /// <summary>С какого момента пост видят (и сам автор): раньше его нет ни в ленте, ни для респекта и жалобы.</summary>
+    public DateTimeOffset VisibleAt { get; set; }
+}
+
+/// <summary>Респект: один от игрока на пост.</summary>
+public sealed class FeedRespectEntity
+{
+    public Guid PostId { get; set; }
+
+    public Guid UserId { get; set; }
+}
+
+/// <summary>Жалоба на пост — для админа: кто, на что, причина, когда. Одна от игрока на пост.</summary>
+public sealed class FeedReportEntity
+{
+    public long Id { get; set; }
+
+    public Guid PostId { get; set; }
+
+    public Guid ReporterId { get; set; }
+
+    /// <summary>Причина своими словами, до 200 символов.</summary>
+    public string? Reason { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+/// <summary>Блокировка: посты заблокированного и заблокировавшего друг другу не видны (в обе стороны).</summary>
+public sealed class PlayerBlockEntity
+{
+    public Guid BlockerId { get; set; }
+
+    public Guid BlockedId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
 }

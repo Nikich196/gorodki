@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Jobs;
 using Hangfire;
@@ -39,6 +40,20 @@ public sealed class ScheduledJobsTests
         Assert.Equal(typeof(SeasonRollover), job.Type);
         Assert.Equal(nameof(SeasonRollover.RunIfDueAsync), job.Method.Name);
         Assert.Equal("0 * * * *", cron); // в том числе 00:00 — сезоны начинаются в полночь по Минску
+        Assert.Equal("Europe/Minsk", options.TimeZone.Id);
+    }
+
+    [Fact]
+    public void Territory_snapshot_is_checked_every_hour_by_Minsk_time_so_it_runs_at_midnight_and_at_the_seasons_close()
+    {
+        var jobs = new RecordedSchedule();
+
+        ScheduledJobs.Register(jobs);
+
+        var (_, job, cron, options) = Assert.Single(jobs.Added, j => j.Id == ScheduledJobs.TerritorySnapshotJob);
+        Assert.Equal(typeof(TerritorySnapshots), job.Type);
+        Assert.Equal(nameof(TerritorySnapshots.RunIfDueAsync), job.Method.Name);
+        Assert.Equal("0 * * * *", cron); // 00:00 — срез, 04:00 первого дня сезона — итог прошлого
         Assert.Equal("Europe/Minsk", options.TimeZone.Id);
     }
 
