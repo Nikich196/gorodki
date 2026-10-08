@@ -143,6 +143,7 @@ struct ProfileTab: View {
                 .padding(20)
             }
             .background(Palette.uiBackground.color)
+            .demoBadgeInset()
             .navigationTitle("Профиль")
             .refreshable { await model.refresh() }
             .task {

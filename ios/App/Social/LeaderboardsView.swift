@@ -18,6 +18,7 @@ struct LeaderboardsTab: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Palette.uiBackground.color)
+                .demoBadgeInset()
                 .navigationTitle("Рейтинги")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {

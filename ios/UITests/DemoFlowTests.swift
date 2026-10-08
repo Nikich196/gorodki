@@ -1,7 +1,7 @@
 import XCTest
 
 /// «Посмотреть демо» глазами игрока (решение Никиты 07.10): с интро — во вкладки на образцах, забег с захватом петли,
-/// остальные вкладки, выход обратно. Без аргументов режима фикстур — тот же путь, что в IPA. Снимки — 95–99.
+/// остальные вкладки, выход обратно. Без аргументов режима фикстур — тот же путь, что в IPA. Снимки — 95–101.
 final class DemoFlowTests: XCTestCase {
     private static let launchTimeout: TimeInterval = 30
     private static let screenTimeout: TimeInterval = 10
@@ -52,12 +52,21 @@ final class DemoFlowTests: XCTestCase {
         XCTAssertTrue(collapse.waitForExistence(timeout: Self.screenTimeout), "В HUD нет «Свернуть»")
         pause(1)
         collapse.tap()
-        for (tab, name) in [("Рейтинги", "98-demo-leaderboards-day"), ("Профиль", "99-demo-profile-day")] {
+        for (tab, name) in [
+            ("Рейтинги", "98-demo-leaderboards-day"), ("Клан", "101-demo-clan-day"), ("Профиль", "99-demo-profile-day"),
+        ] {
             let item = app.tabBars.buttons[tab]
             XCTAssertTrue(item.waitForExistence(timeout: Self.screenTimeout), "Нет вкладки «\(tab)»")
             item.tap()
             pause(2)
             snapshot(name)
+            if tab == "Рейтинги" {
+                // Переключатель в панели навигации не закрыт плашкой «Демо»: нажатие доходит до него.
+                let exploration = app.buttons["Исследование"]
+                XCTAssertTrue(exploration.waitForExistence(timeout: Self.screenTimeout), "Нет «Исследование»")
+                exploration.tap()
+                XCTAssertTrue(exploration.isSelected, "Плашка «Демо» закрывает переключатель рейтингов")
+            }
         }
 
         let exit = app.buttons["demo.exit"]

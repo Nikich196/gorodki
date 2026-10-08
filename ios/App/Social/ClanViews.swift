@@ -19,6 +19,7 @@ struct ClanTab: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Palette.uiBackground.color)
+            .demoBadgeInset()
             .navigationTitle(social.clanSection.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
