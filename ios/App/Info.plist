@@ -111,5 +111,8 @@
   <!-- Адрес сервера API (ios/Config/Shared.xcconfig). Пустой — сервер не настроен, приложение работает без сети. -->
   <key>GorodkiServerURL</key>
   <string>$(GORODKI_SERVER_URL)</string>
+  <!-- Client ID iOS-клиента Google (ios/Config, issue #4). Пустой — вход через Google не настроен, кнопка выключена. -->
+  <key>GorodkiGoogleClientID</key>
+  <string>$(GORODKI_GOOGLE_CLIENT_ID)</string>
 </dict>
 </plist>
