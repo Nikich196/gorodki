@@ -41,13 +41,15 @@ final class SystemRunStartAccess: RunStartAccess {
 /// `.duckOthers`); в кармане его держит фоновый режим `audio` (Info.plist, PLAN.md, §7.2).
 @MainActor
 final class SystemRunFeedback: NSObject, RunFeedback, AVSpeechSynthesizerDelegate {
-    private let synthesizer = AVSpeechSynthesizer()
-    private let voice = AVSpeechSynthesisVoice(language: "ru-RU")
-
-    override init() {
-        super.init()
+    /// Голос — при первой фразе, а не при запуске: синтез речи iOS при создании спрашивает системное разрешение
+    /// «Движение и фитнес» (отслеживание головы для объёмного звука), и вопрос всплывал на первом экране приложения,
+    /// до «Старта» (PLAN.md, §6.6: разрешения — в момент надобности). К первой фразе забег уже идёт и «Движение» спрошено.
+    private lazy var synthesizer: AVSpeechSynthesizer = {
+        let synthesizer = AVSpeechSynthesizer()
         synthesizer.delegate = self
-    }
+        return synthesizer
+    }()
+    private lazy var voice = AVSpeechSynthesisVoice(language: "ru-RU")
 
     func haptic(_ event: RunFeedbackEvent) {
         switch event {

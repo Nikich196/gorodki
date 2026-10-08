@@ -445,6 +445,9 @@ public struct CeremonyStage: Equatable, Sendable {
     public mutating func claimed(_ loops: [ClaimedLoop], runId: UUID, visible: Bool) {
         for loop in loops {
             let item = CeremonyItem(runId: runId, loop: loop)
+            // Одна петля — одна церемония: повтор той же заявки (тот же снимок дважды) не ставит её второй раз —
+            // иначе после «Продолжить забег» на экран встал бы дубль с уже закрытой карточкой.
+            guard !knows(item.id) else { continue }
             if !visible {
                 missed.append(item)
             } else if playing == nil {
@@ -478,6 +481,11 @@ public struct CeremonyStage: Equatable, Sendable {
             }
         }
         return updated
+    }
+
+    /// Церемония этой петли уже есть: играет, ждёт, пропущена или закрыта.
+    private func knows(_ id: String) -> Bool {
+        playing?.id == id || upcoming.contains { $0.id == id } || missed.contains { $0.id == id } || closed[id] != nil
     }
 
     /// «Продолжить забег»: играющая закрывается, следующая из очереди — играет.

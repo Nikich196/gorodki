@@ -126,4 +126,17 @@ public sealed class TokenServiceTests
 
         Assert.Throws<InvalidOperationException>(() => weak.SigningKeyBytes());
     }
+
+    [Theory]
+    [InlineData("dev:Никита", "dev:Никита")]
+    [InlineData("dev:  Егор ", "dev:Егор")]
+    [InlineData("dev:", null)]
+    [InlineData("eyJhbGciOiJSUzI1NiJ9.e30.x", null)]
+    [InlineData("dev:имя-длиннее-сорока-символов-никто-так-не-называется", null)]
+    public async Task Dev_validator_accepts_only_dev_tokens(string token, string? subject)
+    {
+        var identity = await new DevGoogleTokenValidator().ValidateAsync(token, CancellationToken.None);
+
+        Assert.Equal(subject, identity?.Subject);
+    }
 }

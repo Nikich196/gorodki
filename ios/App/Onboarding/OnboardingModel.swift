@@ -63,8 +63,24 @@ final class OnboardingModel {
         let signIn = dependencies.signIn.map { service -> SignIn in
             { idToken, registration in await service.signIn(idToken: idToken, registration: registration) }
         }
-        return OnboardingModel(signIn: signIn, googleToken: nil)
+        return OnboardingModel(signIn: signIn, googleToken: devGoogleToken())
     }
+
+    #if DEBUG
+        /// Локальная проверка в симуляторе: `-GorodkiDevSignIn <имя>` — вход тестового игрока на локальном сервере с
+        /// `Auth:DevSignIn` (только окружение Development, docs/guides/local-server.md). Без аргумента — как в выпуске.
+        private static func devGoogleToken(
+            _ arguments: [String] = ProcessInfo.processInfo.arguments
+        ) -> GoogleToken? {
+            guard let index = arguments.firstIndex(of: "-GorodkiDevSignIn"), index + 1 < arguments.count else {
+                return nil
+            }
+            let token = "dev:" + arguments[index + 1]
+            return { token }
+        }
+    #else
+        private static func devGoogleToken() -> GoogleToken? { nil }
+    #endif
 
     /// Можно ли нажать «Войти через Google».
     var signInAvailable: Bool {

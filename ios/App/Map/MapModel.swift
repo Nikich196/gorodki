@@ -214,6 +214,24 @@ final class MapModel {
     /// Окно, которое карта показывает при открытии.
     let initialWindow: MapWindow
     let profile: ProfileModel
+    /// «Дом»: его круг открыт в тумане «Исследования» — только на экране, сервер о нём не знает (PLAN.md, §3.10).
+    var home: HomeModel
+    // Кнопки карты (PLAN.md, §5; tokens.md, §8): «Где я» и лига «Бег | Вело».
+    /// Лига карты: «Вело» — с Сезона 1 (D16), до него выбрать нельзя — только пояснение.
+    private(set) var league = League.run
+    /// Пояснение «Вело — с Сезона 1» на карте.
+    var bikeHintShown = false
+    /// Растёт при «Где я» с разрешённой геопозицией — карта центрируется на игроке.
+    private(set) var locateRequest = 0
+    /// Подсказка перед системным запросом геопозиции (PLAN.md, §6.6: одна кнопка «Продолжить»).
+    var locationPrimerShown = false
+    /// Геопозиция запрещена — включить можно только в Настройках.
+    var locationDeniedShown = false
+    /// Что с разрешением на геопозицию и как его спросить — системное в приложении, подменяемое в тестах.
+    @ObservationIgnored var locationAccess: @MainActor () -> MapLocationAccess = { MapLocationAccess.system }
+    @ObservationIgnored var requestLocation: @MainActor () async -> Bool = {
+        await RunController.shared.requestLocationAuthorization()
+    }
 
     @ObservationIgnored private let data: (any MapDataSource)?
     @ObservationIgnored private let names: (any PlayerNames)?
@@ -221,16 +239,18 @@ final class MapModel {
     @ObservationIgnored private var window: MapWindow?
     @ObservationIgnored private var loading: Task<Void, Never>?
 
-    /// Центр Бреста — окно по умолчанию.
-    static let brest = MapWindow(
-        center: Coordinate(latitude: 52.0976, longitude: 23.7341), latitudeDelta: 0.06, longitudeDelta: 0.06)
+    /// Центр Бреста.
+    static let brestCenter = Coordinate(latitude: 52.0976, longitude: 23.7341)
+    /// Окно по умолчанию — Брест.
+    static let brest = MapWindow(center: brestCenter, latitudeDelta: 0.06, longitudeDelta: 0.06)
 
     init(
         profile: ProfileModel, data: (any MapDataSource)? = nil, names: (any PlayerNames)? = nil,
         initialWindow: MapWindow = MapModel.brest,
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() }, home: HomeModel? = nil
     ) {
         self.profile = profile
+        self.home = home ?? HomeModel()
         self.data = data
         self.names = names
         self.initialWindow = initialWindow
@@ -262,6 +282,11 @@ final class MapModel {
     /// Стиль слоя для режима окраски и цвета игрока.
     func style(of group: LandGroup) -> LandStyle {
         LandStyle.of(group, player: player, coloring: coloring)
+    }
+
+    /// Туман на экране: свой с сервера и круг «Дома» поверх (`HomeCircle.display`) — сервер круга не знает.
+    var displayedFog: [FogTileKey: FogTileBits] {
+        HomeCircle.display(fog, home: home.circle)
     }
 
     /// Неистёкшие зоны «спорная» — только на «Захвате»: на «Исследовании» земли скрыты.
@@ -331,6 +356,41 @@ final class MapModel {
     func apply(fog tiles: [FogTileKey: FogTileBits]) {
         fog.merge(tiles) { _, new in new }
         fogRevision += 1
+    }
+
+    /// История исследований очищена (`DELETE /fog`): свой туман стёрт — забыть его и перезапросить (придёт пустым).
+    func fogCleared() {
+        fog = [:]
+        fogRevision += 1
+        scheduleLoad()
+    }
+
+    // MARK: - Кнопки карты
+
+    /// «Где я»: разрешено — центрировать; не спрашивали — подсказка перед запросом; запрещено — путь в Настройки.
+    func locateTapped() {
+        switch locationAccess() {
+        case .allowed: locateRequest += 1
+        case .notDetermined: locationPrimerShown = true
+        case .denied: locationDeniedShown = true
+        }
+    }
+
+    /// «Продолжить» в подсказке: системный запрос, разрешили — центрировать.
+    func locationPrimerAccepted() async {
+        if await requestLocation() {
+            locateRequest += 1
+        } else if locationAccess() == .denied {
+            locationDeniedShown = true
+        }
+    }
+
+    /// «Бег | Вело»: «Бег» — уже выбран, «Вело» — только пояснение до Сезона 1.
+    func select(_ league: League) {
+        switch league {
+        case .run: bikeHintShown = false
+        case .bike: bikeHintShown = true
+        }
     }
 
     // MARK: - Касание

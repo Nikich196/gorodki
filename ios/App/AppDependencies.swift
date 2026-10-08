@@ -43,6 +43,8 @@ final class AppDependencies: Sendable {
     let exports: ExportFolder
     /// Запись для демо-повтора (`RunController`): одна, последняя, только на телефоне.
     let demoRecordingURL: URL?
+    /// Точка «Дом» — только на телефоне (PLAN.md, §3.10), `Application Support/home.json`.
+    let home = HomeStore.live()
     /// Очередь синхронизации — общая для записи забега (`RunRecorder`) и доставки (`SyncEngine`). В приложении — в базе
     /// GRDB (`GRDBSyncStore`): неотправленные забеги переживают выгрузку приложения и перезапуск телефона.
     let syncStore: any SyncStore
@@ -52,6 +54,8 @@ final class AppDependencies: Sendable {
     let installation: InstallationID
     /// Очередь переживёт выгрузку приложения (в базе). `false` — база не открылась, очередь в памяти.
     let queueSurvivesRestart: Bool
+    /// Последний проход синхронизации и последний удачный — для «Резервной копии» (UserDefaults).
+    let syncLog: SyncLog
     /// «Сейчас» для синхронизации, секунды Unix: часы внедряются, чтобы их можно было подменить в проверках.
     private let now: @Sendable () -> Double
     private let engine = Mutex<(ownerId: String, engine: SyncEngine, scheduler: SyncScheduler)?>(nil)
@@ -61,7 +65,7 @@ final class AppDependencies: Sendable {
         rulesStorage: any RulesStorage = InMemoryRulesStorage(),
         installationStorage: any TokenStorage = InMemoryTokenStorage(), tileLocation: TileCacheLocation? = nil,
         history: RunHistory? = nil, exports: ExportFolder = .live(), demoRecordingURL: URL? = nil,
-        now: @escaping @Sendable () -> Double = { Date.now.timeIntervalSince1970 }
+        syncLog: SyncLog = .inMemory(), now: @escaping @Sendable () -> Double = { Date.now.timeIntervalSince1970 }
     ) {
         let tokens = TokenStore(storage: tokenStorage)
         let transport = ClientFactory.urlSessionTransport()
@@ -91,6 +95,7 @@ final class AppDependencies: Sendable {
         self.rules = RulesStore(api: api, storage: rulesStorage)
         self.installation = InstallationID(storage: installationStorage)
         self.queueSurvivesRestart = !(syncStore is InMemorySyncStore)
+        self.syncLog = syncLog
         self.now = now
     }
 
@@ -111,8 +116,14 @@ final class AppDependencies: Sendable {
             installationStorage: KeychainTokenStorage(
                 service: (bundle.bundleIdentifier ?? "gorodki") + ".install", account: "id"),
             tileLocation: .live(), history: database.map { RunHistory($0) }, exports: .live(),
-            demoRecordingURL: support.appendingPathComponent("demo-recording.json"))
+            demoRecordingURL: support.appendingPathComponent("demo-recording.json"),
+            syncLog: SyncLog(
+                load: { UserDefaults.standard.data(forKey: syncLogKey) },
+                save: { UserDefaults.standard.set($0, forKey: syncLogKey) }))
     }
+
+    /// Где журнал синхронизации в UserDefaults.
+    static let syncLogKey = "sync.log"
 
     /// Начать забег (экран забега — этап 2): правила последней известной версии конфига, идентификатор установки,
     /// вошедший игрок. Забег сразу в очереди; `nil` — никто не вошёл: без входа забег некому отправить.
@@ -160,7 +171,7 @@ final class AppDependencies: Sendable {
     }
 
     /// Стереть всё, что телефон хранит об игроке (выход из аккаунта и его удаление, docs/architecture/ios-app.md): вход,
-    /// очередь синхронизации (с недоставленными забегами), землю и туман в памяти и на диске, правила, запись
+    /// очередь синхронизации (с недоставленными забегами), землю и туман в памяти и на диске, «Дом», правила, запись
     /// демо-повтора, историю забегов. Каждая часть стирается, даже если предыдущая не стёрлась. Выгрузки в «Файлах»
     /// (`Documents/Exports`) остаются: их игрок сохранил сам.
     /// - Throws: первую ошибку стирания — остальные части к этому времени уже стёрты.
@@ -178,12 +189,24 @@ final class AppDependencies: Sendable {
         await territory?.reset()
         await fog?.reset()
         tileLocation?.removeAll()  // и без адреса сервера: файлы могли остаться от сборки, где он был
+        do { try home.remove() } catch { failures.append(error) }
         do { try await rules.removeLocal() } catch { failures.append(error) }
         if let demoRecordingURL, FileManager.default.fileExists(atPath: demoRecordingURL.path) {
             do { try FileManager.default.removeItem(at: demoRecordingURL) } catch { failures.append(error) }
         }
         do { try await history?.removeAll() } catch { failures.append(error) }
+        syncLog.clear()
+        ReplayStore.removeAll()  // ролики — след игрока
         if let first = failures.first { throw first }
+    }
+
+    /// Очистить кэш («Хранилище», пункт 5 листика): тайлы земли и тумана на диске и в памяти и собранные видео-повторы.
+    /// Очередь неотправленных забегов, историю, правила и выгрузки не трогает — это не кэш.
+    func clearCaches() async {
+        await territory?.reset()
+        await fog?.reset()
+        tileLocation?.removeAll()
+        ReplayStore.removeAll()
     }
 
     /// Удалить аккаунт (`DELETE /me`), затем стереть всё на телефоне. Аккаунта на сервере уже нет (404) — тоже стереть.
@@ -212,7 +235,11 @@ final class AppDependencies: Sendable {
     /// Сохранить законченные забеги в историю (после «Финиша» и при запуске): очередь сотрёт их точки, как только сервер
     /// подтвердит забег, а GPX выгружается из истории.
     func archiveFinishedRuns() async throws {
-        _ = try await history?.archiveEnded(from: syncStore)
+        let archived = try await history?.archiveEnded(from: syncStore) ?? []
+        guard !archived.isEmpty else { return }
+        // Забег закончен: напоминание «Забег всё ещё идёт» больше не нужно; GPX — в выбранную папку (автоэкспорт).
+        await MainActor.run { RunReminder.cancel() }
+        await AutoExport.shared.export(runs: archived, using: self)
     }
 
     /// След забега из истории — файлом GPX в `Exports/`.
@@ -257,12 +284,17 @@ final class AppDependencies: Sendable {
             let created = SyncEngine(
                 store: store, api: api, ownerId: ownerId, now: now,
                 signedInPlayer: { await tokens.current()?.playerId })
+            let log = syncLog
+            let clock = now
             let scheduler = SyncScheduler(
                 engine: created,
                 backlog: { (try? await SyncBacklog.of(store, ownerId: ownerId)) ?? SyncBacklog() },
                 appActive: { await MainActor.run { UIApplication.shared.applicationState == .active } },
-                // Экрану забега: вторая фаза церемоний, «сервер недоступен», свежий итог.
-                onReport: { report in Task { @MainActor in RunController.shared.syncReported(report) } })
+                // Экрану забега: вторая фаза церемоний, «сервер недоступен», свежий итог. «Резервной копии» — журнал.
+                onReport: { report in
+                    log.record(report, atMs: StoragePrecision.milliseconds(clock()))
+                    Task { @MainActor in RunController.shared.syncReported(report) }
+                })
             let previous = cached?.scheduler
             cached = (ownerId, created, scheduler)
             return ((created, scheduler), previous)

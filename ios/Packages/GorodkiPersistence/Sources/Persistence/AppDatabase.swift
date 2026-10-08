@@ -16,9 +16,14 @@ public struct AppDatabase: Sendable {
 
     /// База приложения: `Application Support/gorodki.sqlite`. Каталог создаётся при первом запуске.
     public static func live(fileManager: FileManager = .default) throws -> AppDatabase {
+        try AppDatabase(file: try liveFile(fileManager: fileManager))
+    }
+
+    /// Где лежит база приложения — и для экрана «Хранилище» (`DiskUsage.database(at:)`).
+    public static func liveFile(fileManager: FileManager = .default) throws -> URL {
         let folder = try fileManager.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        return try AppDatabase(file: folder.appendingPathComponent("gorodki.sqlite"))
+        return folder.appendingPathComponent("gorodki.sqlite")
     }
 
     /// База в файле (WAL): для приложения и проверок «пережила перезапуск».

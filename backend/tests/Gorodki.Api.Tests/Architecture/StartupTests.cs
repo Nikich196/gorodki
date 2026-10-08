@@ -25,6 +25,23 @@ public sealed class StartupTests
     }
 
     [Fact]
+    public void Dev_sign_in_refuses_to_start_outside_development()
+    {
+        // Вход без подписи Google — только на машине разработчика; на Render эта настройка открыла бы любой аккаунт.
+        using var app = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Production");
+            builder.UseSetting("ConnectionStrings:Gorodki", "Host=localhost;Database=none");
+            builder.UseSetting("Auth:SigningKey", Convert.ToBase64String(new byte[32]));
+            builder.UseSetting("Auth:DevSignIn", "true");
+        });
+
+        var error = Assert.ThrowsAny<Exception>(() => app.CreateClient());
+
+        Assert.Contains("Auth:DevSignIn", Messages(error));
+    }
+
+    [Fact]
     public void Sql_commands_are_not_written_to_the_log_one_by_one()
     {
         // Проход обработчика раз в 5 секунд — это сотни тысяч строк «Executed DbCommand» в сутки: в них тонут ошибки.

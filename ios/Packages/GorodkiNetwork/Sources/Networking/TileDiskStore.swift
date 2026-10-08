@@ -66,6 +66,64 @@ public struct TileCacheLocation: Sendable {
     }
 }
 
+/// Сколько места занимают тайлы на диске — для экрана «Хранилище» (пункт 5 листика): земля и туман отдельно.
+public struct TileCacheUsage: Equatable, Sendable {
+    public struct Part: Equatable, Sendable {
+        public var bytes: Int64 = 0
+        public var files = 0
+
+        public init(bytes: Int64 = 0, files: Int = 0) {
+            self.bytes = bytes
+            self.files = files
+        }
+    }
+
+    /// Земля всех лиг (`territory-*`).
+    public var territory = Part()
+    /// Туман всех слоёв и сезонов (`fog-*`).
+    public var fog = Part()
+    /// Прочее в корне: временные файлы атомарной записи, прежние форматы.
+    public var other = Part()
+
+    public init(territory: Part = Part(), fog: Part = Part(), other: Part = Part()) {
+        self.territory = territory
+        self.fog = fog
+        self.other = other
+    }
+
+    public var totalBytes: Int64 { territory.bytes + fog.bytes + other.bytes }
+}
+
+extension TileCacheLocation {
+    /// Сколько занимают тайлы всех игроков: столько освободит `removeAll`. Папки нет — ноль. Вид тайла — по папке
+    /// кэша в пути (`…/<игрок>/territory-run/…`, `…/fog-foot-all/…`).
+    public func usage() -> TileCacheUsage {
+        var usage = TileCacheUsage()
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
+        guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else {
+            return usage
+        }
+        for case let file as URL in files {
+            guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else {
+                continue
+            }
+            let bytes = Int64(values.fileSize ?? 0)
+            let folders = file.deletingLastPathComponent().pathComponents
+            if folders.contains(where: { $0.hasPrefix("territory-") }) {
+                usage.territory.bytes += bytes
+                usage.territory.files += 1
+            } else if folders.contains(where: { $0.hasPrefix("fog-") }) {
+                usage.fog.bytes += bytes
+                usage.fog.files += 1
+            } else {
+                usage.other.bytes += bytes
+                usage.other.files += 1
+            }
+        }
+        return usage
+    }
+}
+
 /// Кэш тайлов на диске для одного `TerritoryCache` или `FogCache`: где лежат файлы и кто сейчас вошёл.
 public struct TileCacheDisk: Sendable {
     public var location: TileCacheLocation

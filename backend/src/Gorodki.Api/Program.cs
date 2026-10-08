@@ -146,7 +146,20 @@ if (withDatabase)
 
     builder.Services.AddOptions<AuthOptions>().Bind(authSection);
     builder.Services.AddSingleton<TokenService>();
-    builder.Services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
+    if (auth.DevSignIn && !builder.Environment.IsDevelopment())
+    {
+        // Вход без подписи Google — только на машине разработчика; на Render такая настройка — ошибка, а не режим.
+        throw new InvalidOperationException("Auth:DevSignIn разрешён только в окружении Development.");
+    }
+
+    if (auth.DevSignIn)
+    {
+        builder.Services.AddSingleton<IGoogleTokenValidator, DevGoogleTokenValidator>();
+    }
+    else
+    {
+        builder.Services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
+    }
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>

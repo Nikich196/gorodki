@@ -32,6 +32,13 @@ public sealed class AuthOptions
     /// <summary>OAuth client ID приложения в Google Cloud (сборки Free и Paid). Пусто — вход через Google выключен.</summary>
     public string[] GoogleClientIds { get; set; } = [];
 
+    /// <summary>
+    /// Вход тестового игрока без Google — только для локальной проверки приложения в симуляторе
+    /// (<see cref="DevGoogleTokenValidator"/>): токен <c>dev:&lt;имя&gt;</c>. Работает только в окружении Development;
+    /// включённый в любом другом окружении — сервер не стартует (<c>Program.cs</c>).
+    /// </summary>
+    public bool DevSignIn { get; set; }
+
     public byte[] SigningKeyBytes()
     {
         var bytes = Decode(SigningKey.Trim());

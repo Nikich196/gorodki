@@ -41,7 +41,7 @@ public static class AuthEndpoints
         TimeProvider time,
         CancellationToken cancellationToken)
     {
-        if (options.Value.GoogleClientIds.Length == 0)
+        if (options.Value.GoogleClientIds.Length == 0 && !options.Value.DevSignIn)
         {
             return Problem(StatusCodes.Status503ServiceUnavailable, "google_not_configured", "Вход через Google ещё не настроен.");
         }

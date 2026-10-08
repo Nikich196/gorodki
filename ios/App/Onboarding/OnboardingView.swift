@@ -8,11 +8,13 @@ struct OnboardingView: View {
     @Bindable var model: OnboardingModel
     /// Посмотреть вкладки без входа — только в сборках команды (`DebugAccess.buildAllows`).
     var browseWithoutSignIn: (@MainActor @Sendable () -> Void)?
+    /// «Посмотреть демо» на интро; `nil` — кнопки нет (режим фикстур для снимков онбординга).
+    var showDemo: (@MainActor @Sendable () -> Void)? = nil
     @State private var debugMenuShown = false
 
     var body: some View {
         NavigationStack(path: $model.path) {
-            IntroStep(model: model)
+            IntroStep(model: model, showDemo: showDemo)
                 .navigationDestination(for: OnboardingStep.self) { step in
                     stepView(step)
                         .toolbar { debugToolbar }
@@ -29,7 +31,7 @@ struct OnboardingView: View {
     @ViewBuilder
     private func stepView(_ step: OnboardingStep) -> some View {
         switch step {
-        case .intro: IntroStep(model: model)
+        case .intro: IntroStep(model: model, showDemo: showDemo)
         case .invite: InviteStep(model: model)
         case .age: AgeStep(model: model)
         case .terms: TermsStep(model: model)
@@ -56,6 +58,7 @@ struct OnboardingView: View {
 
 private struct IntroStep: View {
     @Bindable var model: OnboardingModel
+    var showDemo: (@MainActor @Sendable () -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,6 +85,13 @@ private struct IntroStep: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Palette.uiInk.color)
                 .frame(minHeight: 44)
+                if let showDemo {
+                    Button("Посмотреть демо", systemImage: "play.circle", action: showDemo)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.uiInk2.color)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("intro.demo")
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 12)

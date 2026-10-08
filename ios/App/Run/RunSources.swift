@@ -100,8 +100,8 @@ final class LocationAuthorizationRequest: NSObject, CLLocationManagerDelegate {
 /// не гарантирован). Датчики недоступны или запрещены — это «неизвестно», а не нарушение.
 @MainActor
 final class RunMotionSource {
-    private let activity = CMMotionActivityManager()
-    private let pedometer = CMPedometer()
+    private lazy var activity = CMMotionActivityManager()
+    private lazy var pedometer = CMPedometer()
     private let queue: OperationQueue = {
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
@@ -111,11 +111,15 @@ final class RunMotionSource {
     /// Остановлено ли включение: история CoreMotion приходит позже, и без отметки живые обновления включились бы уже
     /// после `stop()`.
     private var stopped = StopFlag()
+    /// Датчики включались: `stop()` без `start()` не трогает CoreMotion — даже остановка у менеджера без разрешения
+    /// показывает системный вопрос «Движение и фитнес», а при запуске приложения его быть не должно (PLAN.md, §6.6).
+    private var running = false
 
     /// - Parameter since: с какого момента нужны записи. После перезапуска — с отметки уже отправленных датчиков:
     ///   за время выгрузки CoreMotion отдаёт историю.
     func start(sending tracker: RunTracker, since: Date) {
         stopped = StopFlag()
+        running = true
         if CMMotionActivityManager.isActivityAvailable() {
             Self.startActivity(activity, queue: queue, since: since, tracker: tracker, stopped: stopped)
         }
@@ -163,6 +167,8 @@ final class RunMotionSource {
 
     func stop() {
         stopped.set()
+        guard running else { return }
+        running = false
         activity.stopActivityUpdates()
         pedometer.stopUpdates()
     }
