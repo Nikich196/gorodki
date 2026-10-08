@@ -29,6 +29,9 @@ final class SocialScreens {
     let friends: FriendsModel
     let feed: FeedModel
     let inbox: InboxModel
+    /// Есть ли «Входящие» у этого источника. Сервер их пока не отдаёт (#139 отложена после показа, адрес отвечает 500) —
+    /// у живого источника колокольчика и строки в «Профиле» нет, у образцов (демо, снимки) — есть.
+    let inboxEnabled: Bool
     var clanSection: ClanSection = .clan
     /// Лист «Новый клан».
     var createClanShown = false
@@ -37,8 +40,13 @@ final class SocialScreens {
     /// Лист «Входящие» с «Карты».
     var inboxShown = false
 
-    /// - Parameter backend: `nil` — нет адреса сервера: экраны скажут «нет связи».
-    init(backend: (any SocialBackend)?, now: @escaping @Sendable () -> Date = { .now }) {
+    /// - Parameters:
+    ///   - backend: `nil` — нет адреса сервера: экраны скажут «нет связи».
+    ///   - inboxEnabled: показывать ли «Входящие» — см. одноимённое свойство.
+    init(
+        backend: (any SocialBackend)?, inboxEnabled: Bool = true, now: @escaping @Sendable () -> Date = { .now }
+    ) {
+        self.inboxEnabled = inboxEnabled
         leaderboards = LeaderboardsModel(source: backend)
         clan = ClanModel(source: backend, now: now)
         friends = FriendsModel(source: backend)

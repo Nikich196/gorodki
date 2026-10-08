@@ -112,7 +112,7 @@ struct InboxBell: View {
     @Environment(\.runTransition) private var transition
 
     var body: some View {
-        if let social {
+        if let social, social.inboxEnabled {
             MapGlassButton("Входящие", systemImage: social.inbox.unread > 0 ? "bell.badge" : "bell") {
                 social.inboxShown = true
             }
@@ -160,7 +160,7 @@ struct InboxProfileRow: View {
     @Environment(SocialScreens.self) private var social: SocialScreens?
 
     var body: some View {
-        if let social {
+        if let social, social.inboxEnabled {
             NavigationLink {
                 InboxView(model: social.inbox)
             } label: {
