@@ -50,4 +50,14 @@ enum CountText {
     static func score(_ count: Int) -> String {
         String(localized: "\(count) очков", locale: NumberText.locale)
     }
+
+    /// Состав клана: «3 участника».
+    static func members(_ count: Int) -> String {
+        String(localized: "\(count) участников", locale: NumberText.locale)
+    }
+
+    /// Респекты поста в ленте: «1 респект», «3 респекта».
+    static func respects(_ count: Int) -> String {
+        String(localized: "\(count) респектов", locale: NumberText.locale)
+    }
 }

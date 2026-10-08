@@ -33,6 +33,7 @@ private struct LiveRoot: View {
     private let session = AppSession.shared
     @State private var onboarding = OnboardingModel.live()
     @State private var shell = ShellModel.live()
+    @State private var demoShell: ShellModel? = nil
     @State private var noticeShown = false
 
     var body: some View {
@@ -41,13 +42,16 @@ private struct LiveRoot: View {
             case .unknown:
                 Palette.uiBackground.color.ignoresSafeArea()
             case .signedOut, .signedIn:
-                if session.showsShell {
+                if session.demo, let demoShell {
+                    DemoShell(model: demoShell)
+                } else if session.showsShell {
                     AppShell(model: shell)
                 } else {
                     OnboardingView(
                         model: onboarding,
                         browseWithoutSignIn: DebugAccess.buildAllows
-                            ? { @MainActor in AppSession.shared.browsingWithoutSignIn = true } : nil)
+                            ? { @MainActor in AppSession.shared.browsingWithoutSignIn = true } : nil,
+                        showDemo: { @MainActor in AppSession.shared.demo = true })
                 }
             }
         }
@@ -58,14 +62,19 @@ private struct LiveRoot: View {
                 shell = ShellModel.live()
             }
             shell.profile.signedIn = session.status == .signedIn
+            shell.home.reload()  // «Дом» прежнего игрока стёрт при выходе — не показывать новому
             shell.profile.role = session.role
             shell.profile.api = session.status == .signedIn ? AppDependencies.shared.api : nil
             await shell.profile.refresh()
         }
+        .onChange(of: session.demo) { _, demo in
+            // Демо — каждый раз с начала: свежие образцы, без следов прошлого показа.
+            demoShell = demo ? DemoMode.shell() : nil
+        }
         .onChange(of: session.notice) { _, notice in
             noticeShown = notice != nil
         }
-        .alert("Выход", isPresented: $noticeShown, presenting: session.notice) { _ in
+        .alert(Text(session.noticeTitle), isPresented: $noticeShown, presenting: session.notice) { _ in
             Button("Понятно", role: .cancel) { session.notice = nil }
         } message: { notice in
             Text(notice)

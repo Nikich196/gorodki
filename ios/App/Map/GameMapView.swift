@@ -33,6 +33,8 @@ struct GameMapView: UIViewRepresentable {
         ants.frame = map.bounds
         ants.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         map.addSubview(ants)
+        // Своё место — только если геопозиция уже разрешена: спрашивает её «Где я» или «Старт» (PLAN.md, §6.6).
+        map.showsUserLocation = MapLocationAccess.system == .allowed
         #if DEBUG
             map.accessibilityIdentifier = "game-map"  // снимки проверяют, что нарисовано (`accessibilityValue`)
         #endif
@@ -70,6 +72,9 @@ struct GameMapView: UIViewRepresentable {
         private var appliedLayer: MapLayer?
         private var appliedFog: FogKey?
         private var appliedZones: ZonesKey?
+        private var appliedHome: Int?
+        private var appliedLocate: Int?
+        private var homeAnnotation: HomeAnnotation?
 
         struct Environment: Equatable {
             var theme: Theme
@@ -92,6 +97,8 @@ struct GameMapView: UIViewRepresentable {
         private struct FogKey: Equatable {
             var revision: Int
             var theme: Theme
+            /// Круг «Дома» (`HomeModel.revision`) — рисуется поверх своего тумана.
+            var home: Int
         }
 
         private struct ZonesKey: Equatable {
@@ -136,7 +143,7 @@ struct GameMapView: UIViewRepresentable {
             }
             let land = LandKey(revision: model.landRevision, viewer: model.viewerId)
             let paint = PaintKey(coloring: model.coloring, player: model.player, theme: theme)
-            let fog = FogKey(revision: model.fogRevision, theme: theme)
+            let fog = FogKey(revision: model.fogRevision, theme: theme, home: model.home.revision)
             let layer = model.layer
             if land != appliedLand {
                 refill(on: map)
@@ -148,7 +155,7 @@ struct GameMapView: UIViewRepresentable {
                 appliedPaint = paint
             }
             if fog != appliedFog {
-                fogRenderer.update(model.fog, theme: theme)
+                fogRenderer.update(model.displayedFog, theme: theme)
                 appliedFog = fog
             }
             if layer != appliedLayer {
@@ -165,6 +172,18 @@ struct GameMapView: UIViewRepresentable {
                 }
                 appliedLayer = layer
             }
+            if model.home.revision != appliedHome {
+                showHome(on: map)
+                appliedHome = model.home.revision
+            }
+            if model.locateRequest != appliedLocate {
+                if appliedLocate != nil {
+                    // «Где я»: своё место и слежение, пока игрок сам не сдвинет карту.
+                    map.showsUserLocation = true
+                    map.setUserTrackingMode(.follow, animated: !reduceMotion)
+                }
+                appliedLocate = model.locateRequest
+            }
             let zones = ZonesKey(zones: model.visibleZones, theme: theme, reduceMotion: reduceMotion)
             if zones != appliedZones {
                 ants.show(zones.zones, theme: theme, reduceMotion: reduceMotion)
@@ -174,6 +193,17 @@ struct GameMapView: UIViewRepresentable {
             #if DEBUG
                 report(on: map)
             #endif
+        }
+
+        /// Метка «Дома» — на обоих слоях; круг открыт только в тумане «Исследования».
+        private func showHome(on map: MKMapView) {
+            if let homeAnnotation {
+                map.removeAnnotation(homeAnnotation)
+            }
+            homeAnnotation = model.home.home.map { HomeAnnotation(coordinate: $0.location) }
+            if let homeAnnotation {
+                map.addAnnotation(homeAnnotation)
+            }
         }
 
         /// «Захват» — земли, «Исследование» — туман.
@@ -326,6 +356,22 @@ struct GameMapView: UIViewRepresentable {
             return MKOverlayRenderer(overlay: overlay)
         }
 
+        func mapView(_ mapView: MKMapView, viewFor annotation: any MKAnnotation) -> MKAnnotationView? {
+            guard annotation is HomeAnnotation else { return nil }  // своё место — системной точкой
+            let view =
+                mapView.dequeueReusableAnnotationView(withIdentifier: HomeAnnotation.reuseID)
+                ?? MKAnnotationView(annotation: annotation, reuseIdentifier: HomeAnnotation.reuseID)
+            view.annotation = annotation
+            // Нейтральная метка (не цвет игрока): белый дом на тёмном круге днём, наоборот — ночью.
+            let symbol = UIImage.SymbolConfiguration(pointSize: 26, weight: .semibold)
+                .applying(UIImage.SymbolConfiguration(paletteColors: [Palette.uiCell.uiColor, Palette.uiInk.uiColor]))
+            view.image = UIImage(systemName: "house.circle.fill", withConfiguration: symbol)
+            view.displayPriority = .required
+            view.isAccessibilityElement = true
+            view.accessibilityLabel = "Дом"
+            return view
+        }
+
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
             ants.layout(on: mapView)
         }
@@ -353,6 +399,30 @@ struct GameMapView: UIViewRepresentable {
             model.select(
                 at: Coordinate(latitude: coordinate.latitude, longitude: coordinate.longitude), tolerance: tolerance)
         }
+    }
+}
+
+/// Разрешение на геопозицию для кнопки «Где я».
+enum MapLocationAccess: Equatable {
+    case allowed, notDetermined, denied
+
+    /// Что сейчас у системы.
+    @MainActor static var system: MapLocationAccess {
+        switch CLLocationManager().authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways: .allowed
+        case .notDetermined: .notDetermined
+        default: .denied
+        }
+    }
+}
+
+/// Метка «Дома» на карте игры.
+final class HomeAnnotation: NSObject, MKAnnotation {
+    static let reuseID = "home"
+    let coordinate: CLLocationCoordinate2D
+
+    init(coordinate: CLLocationCoordinate2D) {
+        self.coordinate = coordinate
     }
 }
 

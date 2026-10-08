@@ -151,14 +151,17 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen("map", fixture: "player", expecting: "Старт", name: "17-tab-map", settle: 6)
     }
 
+    /// «Рейтинги» — «Захват» на образце `leaderboard-territory.json`: свои 17-е место закреплено снизу,
+    /// «предварительно». Днём и ночью.
     @MainActor
     func test18Leaderboards() {
-        snapshotScreen("leaderboards", expecting: "Рейтинги — скоро", name: "18-tab-leaderboards")
+        snapshotScreen("leaderboards", expecting: "Муха", name: "18-tab-leaderboards")
     }
 
+    /// «Клан» — свой клан из `clan.json`: код-приглашение лидеру, состав с ролями. Только днём.
     @MainActor
     func test19Clan() {
-        snapshotScreen("clan", expecting: "Кланы — скоро", name: "19-tab-clan")
+        snapshotScreen("clan", expecting: "Бегуны БрГТУ", name: "19-tab-clan", themes: ["day"])
     }
 
     @MainActor
@@ -299,6 +302,147 @@ final class ScreenSnapshotTests: XCTestCase {
         XCTAssertTrue(sheet, "Лист «Новый забег» не открылся")
     }
 
+    // MARK: - Профиль и настройки (40–50, только днём)
+
+    @MainActor
+    func test40Settings() {
+        snapshotScreen(
+            "settings", expecting: "Очистить историю исследований", name: "40-settings", settle: 1.5, pages: 2,
+            themes: ["day"])
+    }
+
+    @MainActor
+    func test41PrivacyZones() {
+        snapshotScreen("privacy-zones", expecting: "Зона 1", name: "41-privacy-zones", settle: 4, themes: ["day"])
+    }
+
+    /// Пусто — общий компонент состояний карточкой.
+    @MainActor
+    func test42PrivacyZonesEmpty() {
+        snapshotScreen(
+            "privacy-zones", fixture: "empty", expecting: "Зон пока нет", name: "42-privacy-zones-empty",
+            themes: ["day"])
+    }
+
+    /// «Сменить Дом»: круг 500 м палитрой тумана под неподвижной меткой.
+    @MainActor
+    func test43Home() {
+        snapshotScreen("home", expecting: "Перенести «Дом» сюда", name: "43-home", settle: 4, themes: ["day"])
+    }
+
+    /// Статистика с полями E9 (образец fog-summary.json): «% Бреста», сезоны, районы.
+    @MainActor
+    func test44ExplorationStats() {
+        snapshotScreen(
+            "exploration-stats", expecting: "Бреста открыто", name: "44-exploration-stats", settle: 2, pages: 2,
+            themes: ["day"])
+    }
+
+    /// У сервера нет набора OSM: гектары и клетки, «% Бреста» — «появится позже».
+    @MainActor
+    func test45ExplorationStatsNoOSM() {
+        snapshotScreen(
+            "exploration-stats", fixture: "no-osm", expecting: "появится позже", name: "45-exploration-stats-no-osm",
+            settle: 2, themes: ["day"])
+    }
+
+    /// Профиль без сети — общий компонент состояний карточкой с «Повторить».
+    @MainActor
+    func test46ProfileOffline() {
+        snapshotScreen("offline", expecting: "Нет сети", name: "46-profile-offline", themes: ["day"])
+    }
+
+    /// Сервер недоступен — тот же компонент на весь экран.
+    @MainActor
+    func test47ServerDown() {
+        snapshotScreen(
+            "exploration-stats", fixture: "server-down", expecting: "Сервер недоступен", name: "47-server-down",
+            themes: ["day"])
+    }
+
+    /// Профиль целиком: сезон, плитки, «скоро».
+    @MainActor
+    func test48Profile() {
+        snapshotScreen(
+            "profile", fixture: "player", expecting: "Скоро в профиле", name: "48-profile", pages: 2, themes: ["day"])
+    }
+
+    /// «Исследование» с «Домом»: круг открыт в тумане, метка «Дома», «Где я», «Бег | Вело».
+    @MainActor
+    func test49MapHome() {
+        snapshotScreen("map-home", expecting: "Открыто", name: "49-map-home", settle: 6, themes: ["day"])
+    }
+
+    /// «Вело» — нажатие показывает пояснение «с Сезона 1».
+    @MainActor
+    func test50MapBikeHint() {
+        let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
+        let bike = button(in: app, containing: "Вело")
+        let shown = bike.waitForExistence(timeout: Self.launchTimeout)
+        if shown {
+            bike.tap()
+        }
+        let hint = waitForAny([text(in: app, containing: "с Сезона 1")], timeout: Self.screenTimeout)
+        pause(0.5)
+        snapshot("50-map-bike-hint-day")
+        XCTAssertTrue(shown, "На карте нет «Вело»")
+        XCTAssertTrue(hint, "Нет пояснения «Вело — с Сезона 1»")
+    }
+
+    // MARK: - Социальные экраны (SampleSocialSource: образцы contracts/samples)
+    // Номера 24–35, 40–59 и 60+ заняты другими ветками, поэтому — с 80. Только днём: ночь снимает рейтинг (18).
+
+    /// «Исследование»: своё 7-е место среди первых — строка выделена, снизу не закреплена.
+    @MainActor
+    func test80LeaderboardsExploration() {
+        snapshotScreen(
+            "leaderboards-exploration", expecting: "Лиса-2718", name: "80-leaderboards-exploration", themes: ["day"])
+    }
+
+    /// «Клан»: не в клане — вступить по коду или создать свой.
+    @MainActor
+    func test81ClanJoin() {
+        snapshotScreen("clan-join", expecting: "Ты пока без клана", name: "81-clan-join", themes: ["day"])
+    }
+
+    /// Лист «Новый клан»: название и свободные оттенки из `clan-hues.json`.
+    @MainActor
+    func test82ClanCreate() {
+        snapshotScreen("clan-create", expecting: "Новый клан", name: "82-clan-create", settle: 2, themes: ["day"])
+    }
+
+    /// «Друзья»: свой код, входящая заявка, друг.
+    @MainActor
+    func test83Friends() {
+        snapshotScreen("friends", expecting: "Твой код для друзей", name: "83-friends", themes: ["day"])
+    }
+
+    /// Лист «Добавить друга».
+    @MainActor
+    func test84FriendAdd() {
+        snapshotScreen("friend-add", expecting: "Отправить заявку", name: "84-friend-add", settle: 2, themes: ["day"])
+    }
+
+    /// «Лента»: захват друга с респектом и свой забег.
+    @MainActor
+    func test85Feed() {
+        snapshotScreen("feed", expecting: "Муха", name: "85-feed", themes: ["day"])
+    }
+
+    /// «Входящие»: непрочитанное нападение и прочитанная серия.
+    @MainActor
+    func test86Inbox() {
+        snapshotScreen("inbox", expecting: "Часть твоей земли", name: "86-inbox", themes: ["day"])
+    }
+
+    /// Адрес ещё заглушка сервера (500): экран честно говорит «пока не работает на сервере».
+    @MainActor
+    func test87ServerStub() {
+        snapshotScreen(
+            "leaderboards", fixture: "server-stub", expecting: "Пока не работает", name: "87-server-stub",
+            themes: ["day"])
+    }
+
     /// Экран режима фикстур днём и ночью (`themes`): по запуску на тему, снимок — до проверки текста, как и у
     /// остальных. `pages` — сколько снимков с прокруткой между ними.
     @MainActor
@@ -333,6 +477,79 @@ final class ScreenSnapshotTests: XCTestCase {
             pause(2.5)
             snapshot("\(prefix)-\(page)")
         }
+    }
+
+    // MARK: - Пункты листика (App/Profile, фикстуры — App/Fixtures/SheetFixtures.swift)
+
+    /// «Отладка → Пункты задания»: 14 пунктов со статусом по таблице §4 PLAN.md.
+    @MainActor
+    func test60AssignmentSheet() {
+        snapshotScreen("assignment", expecting: "OAuth", name: "60-assignment-sheet", settle: 1.5, themes: ["day"])
+    }
+
+    /// «Галерея»: ограниченный доступ, сетка с видео и геотегами (плитки нарисованы фикстурой).
+    @MainActor
+    func test61Gallery() {
+        snapshotScreen("gallery", expecting: "Выбрать ещё", name: "61-gallery", settle: 2, themes: ["day"])
+    }
+
+    /// «Видео-повтор»: обложка со светящимся следом, сборка фоновой задачей на 62 %.
+    @MainActor
+    func test63Replay() {
+        snapshotScreen("replay", expecting: "Собираю кадры", name: "63-replay", settle: 1.5, themes: ["day"])
+    }
+
+    /// «Хранилище»: диаграмма появляется с анимацией — снимок после неё.
+    @MainActor
+    func test64Storage() {
+        snapshotScreen("storage", expecting: "Земля — тайлы карты", name: "64-storage", settle: 2, themes: ["day"])
+    }
+
+    @MainActor
+    func test65Backup() {
+        snapshotScreen("backup", expecting: "На сервере", name: "65-backup", settle: 1.5, themes: ["day"])
+    }
+
+    @MainActor
+    func test66Files() {
+        snapshotScreen("files", expecting: "Автоэкспорт", name: "66-files", settle: 1.5, themes: ["day"])
+    }
+
+    @MainActor
+    func test67Calendar() {
+        snapshotScreen("calendar", expecting: "Сезон 0 (бета)", name: "67-calendar", settle: 1.5, themes: ["day"])
+    }
+
+    @MainActor
+    func test68Invite() {
+        snapshotScreen(
+            "invite-friend", expecting: "Код приглашения", name: "68-invite-friend", settle: 1.5, themes: ["day"])
+    }
+
+    /// «Мой QR»: карточка с бликом — снимок после него.
+    @MainActor
+    func test69MyQR() {
+        snapshotScreen("my-qr", expecting: "Мой профиль", name: "69-my-qr", settle: 2.5, themes: ["day"])
+    }
+
+    /// Сканер без камеры (симулятор): рамка и прочитанный код приглашения.
+    @MainActor
+    func test70Scanner() {
+        snapshotScreen("scanner", expecting: "ABCD-2345", name: "70-scanner", settle: 1.5, themes: ["day"])
+    }
+
+    @MainActor
+    func test71Notifications() {
+        snapshotScreen(
+            "notifications", expecting: "Сезон заканчивается завтра", name: "71-notifications", settle: 1.5,
+            themes: ["day"])
+    }
+
+    /// «Профиль» с разделами пунктов листика.
+    @MainActor
+    func test72ProfileSections() {
+        snapshotScreen(
+            "profile", fixture: "player", expecting: "Галерея", name: "72-profile-sections", settle: 1, themes: ["day"])
     }
 
     // MARK: - Переходы

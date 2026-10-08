@@ -211,6 +211,41 @@
         }
       }
     },
+    "%lld респектов" : {
+      "comment" : "Респекты поста в ленте: «1 респект», «3 респекта», «5 респектов».",
+      "localizations" : {
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld респекта"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld респектов"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld респект"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld респекта"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld соток" : {
       "comment" : "Площадь в сотках (1 сотка = 100 м²): «1 сотка», «2 сотки», «125 соток».",
       "localizations" : {
@@ -344,6 +379,41 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld участка"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld участников" : {
+      "comment" : "Состав клана: «1 участник», «3 участника», «12 участников».",
+      "localizations" : {
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld участника"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld участников"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld участник"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld участника"
                 }
               }
             }

@@ -60,11 +60,22 @@ enum FixtureScreen: String, CaseIterable, Sendable {
     case map, leaderboards, clan, profile
     /// Карта: лист участка по касанию, слой «Исследование».
     case mapParcel = "map-parcel", mapExplore = "map-explore"
+    /// Профиль и настройки: настройки, приватные зоны, «Дом», статистика «Исследования», профиль без сети, круг «Дома»
+    /// на «Исследовании».
+    case settings, privacyZones = "privacy-zones", home, explorationStats = "exploration-stats", offline
+    case mapHome = "map-home"
     /// Экраны забега: HUD, церемония захвата, свёрнутый забег (плашка над таб-баром), итог, детали, история.
     case hud, hudCeremony = "hud-ceremony", hudCollapsed = "hud-collapsed"
     case runResult = "run-result", runDetails = "run-details", runHistory = "run-history"
+    /// Социальные экраны (`SocialFixture`): «Исследование» в «Рейтингах»; «Клан»: не в клане, лист «Новый клан»;
+    /// «Друзья», лист «Добавить друга»; «Лента»; «Входящие». `leaderboards` и `clan` — «Захват» и свой клан.
+    case leaderboardsExploration = "leaderboards-exploration"
+    case clanJoin = "clan-join", clanCreate = "clan-create", friends, friendAdd = "friend-add", feed, inbox
     /// Отладочное меню: «Проверка установки» и «Лаборатория».
     case debug
+    /// Экраны пунктов листика из «Профиля» (`ProfileFeature`) и «Отладка → Пункты задания».
+    case gallery, replay, storage, backup, files, calendar, inviteFriend = "invite-friend"
+    case myQR = "my-qr", scanner, notifications, assignment
 }
 
 extension FixtureScreen {
@@ -75,6 +86,11 @@ extension FixtureScreen {
 
     /// Экран карты с данными фикстуры (`MapFixture`).
     var isMap: Bool {
-        self == .mapParcel || self == .mapExplore
+        self == .mapParcel || self == .mapExplore || self == .mapHome
+    }
+
+    /// Вкладка «Клан» на одном из разделов (`SocialFixture`).
+    var isClanTab: Bool {
+        [.clan, .clanJoin, .clanCreate, .friends, .friendAdd, .feed].contains(self)
     }
 }

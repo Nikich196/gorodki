@@ -2,9 +2,10 @@ import Foundation
 import GorodkiAPI
 import OpenAPIRuntime
 
-/// Аккаунт на сервере: зоны приватности (`/me/privacy-zones`), удаление аккаунта (`DELETE /me`) и «мои данные»
-/// (`GET /me/export`). Только запросы — экраны этапа 2 зовут их через `AppDependencies`; стирание данных на телефоне
-/// после удаления — там же (`wipeLocalData`).
+/// Аккаунт на сервере: зоны приватности (`/me/privacy-zones`), удаление аккаунта (`DELETE /me`), «мои данные»
+/// (`GET /me/export`), очистка истории исследований (`DELETE /fog`) и согласие на показ ника (`PUT /me/public-profile`).
+/// Только запросы — экраны («Настройки», «Приватные зоны») зовут их через `AppDependencies`; стирание данных на телефоне
+/// после удаления — там же (`wipeLocalData`). Текст ошибки для игрока — `RequestFailure`.
 public struct AccountService: Sendable {
     public typealias PrivacyZone = Components.Schemas.PrivacyZoneResponse
     public typealias Deletion = Components.Schemas.AccountDeletionResponse
@@ -56,6 +57,34 @@ public struct AccountService: Sendable {
         switch try await api.deleteMe() {
         case .accepted(let accepted):
             return try accepted.body.json
+        case .notFound:
+            throw AccountServiceError.notFound
+        case .undocumented(let status, _):
+            throw AccountServiceError.unexpectedStatus(status)
+        }
+    }
+
+    /// «Очистить историю исследований» (`DELETE /fog`, docs/architecture/fog.md): весь свой туман — оба слоя, за всё
+    /// время и по сезонам. Точку «Дом» и её круг сервер не знает — они на телефоне.
+    /// - Throws: `AccountServiceError.rejected(status: 503, code: "fog_clear_busy")` — туман занят, ничего не стёрто.
+    public func clearExplorationHistory() async throws {
+        switch try await api.clearFog() {
+        case .noContent:
+            return
+        case .serviceUnavailable(let response):
+            throw AccountServiceError.rejected(status: 503, code: try? response.body.application_problem_plus_json.code)
+        case .undocumented(let status, _):
+            throw AccountServiceError.unexpectedStatus(status)
+        }
+    }
+
+    /// Согласие на показ ника, цвета и земли по нику (`PUT /me/public-profile`, PLAN.md, §3.16): без него в рейтингах —
+    /// «Игрок #1234». Ответ — профиль, как `GET /me`.
+    /// - Throws: `AccountServiceError.notFound` — аккаунта уже нет.
+    public func setPublicProfile(_ enabled: Bool) async throws -> Components.Schemas.MeResponse {
+        switch try await api.setPublicProfile(body: .json(.init(enabled: enabled))) {
+        case .ok(let ok):
+            return try ok.body.json
         case .notFound:
             throw AccountServiceError.notFound
         case .undocumented(let status, _):

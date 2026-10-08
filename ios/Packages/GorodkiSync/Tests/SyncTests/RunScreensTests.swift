@@ -156,6 +156,19 @@ struct RunScreensTests {
         #expect(stage.playing == nil)
     }
 
+    @Test("Та же петля дважды — одна церемония: повтор не встаёт в очередь ни играя, ни после «Продолжить забег»")
+    func repeatedClaimIsIgnored() {
+        var stage = CeremonyStage()
+        stage.claimed([Self.loop(0)], runId: Self.runId, visible: true)
+        stage.claimed([Self.loop(0)], runId: Self.runId, visible: true)
+        #expect(stage.playing?.claimNo == 0 && stage.upcoming.isEmpty)
+
+        stage.finishPlaying()
+        stage.claimed([Self.loop(0)], runId: Self.runId, visible: true)
+        stage.claimed([Self.loop(0)], runId: Self.runId, visible: false)
+        #expect(stage.playing == nil && stage.upcoming.isEmpty && stage.missed.isEmpty)
+    }
+
     @Test("Вторая фаза — без новой церемонии: обновляет играющую; решение по закрытой — тост")
     func secondPhase() {
         var stage = CeremonyStage()

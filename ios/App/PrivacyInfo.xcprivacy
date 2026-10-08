@@ -70,13 +70,23 @@
   <key>NSPrivacyAccessedAPITypes</key>
   <array>
     <!-- UserDefaults — только свои ключи приложения: подсказка «забег мог идти», свои Live Activity, прогулка
-         «Лаборатории». -->
+         «Лаборатории», журнал синхронизации, настройки напоминаний и автоэкспорта. -->
     <dict>
       <key>NSPrivacyAccessedAPIType</key>
       <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
       <key>NSPrivacyAccessedAPITypeReasons</key>
       <array>
         <string>CA92.1</string>
+      </array>
+    </dict>
+    <!-- Размер и время изменения своих файлов («Хранилище», «Файлы и экспорт»: resourceValues, attributesOfItem) —
+         только в контейнере приложения, с телефона не уходят. -->
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array>
+        <string>C617.1</string>
       </array>
     </dict>
     <!-- ProcessInfo.systemUptime — сколько прожило соединение реального времени (RealtimeClient: прожившее 30 с

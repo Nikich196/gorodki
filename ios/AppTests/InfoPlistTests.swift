@@ -22,6 +22,32 @@ struct InfoPlistTests {
         #expect(Set(modes).isSuperset(of: ["location", "audio", "fetch", "processing"]), "режимы: \(modes)")
     }
 
+    @Test("Сборка видео-повтора (BGContinuedProcessingTask) разрешена в Info.plist — иначе iOS не примет задачу")
+    func replayTaskIdentifierIsPermitted() throws {
+        let permitted = try #require(
+            Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String])
+        #expect(permitted.contains(ReplayTaskRelay.identifier))
+        #expect(ReplayTaskRelay.identifier.hasSuffix(".replay.build"))
+    }
+
+    @Test("«Картинка в картинке» видео-повтора: фоновый режим audio")
+    func pictureInPictureMode() throws {
+        let modes = try #require(Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String])
+        #expect(modes.contains("audio"))
+    }
+
+    @Test(
+        "Тексты разрешений пунктов листика есть и по-русски: без них iOS обрывает приложение при первом запросе",
+        arguments: [
+            "NSPhotoLibraryUsageDescription", "NSPhotoLibraryAddUsageDescription", "NSCameraUsageDescription",
+            "NSCalendarsWriteOnlyAccessUsageDescription", "NSContactsUsageDescription",
+        ])
+    func usageDescriptions(_ key: String) throws {
+        let text = try #require(Bundle.main.object(forInfoDictionaryKey: key) as? String, "нет \(key)")
+        #expect(text.count > 40)
+        #expect(text.unicodeScalars.contains { (0x0410...0x044F).contains($0.value) }, "не по-русски: \(text)")
+    }
+
     @Test("Выгрузки видны в «Файлах»: общий доступ к Documents и открытие на месте")
     func filesAppAccess() {
         #expect(Bundle.main.object(forInfoDictionaryKey: "UIFileSharingEnabled") as? Bool == true)
