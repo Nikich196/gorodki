@@ -1758,9 +1758,10 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         new
                         {
                             Number = 0,
-                            CleanStart = true,
+                            CleanStart = false,
                             Name = "Сезон 0 (бета)",
-                            StartsAt = new DateTimeOffset(new DateTime(2026, 11, 15, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                            ResetAt = new DateTimeOffset(new DateTime(2026, 10, 14, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            StartsAt = new DateTimeOffset(new DateTime(2026, 10, 14, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         },
                         new
                         {
