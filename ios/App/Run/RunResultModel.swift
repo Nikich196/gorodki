@@ -112,6 +112,18 @@ struct RunHistoryRow: Equatable, Identifiable, Sendable {
     /// «+1,25 га» — «взятое»; «≈ +1,2 га» — пока сервер не решил; `nil` — петель не было.
     var area: String?
     var isReplay: Bool
+    /// Маршрут для миниатюры — не больше `thumbnailPoints` точек; пусто — значок лиги.
+    var track: [Coordinate] = []
+
+    /// Точек в миниатюре маршрута: на 44 pt больше не видно.
+    static let thumbnailPoints = 60
+
+    /// Прорежённый маршрут: каждая n-я точка и последняя.
+    static func thumbnail(_ track: [Coordinate]) -> [Coordinate] {
+        guard track.count > thumbnailPoints else { return track }
+        let step = Double(track.count - 1) / Double(thumbnailPoints - 1)
+        return (0..<thumbnailPoints).map { track[Int((Double($0) * step).rounded())] }
+    }
 }
 
 /// История забегов (PLAN.md, §5: «Детали забега» — из истории): законченные забеги с телефона, новые первыми.
@@ -138,7 +150,9 @@ final class RunHistoryModel {
         var fresh: [RunHistoryRow] = []
         for entry in await source.history() {
             let result = await source.result(of: entry.id, now: now)
-            fresh.append(Self.row(entry, result: result))
+            var row = Self.row(entry, result: result)
+            row.track = RunHistoryRow.thumbnail(await source.track(of: entry.id))
+            fresh.append(row)
         }
         rows = fresh
         loaded = true

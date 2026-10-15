@@ -108,6 +108,7 @@ final class SessionRelay {
                 await dependencies.realtime?.stop()
                 // Видимые версии у каждого игрока свои (скрытые чужие захваты) — кэш земли прежнего входа не годится.
                 await dependencies.resetTiles()  // туман — свой у каждого игрока
+                await WidgetPublisher.clear()  // виджет «Моя земля» — тоже: новый вход запишет свой снимок
                 guard case .signedIn = event else { continue }
                 if await MainActor.run(body: { UIApplication.shared.applicationState == .active }) {
                     await dependencies.realtime?.start()

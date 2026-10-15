@@ -118,11 +118,8 @@ struct NoClanView: View {
                     social.createClanShown = true
                 } label: {
                     Label("Создать свой клан", systemImage: "plus.circle.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 52)
                 }
-                .buttonStyle(.bordered)
-                .tint(Palette.uiInk.color)
+                .buttonStyle(.brand)
                 .disabled(model.joinBlockedUntil != nil)
                 .matchedTransitionSource(id: "clan.create", in: transition)
             }
@@ -267,10 +264,10 @@ struct ClanDetailView: View {
                         code: code,
                         shareText: "Вступай в клан «\(clan.name)» в «Городках»: вкладка «Клан» → код \(code)",
                         footnote: "По коду вступают сразу, без заявок. В клане не больше 12 человек.")
-                    Button("Выдать новый код") { renewAsked = true }
+                    Button("Выдать новый код", systemImage: "arrow.triangle.2.circlepath") { renewAsked = true }
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Palette.uiInk.color)
-                        .padding(.horizontal, 16)
+                        .buttonStyle(.glass)
+                        .tint(Palette.uiInk.color)
                         .disabled(model.busy)
                 }
                 SectionTitle("Состав")

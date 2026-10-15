@@ -128,6 +128,18 @@ struct ParcelSheetContent: Equatable {
         var title: String
         var value: String
         var id: String { title }
+
+        /// Значок строки (дизайн-проход 15.10).
+        var symbolName: String {
+            switch title {
+            case "Уровень": "chart.bar.fill"
+            case "Последний визит": "figure.walk.motion"
+            case "Щит": "shield.fill"
+            case "Осада": "flame.fill"
+            case "Спорная": "exclamationmark.triangle.fill"
+            default: "circle.fill"
+            }
+        }
     }
 
     var title: String

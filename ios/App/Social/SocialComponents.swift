@@ -123,7 +123,7 @@ struct ShareCodeCard: View {
                     Label("Поделиться", systemImage: "square.and.arrow.up")
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
             .tint(Palette.uiInk.color)
             .sensoryFeedback(.success, trigger: copied)
             if let footnote {

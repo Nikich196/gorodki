@@ -1,4 +1,5 @@
 import DesignSystem
+import Platform
 import SwiftUI
 
 /// Вкладки игры (PLAN.md, §5; «Поиск» убран решением 25.09 — друзья по QR и ссылке, кланы по коду).
@@ -53,6 +54,15 @@ struct AppShell: View {
         .environment(\.runTransition, runTransition)
         .onChange(of: scenePhase, initial: true) { _, phase in
             run.sceneChanged(active: phase == .active)
+        }
+        // Виджет «Моя земля» и «Старт забега» в Пункте управления: gorodki://map — «Карта», gorodki://start — ещё и
+        // лист «Новый забег» с лигой карты.
+        .onOpenURL { url in
+            guard url.scheme == AppLink.scheme else { return }
+            model.tab = .map
+            if url.host() == "start" {
+                run.startTapped(league: model.map.league)
+            }
         }
         .task(id: ObjectIdentifier(model.run)) {
             model.run.connect?()

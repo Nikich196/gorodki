@@ -38,6 +38,16 @@ struct LeaderboardsTab: View {
                     if model.kind != .kings, let pinned = model.pinnedRow(mineRowVisible: mineVisible) {
                         LeaderboardRowView(row: pinned, myColor: myColor)
                             .brandCard()
+                            // Плотная подложка: сквозь стекло просвечивали строки списка под закреплённой.
+                            .background {
+                                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                                    .fill(.thickMaterial)
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                                            .fill(myColor.color.opacity(0.16))
+                                    }
+                            }
+                            .shadow(color: .black.opacity(0.14), radius: 14, y: 5)
                             .overlay {
                                 RoundedRectangle(cornerRadius: Radius.card).stroke(myColor.edgeColor, lineWidth: 1.5)
                             }
@@ -69,7 +79,7 @@ struct LeaderboardsTab: View {
                 VStack(alignment: .leading, spacing: 12) {
                     header
                     if model.rows.isEmpty {
-                        Text("Рейтинг появится после первого ночного среза — в 00:00 по Минску.")
+                        Text("Рейтинг пересчитывается каждые 5 минут — замкни петлю и попади в него первым.")
                             .font(.body)
                             .foregroundStyle(Palette.uiInk2.color)
                             .contentCard()

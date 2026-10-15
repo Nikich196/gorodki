@@ -5,6 +5,8 @@ import WidgetKit
 @main
 struct GorodkiWidgetsBundle: WidgetBundle {
     var body: some Widget {
+        TerritoryWidget()
+        StartRunControl()
         InstallCheckWidget()
         RunLiveActivityWidget()
     }

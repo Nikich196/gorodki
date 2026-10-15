@@ -25,8 +25,9 @@ extension View {
     }
 }
 
-/// «Старт» — единственный цветной элемент управления (PLAN.md, §6.2): `.glassProminent` цвета игрока, текст — цвет
-/// `PlayerColor.startInk` (контраст ≥ 3:1). Капсула высотой 64 pt. Блик по стеклу рисует сама система — своего нет.
+/// «Старт» — единственный цветной элемент управления (PLAN.md, §6.2): `.glassProminent` насыщенного цвета игрока
+/// (`PlayerColor.startTint`), текст белый (контраст ≥ 3:1), мягкое свечение своим цветом. Капсула высотой 64 pt. Блик
+/// по стеклу рисует сама система — своего нет.
 public struct StartButton<Label: View>: View {
     private let player: PlayerColor
     private let action: () -> Void
@@ -42,7 +43,7 @@ public struct StartButton<Label: View>: View {
         Button(action: action) {
             label
                 .font(.role(.startLabel))
-                .foregroundStyle(player.startInkColor)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 // Растянуть надпись на всю высоту: тогда капсула стиля ровно 64 pt, какими бы ни были его отступы.
                 .frame(maxHeight: .infinity)
@@ -50,8 +51,10 @@ public struct StartButton<Label: View>: View {
         .buttonStyle(.glassProminent)
         .buttonBorderShape(.capsule)
         .controlSize(.extraLarge)
-        .tint(player.color)
+        .tint(player.startTint.color)
         .frame(height: Metrics.controlHeight)
+        // Мягкое свечение своим цветом — кнопка «горит» над картой.
+        .shadow(color: player.startTint.color.opacity(0.45), radius: 14, y: 6)
     }
 }
 

@@ -122,6 +122,7 @@ final class ProfileModel {
         if let stats = try? await api.getMyStats().ok.body.json {
             apply(stats)
         }
+        WidgetPublisher.publish(self)
     }
 }
 

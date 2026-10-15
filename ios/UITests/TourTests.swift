@@ -170,7 +170,106 @@ final class TourTests: XCTestCase {
         watch(2, "t42-guest-exit")
     }
 
+    /// Виджет «Моя земля» на экране «Домой» (дизайн-проход 15.10): вход существующим игроком — профиль пишет снимок в
+    /// App Group, — потом SpringBoard: правка экрана, «Добавить виджет», «Городки». Дерево SpringBoard — во вложениях.
+    @MainActor
+    func testWidgetOnHomeScreen() throws {
+        try requireTour()
+        let app = launch(devPlayer: "bike-check")
+        tap(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Уже играю'")).firstMatch, "Уже играю — войти")
+        tapHittable(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Войти через Google'")), "Войти")
+        XCTAssertTrue(app.tabBars.buttons["Профиль"].waitForExistence(timeout: Self.timeout), "Не открылись вкладки")
+        allowSystemAlerts()
+        tab(app, "Профиль")
+        watch(4, "w01-profile")
+
+        XCUIDevice.shared.press(.home)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        watch(1.5, "w02-home")
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62)).press(forDuration: 1.6)
+        watch(1.5, "w03-jiggle")
+        dumpTree(springboard, "w03-tree")
+        let edit = springboard.buttons.matching(NSPredicate(format: "label == 'Изменить' OR label == 'Edit'"))
+            .firstMatch
+        if edit.waitForExistence(timeout: 4) {
+            edit.tap()
+            watch(1.2, "w04-edit-menu")
+            dumpTree(springboard, "w04-tree")
+        }
+        let addWidget = springboard.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] 'добавить виджет' OR label CONTAINS[c] 'add widget'"))
+            .firstMatch
+        if addWidget.waitForExistence(timeout: 4) {
+            addWidget.tap()
+            watch(2, "w05-gallery")
+            dumpTree(springboard, "w05-tree")
+        }
+        let search = springboard.searchFields.firstMatch
+        if search.waitForExistence(timeout: 4) {
+            search.tap()
+            search.typeText("Городки")
+            watch(2, "w06-search")
+            dumpTree(springboard, "w06-tree")
+        }
+        // Не иконка приложения на экране «Домой» (тип Icon), а строка результата в галерее виджетов.
+        let result = springboard.descendants(matching: .any)
+            .matching(
+                NSPredicate(
+                    format: "label CONTAINS 'Городки' AND elementType != %d", XCUIElement.ElementType.icon.rawValue)
+            )
+            .element(boundBy: 0)
+        if result.waitForExistence(timeout: 4) {
+            result.tap()
+            watch(2, "w07-picker")
+            dumpTree(springboard, "w07-tree")
+        }
+        // Средний размер — второй в ряду: листаем к нему.
+        springboard.swipeLeft()
+        watch(1.5, "w08-medium")
+        let add = springboard.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'добавить виджет' OR label CONTAINS[c] 'add widget'")
+        ).firstMatch
+        if add.waitForExistence(timeout: 4) {
+            add.tap()
+        }
+        watch(2, "w09-added")
+        let done = springboard.buttons.matching(NSPredicate(format: "label == 'Готово' OR label == 'Done'")).firstMatch
+        if done.waitForExistence(timeout: 3) {
+            done.tap()
+        }
+        watch(3, "w10-home-widget")
+        dumpTree(springboard, "w10-tree")
+    }
+
+    /// gorodki://start (виджет «Моя земля», «Старт забега» в Пункте управления) — «Карта» и лист «Новый забег».
+    @MainActor
+    func testStartLink() throws {
+        try requireTour()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let cancel = springboard.buttons["Отменить"]
+        if cancel.exists { cancel.tap() }
+        let app = launch(devPlayer: "bike-check")
+        XCTAssertTrue(app.tabBars.buttons["Профиль"].waitForExistence(timeout: Self.timeout), "Нет вкладок — не вошёл")
+        tab(app, "Профиль")
+        XCUIDevice.shared.press(.home)
+        watch(1, nil)
+        XCUIDevice.shared.system.open(URL(string: "gorodki://start")!)
+        let open = springboard.buttons["Открыть"]
+        if open.waitForExistence(timeout: 3) { open.tap() }
+        XCTAssertTrue(
+            app.staticTexts["Новый забег"].waitForExistence(timeout: Self.timeout), "Ссылка не открыла «Новый забег»")
+        watch(2, "l01-start-sheet")
+    }
+
     // MARK: - Помощники
+
+    @MainActor
+    private func dumpTree(_ app: XCUIApplication, _ name: String) {
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = name
+        tree.lifetime = .keepAlways
+        add(tree)
+    }
 
     @MainActor
     private func requireTour() throws {
