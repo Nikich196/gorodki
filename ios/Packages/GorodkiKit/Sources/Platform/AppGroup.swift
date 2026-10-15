@@ -29,9 +29,17 @@ public enum WidgetKind {
 public enum AppLink {
     public static let scheme = "gorodki"
     /// Открыть «Карту» и лист «Новый забег».
-    public static let start = URL(string: "gorodki://start")!
+    public static let start = link("start")
     /// Открыть «Карту».
-    public static let map = URL(string: "gorodki://map")!
+    public static let map = link("map")
+
+    private static func link(_ host: String) -> URL {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        guard let url = components.url else { preconditionFailure("Ссылка gorodki://\(host) не собралась") }
+        return url
+    }
 }
 
 /// Отметка «приложение запускалось»: приложение пишет её в App Group, виджет читает.

@@ -168,7 +168,8 @@ private struct TrackCard: View {
                         LinearGradient(
                             colors: [color.mix(with: .white, by: 0.3), color], startPoint: .topLeading,
                             endPoint: .bottomTrailing),
-                        style: StrokeStyle(lineWidth: TrailStyle.width - 1.5, lineCap: .round, lineJoin: .round))
+                        style: StrokeStyle(lineWidth: TrailStyle.width - 1.5, lineCap: .round, lineJoin: .round)
+                    )
                     .shadow(color: color.opacity(0.55), radius: 6)
             } else {
                 Label(

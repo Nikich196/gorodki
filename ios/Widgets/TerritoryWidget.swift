@@ -230,7 +230,8 @@ private struct SeasonDial: View {
                     AngularGradient(
                         colors: [Brand.amber.night.color, Brand.ember.night.color, Brand.dusk.night.color],
                         center: .center),
-                    style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                )
                 .rotationEffect(.degrees(-90))
                 .widgetAccentable()
             VStack(spacing: -2) {
