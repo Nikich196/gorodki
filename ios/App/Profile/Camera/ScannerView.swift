@@ -78,6 +78,9 @@ struct ScannerView: View {
     @State private var framed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
+    /// Друзья вошедшего игрока: код дружбы из QR — сразу заявка. Нет (фикстуры листика) — только подпись.
+    @Environment(SocialScreens.self) private var social: SocialScreens?
+    @State private var friendAdded: String?
 
     init(model: ScannerModel = .live()) {
         _model = State(initialValue: model)
@@ -139,6 +142,27 @@ struct ScannerView: View {
                     .multilineTextAlignment(.center)
             case .running:
                 resultText
+                if case .game(.friend(let code, _)) = model.result, let social {
+                    Button {
+                        Task {
+                            social.friends.addCode = code
+                            if await social.friends.add() {
+                                friendAdded = code
+                            }
+                        }
+                    } label: {
+                        Label(
+                            friendAdded == code ? "Заявка отправлена" : "Добавить в друзья",
+                            systemImage: friendAdded == code ? "checkmark" : "person.badge.plus")
+                    }
+                    .buttonStyle(.brand)
+                    .disabled(friendAdded == code || social.friends.busy)
+                    .sensoryFeedback(.success, trigger: friendAdded)
+                    if let error = social.friends.actionError, friendAdded != code {
+                        Text(error)
+                            .font(.footnote)
+                    }
+                }
                 HStack(spacing: 16) {
                     Button {
                         Task { await model.takePhoto() }
@@ -173,8 +197,10 @@ struct ScannerView: View {
                 .multilineTextAlignment(.center)
         case .game(.player(_, let name)):
             Label(
-                "Игрок \(name ?? "без ника") — друзья появятся с кланами",
+                "Игрок \(name ?? "без ника") — попроси у него код дружбы: «Клан → Друзья»",
                 systemImage: "person.crop.circle.badge.checkmark")
+        case .game(.friend(_, let name)):
+            Label("Игрок \(name ?? "без ника") зовёт в друзья", systemImage: "person.crop.circle.badge.plus")
         case .game(.invite(let code)):
             Label("Код приглашения \(code) — впиши его при регистрации", systemImage: "ticket")
         case .text(let text):

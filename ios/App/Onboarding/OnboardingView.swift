@@ -1,4 +1,5 @@
 import DesignSystem
+import GameCore
 import Networking
 import SwiftUI
 
@@ -20,6 +21,12 @@ struct OnboardingView: View {
                         .toolbar { debugToolbar }
                 }
                 .toolbar { debugToolbar }
+        }
+        // QR-приглашение из системной камеры (gorodki://invite?code=…): регистрация сразу с кодом.
+        .onOpenURL { url in
+            guard case .invite(let code) = FriendLink.parse(url.absoluteString) else { return }
+            model.inviteCode = code
+            model.startRegistration()
         }
         .sheet(isPresented: $debugMenuShown) {
             NavigationStack {
