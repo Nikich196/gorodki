@@ -36,9 +36,9 @@
 >
 > Сделал Claude (07.10): кланы и кланы в движке земли (#135), рейтинг территории и суточный срез (#136), «% Бреста» и
 > районов (#138), лента с респектами, жалобами и блокировками (#144); 15.10 — своя статистика (#116), серия с
-> «Заморозкой» (#148, заморозки подключатся с Рюкзаком) и дуэли (#147). Отложено после показа (метка «после-показа»): Зал
-> славы, Входящие, Рюкзак, карточка недели, доверие и бан, Коллекция, «Короли», Sentry. Карточки этих задач ниже оставлены
-> для истории — делать их сейчас не нужно.
+> «Заморозкой» (#148, заморозки подключатся с Рюкзаком), дуэли (#147), Зал славы (#137) и карточка недели (#141). Отложено
+> после показа (метка «после-показа»): Входящие, Рюкзак, доверие и бан, Коллекция, «Короли», Sentry. Карточки этих задач
+> ниже оставлены для истории — делать их сейчас не нужно.
 
 - **Что ты делаешь:** новые адреса и таблицы по готовым образцам, данные для экранов (только чтение), админку, задачи по
   расписанию и чистые функции правил. Землю, журнал захватов и границу публичности трогает только Claude.
@@ -399,14 +399,14 @@ dotnet build Gorodki.slnx                 # собирается?
 | 1 | E5a–c **ворота** | Кланы: создать и вступить → выход, роли, лидерство → переименование, оттенки | 10.11 | — (решения по [#64](https://github.com/Nikich196/gorodki/issues/64) приняты 25.09: PLAN §3.3, §3.6) | [#135](https://github.com/Nikich196/gorodki/issues/135) — заготовка готова — **сделано Claude 07.10** |
 | 2 | E7 **ворота** | Суточный срез очков и рейтинг территории | 13.11 | C9 (очки за захват), C4 (смена сезона) — сделаны 25.09 | [#136](https://github.com/Nikich196/gorodki/issues/136) — заготовка готова — **сделано Claude 07.10** |
 | 2 | E9 **ворота** | % Бреста и районов в `/fog/summary` | 15.11 | C6 (конвейер OSM) | [#138](https://github.com/Nikich196/gorodki/issues/138) — заготовка готова — **сделано Claude 07.10** |
-| 2 | E12 | Карточка недели `GET /me/weekly` | 30.11 | E9 (для %) | [#141](https://github.com/Nikich196/gorodki/issues/141) — заготовка готова — *после показа* |
+| 2 | E12 | Карточка недели `GET /me/weekly` | 30.11 | E9 (для %) | [#141](https://github.com/Nikich196/gorodki/issues/141) — заготовка готова — **сделано Claude 15.10** |
 | 3 | E11 | «Припасы» и Рюкзак | 30.11 | — | [#140](https://github.com/Nikich196/gorodki/issues/140) — заготовка готова — *после показа* |
 | 3 | E22 | Серия и «Заморозка серии» | 30.11 | — | [#148](https://github.com/Nikich196/gorodki/issues/148) — заготовка готова — **сделано Claude 15.10** (заморозки — с Рюкзаком #140) |
 | 3 | E10 | «Входящие» и бюджет уведомлений | 30.11 | C10 (события после границы) | [#139](https://github.com/Nikich196/gorodki/issues/139) — заготовка готова — *после показа* |
 | 3 | E13 | Оценка доверия, подозрительные забеги, бан | 30.11 | — | [#142](https://github.com/Nikich196/gorodki/issues/142) — заготовка готова — *после показа* |
 | 3 | E14a, E14b | Друзья по коду; лента | 30.11 | помощник границы (C11) для ленты | [#143](https://github.com/Nikich196/gorodki/issues/143), [#144](https://github.com/Nikich196/gorodki/issues/144) — заготовки готовы — E14a **сделано Claude 15.10**, E14b **сделано Claude 07.10** |
 | 3 | E15 | «Коллекция» и админка тайников | 30.11 | C12 (тайники) | [#145](https://github.com/Nikich196/gorodki/issues/145) — заготовка готова — *после показа* |
-| 3 | E8 | Зал славы | 30.11 | E7 | [#137](https://github.com/Nikich196/gorodki/issues/137) — заготовка готова — *после показа* |
+| 3 | E8 | Зал славы | 30.11 | E7 | [#137](https://github.com/Nikich196/gorodki/issues/137) — заготовка готова — **сделано Claude 15.10** |
 | 3 | E23 | Бот-симулятор (20 ботов × 30 дней, CSV) | 30.11 | — | после заготовки — *после показа* |
 | 4 | E17 | Дуэли | 08.12 | C5 | [#147](https://github.com/Nikich196/gorodki/issues/147) — заготовка готова — **сделано Claude 15.10** |
 | 4 | E16 | «Короли участков» | 08.12 | C16 (отрезки) | [#146](https://github.com/Nikich196/gorodki/issues/146) — заготовка готова — *после показа* |
@@ -657,11 +657,11 @@ flowchart LR
 |---|---|---|---|---|
 | E5a–c кланы [#135](https://github.com/Nikich196/gorodki/issues/135) | `POST /clans`, `GET /clans/mine`, `GET /clans/{id}`, `POST /clans/join`, `POST /clans/mine/leave`, `DELETE /clans/mine/members/{userId}`, `PUT /clans/mine/members/{userId}/role`, `PUT /clans/mine/name`, `POST /clans/mine/code`, `GET /clans/hues` | `Clans/ClanEndpoints.cs` | `clan`, `clan-mine`, `clan-hues` | `ClansTests` (7) |
 | E7 рейтинг территории [#136](https://github.com/Nikich196/gorodki/issues/136) | `GET /leaderboards/territory?league=&season=`; конфиг `scoring.holdTiers`, `scoring.holdCapSotki` | `Leaderboards/LeaderboardEndpoints.cs` | `leaderboard-territory` | `TerritoryLeaderboardTests` (3) + тесты среза — свои |
-| E8 Зал славы [#137](https://github.com/Nikich196/gorodki/issues/137) | `GET /hall-of-fame` | `HallOfFame/HallOfFameEndpoints.cs` | `hall-of-fame` | `HallOfFameTests` (1) + тесты снимка — свои |
+| E8 Зал славы [#137](https://github.com/Nikich196/gorodki/issues/137) | `GET /hall-of-fame` | `HallOfFame/HallOfFameEndpoints.cs` | `hall-of-fame` | `HallOfFameTests` (2) — сделано Claude 15.10 |
 | E9 % Бреста [#138](https://github.com/Nikich196/gorodki/issues/138) | `GET /fog/summary`: `brestPercent`, `districts`, `osmSetVersion` (необязательные) | `Fog/FogEndpoints.cs` | `fog-summary` | `FogPercentTests` (1 + контракт без `Skip`) |
 | E10 «Входящие» [#139](https://github.com/Nikich196/gorodki/issues/139) | `GET /inbox?cursor=`, `POST /inbox/read` | `Inbox/InboxEndpoints.cs` | `inbox` | `InboxTests` (3; один ждёт и C10) |
 | E11 Рюкзак [#140](https://github.com/Nikich196/gorodki/issues/140) | `GET /me/inventory`, `POST /me/inventory/{id}/activate` | `Inventory/InventoryEndpoints.cs` | `inventory` | `InventoryTests` (3) |
-| E12 карточка недели [#141](https://github.com/Nikich196/gorodki/issues/141) | `GET /me/weekly?week=` | `Me/WeeklyCardEndpoints.cs` | `weekly` | `WeeklyCardTests` (3) |
+| E12 карточка недели [#141](https://github.com/Nikich196/gorodki/issues/141) | `GET /me/weekly?week=` | `Me/WeeklyCardEndpoints.cs` | `weekly` | `WeeklyCardTests` (5) — сделано Claude 15.10 |
 | E13 доверие и бан [#142](https://github.com/Nikich196/gorodki/issues/142) | `GET /admin/runs/suspicious`, `POST /admin/users/{userId}/ban` (вне описания API) | `Admin/TrustEndpoints.cs` | — | `AdminTrustTests` (2) |
 | E14a друзья [#143](https://github.com/Nikich196/gorodki/issues/143) | `GET /friends`, `POST /friends`, `POST /friends/{id}/accept`, `DELETE /friends/{id}` | `Social/FriendEndpoints.cs` | `friends` | `FriendsTests` (3) |
 | E14b лента [#144](https://github.com/Nikich196/gorodki/issues/144) | `GET /feed?scope=friends\|all&cursor=`, `POST /feed/{id}/respect`, `POST /feed/{id}/report`, `GET /me/blocks`, `PUT/DELETE /me/blocks/{id}` | `Social/FeedEndpoints.cs` | `feed`, `player` | `FeedTests` (3) |
@@ -778,6 +778,12 @@ flowchart LR
 **E12 — карточка недели `GET /me/weekly?week=`** (PLAN §3.15). Волна 2, 30.11, после E9. Неделя по Минску: км, «+га»
 тумана (из `FogNewCells` забегов), % Бреста, площадь своих захватов («взятое» из заявок — его автор видит сразу); только числа. **Заготовка готова:
 [#141](https://github.com/Nikich196/gorodki/issues/141)** (`week` — понедельник, без него — прошлая неделя).
+**Сделано Claude 15.10** (решение Никиты «всё должно работать сразу»): неделя — свои живые забеги, начатые с понедельника по
+воскресенье по Минску (время начала — с поправкой на часы телефона); км — их `AcceptedMeters`, «+га» — площадь их новых
+клеток, «взятое» — их применённые заявки (минус то, что вернул откат). Прирост «% Бреста» — пожизненный, «Всего» (оба слоя):
+туман забега теперь сам записывает, сколько «достижимых» клеток набора он открыл впервые (`runs.fog_new_reachable_cells`,
+`fog_osm_set`, площадь — `fog_new_square_meters`, `FogProcessor`), карточка складывает их за неделю. В неделю смены набора,
+и если хоть один забег недели посчитан по другому набору, прирост — `null` ([osm-pipeline.md](../architecture/osm-pipeline.md#как-считается--бреста)).
 
 **E11 — «Припасы» и Рюкзак** (PLAN §3.11). Волна 3, 30.11. Таблица `inventory_items`: 1 припас за 2 км, до 4 в сутки,
 12 ячеек, живут 7 дней, раз на забег, тип — детерминированно от номера забега, повтор забега не даёт. `GET /me/inventory`,
@@ -823,6 +829,13 @@ b — посты из захватов и забегов (только числ�
 очки сезона ещё приходят, и такой снимок навсегда разошёлся бы с итогом сезона
 ([итог сезона](../architecture/scoring-and-seasons.md#итог-сезона--момент-закрытия)). **Заготовка готова:
 [#137](https://github.com/Nikich196/gorodki/issues/137)** (значение топ-клана — уточнит Никита).
+**Сделано Claude 15.10** (решение Никиты «всё должно работать сразу»): таблица `hall_of_fame` и задача Hangfire `hall-of-fame`
+(`HallOfFameSnapshots`, каждый час, блокировка 10) — сезон в Зал попадает один раз, когда он закрыт и смена на следующий
+выполнена; места 1–3 игроков по лигам (одинаковые очки — одно место) и первое место клана. Значение клана — сумма итоговых
+очков участников, которые в клане в момент снимка и вступили до конца сезона (так и в образце: 4310 + 3905 + 3100 = 11315).
+Ник — при запросе по правилу карточки игрока; аккаунт удаляется — строка без игрока (`user_id` → `null` при удалении,
+`ON DELETE SET NULL`); клан распался — его название на момент снимка. «Снимок карты» из §3.4 в контракте не предусмотрен
+([очки и сезоны](../architecture/scoring-and-seasons.md#зал-славы-e8)).
 
 **E23 — бот-симулятор.** Волна 3, 30.11. 20 ботов × 30 дней, результат — CSV: PLAN §3.5 подтверждает баланс очков
 именно такой симуляцией (материал для записки). Только локально (PLAN §9). Например, консольный проект в `backend/tools/`,
