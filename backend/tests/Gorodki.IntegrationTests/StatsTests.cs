@@ -7,6 +7,7 @@ using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Fog;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Time;
 using Microsoft.EntityFrameworkCore;
@@ -17,16 +18,15 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Своя статистика — <c>GET /me/stats</c>. Задача #116 для Егора: тесты со <c>Skip</c> снимаются вместе с реализацией
-/// (CONTRIBUTING.md, «Задачи для друга»). Числа сверяются с тем, что игрок и так видит: <c>GET /fog/summary</c>,
-/// <c>GET /seasons</c>, <c>GET /leaderboards/exploration</c>.
+/// Своя статистика — <c>GET /me/stats</c> (задача #116). Числа сверяются с тем, что игрок и так видит:
+/// <c>GET /fog/summary</c>, <c>GET /seasons</c>, <c>GET /leaderboards/exploration</c>.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class StatsTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #116")]
+    [Fact]
     public async Task New_player_has_zeros_and_only_these_numbers()
     {
         database.RequireDatabase();
@@ -48,7 +48,7 @@ public sealed class StatsTests(DatabaseFixture database)
             json.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
     }
 
-    [Fact(Skip = "ЗАДАЧА #116")]
+    [Fact]
     public async Task Only_own_finished_live_runs_count()
     {
         database.RequireDatabase();
@@ -67,18 +67,39 @@ public sealed class StatsTests(DatabaseFixture database)
         Assert.Equal((3, 4_000.4), (stats.Runs, stats.DistanceMeters));
     }
 
-    [Fact(Skip = "ЗАДАЧА #116")]
+    [Fact]
     public async Task Explored_area_is_the_fog_summary_of_both_layers_for_all_time_and_this_season()
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
-        var (anna, _) = await api.CreatePlayerClientAsync(); // клиент — до сдвига часов: токен «из будущего» не прошёл бы проверку
+        var (anna, annaId) = await api.CreatePlayerClientAsync(); // клиент — до сдвига часов: токен «из будущего» не прошёл бы проверку
         await IntoSeasonAsync(api, anna);
 
         var run = await WalkAndFinishAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100));
         await using (var scope = api.Services.CreateAsyncScope())
         {
             Assert.True(await scope.ServiceProvider.GetRequiredService<FogProcessor>().StampRunAsync(run.Id, Cancel) > 0);
+        }
+
+        // Открытое на велосипеде в прошлых сезонах — только в слое «за всё время»: площади за всё время и за сезон разные.
+        await using (var db = database.CreateContext())
+        {
+            var bits = new FogTileBits();
+            bits.Set(0);
+            bits.Set(1);
+            db.FogTiles.Add(new FogTileEntity
+            {
+                UserId = annaId,
+                Layer = FogLayerKind.Bike,
+                Season = SeasonCalendar.AllTime,
+                TileX = 9_500,
+                TileY = 5_400,
+                Bits = FogTileCodec.Compress(bits),
+                CellCount = 2,
+                Version = 1,
+                UpdatedAt = api.Time.GetUtcNow(),
+            });
+            await db.SaveChangesAsync(Cancel);
         }
 
         var stats = await StatsAsync(anna);
@@ -89,18 +110,19 @@ public sealed class StatsTests(DatabaseFixture database)
         Assert.Equal(season, stats.Season);
         var allTime = summary.Layers.Where(l => l.Season is null).Sum(l => l.AreaSquareMeters);
         var thisSeason = summary.Layers.Where(l => l.Season == season).Sum(l => l.AreaSquareMeters);
-        Assert.True(allTime > 10_000, $"Туман не открылся: {allTime} м²");
+        Assert.True(thisSeason > 10_000, $"Туман не открылся: {thisSeason} м²");
+        Assert.True(allTime > thisSeason + 1, $"Велосипед прошлых сезонов не в счёт: {allTime} м² против {thisSeason} м²");
         Assert.InRange(stats.ExploredSquareMeters, allTime - 0.2, allTime + 0.2); // в сводке каждый слой округлён до 0,1
         Assert.InRange(stats.SeasonExploredSquareMeters, thisSeason - 0.2, thisSeason + 0.2);
     }
 
-    [Fact(Skip = "ЗАДАЧА #116")]
+    [Fact]
     public async Task Rank_is_the_players_place_in_the_latest_snapshot_like_in_the_rankings()
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
-        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
 
         // Срез за последние сутки, что есть в базе (их пишет ежедневный срез), и старый — за сутки до них.
         await using (var db = database.CreateContext())
@@ -111,7 +133,8 @@ public sealed class StatsTests(DatabaseFixture database)
                 Row(latest, LeaderboardLayer.Total, SeasonCalendar.AllTime, rank: 3),
                 Row(latest.AddDays(-1), LeaderboardLayer.Total, SeasonCalendar.AllTime, rank: 7), // старый срез
                 Row(latest, LeaderboardLayer.Foot, SeasonCalendar.AllTime, rank: 9), // другой слой
-                Row(latest, LeaderboardLayer.Total, season: 0, rank: 1)); // сезон, а не «за всё время»
+                Row(latest, LeaderboardLayer.Total, season: 0, rank: 1), // сезон, а не «за всё время»
+                Row(latest, LeaderboardLayer.Total, season: 0, rank: 2, borisId)); // у Бориса — только сезонное место
             await db.SaveChangesAsync(Cancel);
         }
 
@@ -119,10 +142,10 @@ public sealed class StatsTests(DatabaseFixture database)
 
         Assert.Equal(3, board.Mine?.Rank); // то же место, что на экране рейтинга
         Assert.Equal(3, (await StatsAsync(anna)).ExplorationRank);
-        Assert.Null((await StatsAsync(boris)).ExplorationRank); // Бориса в срезе нет
+        Assert.Null((await StatsAsync(boris)).ExplorationRank); // Бориса в срезе «за всё время» нет
 
-        LeaderboardSnapshotEntity Row(DateOnly day, LeaderboardLayer layer, int season, int rank) =>
-            new() { Day = day, Board = LeaderboardBoard.Exploration, Layer = layer, Season = season, UserId = annaId, Value = 12_345, Rank = rank };
+        LeaderboardSnapshotEntity Row(DateOnly day, LeaderboardLayer layer, int season, int rank, Guid? userId = null) =>
+            new() { Day = day, Board = LeaderboardBoard.Exploration, Layer = layer, Season = season, UserId = userId ?? annaId, Value = 12_345, Rank = rank };
     }
 
     [Fact]

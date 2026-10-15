@@ -1,8 +1,9 @@
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Gorodki.Api.Features.Auth;
-using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Fog;
+using Gorodki.Domain.Time;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
@@ -103,20 +104,64 @@ public static class MeEndpoints
     }
 
     /// <summary>Своя статистика для экрана профиля.</summary>
-    private static Task<Results<Ok<MyStatsResponse>, NotFound>> GetStats(
+    private static async Task<Results<Ok<MyStatsResponse>, NotFound>> GetStats(
         ClaimsPrincipal principal,
         AppDbContext db,
-        SeasonStore seasons,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #116 (Егор): забеги игрока с Source = Live и Status != Active — их число и сумма AcceptedMeters (null — 0);
-        // площадь тумана за всё время и за текущий сезон — как FogEndpoints.GetSummary, но оба слоя вместе; место — строка
-        // игрока в последнем срезе «Исследования» (слой Total, Season = −1), как LeaderboardEndpoints.GetExploration.
-        // Метры и площади округлить до 0,1 — Math.Round(…, 1), как площади в GetSummary (тест: 3 000,44 + 1 000 → 4 000,4).
-        // Площадь своей земли не добавлять (см. MyStatsResponse). Игрока нет — 404. Тесты — StatsTests.
-        _ = (principal, db, seasons, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #116");
+        if (principal.UserId() is not { } userId)
+        {
+            return TypedResults.NotFound();
+        }
+
+        // Первый запрос — всё, что считается в базе: есть ли игрок, его завершённые живые забеги и их засчитанный путь,
+        // текущий сезон и место в последнем срезе «Кто открыл больше». Сезон — как SeasonCalendar.At: последний начавшийся
+        // (номера идут подряд, начало растёт с номером). Место — как в GET /leaderboards/exploration: день среза — последний
+        // по доске «Исследование», строка игрока «Всего» за всё время.
+        var now = time.GetUtcNow();
+        var totals = await db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                Runs = db.Runs.Count(r => r.UserId == u.Id && r.Source == RunSource.Live && r.Status != RunStatus.Active),
+                Meters = db.Runs
+                    .Where(r => r.UserId == u.Id && r.Source == RunSource.Live && r.Status != RunStatus.Active)
+                    .Sum(r => r.AcceptedMeters ?? 0),
+                Season = db.Seasons.Where(s => s.StartsAt <= now).Max(s => (int?)s.Number),
+                Rank = db.LeaderboardSnapshots
+                    .Where(s => s.UserId == u.Id
+                        && s.Board == LeaderboardBoard.Exploration
+                        && s.Layer == LeaderboardLayer.Total
+                        && s.Season == SeasonCalendar.AllTime
+                        && s.Day == db.LeaderboardSnapshots.Where(l => l.Board == LeaderboardBoard.Exploration).Max(l => (DateOnly?)l.Day))
+                    .Select(s => (int?)s.Rank)
+                    .FirstOrDefault(),
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (totals is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        // Второй — туман за всё время и за текущий сезон, оба слоя: площадь клетки зависит от широты тайла, поэтому
+        // складывается здесь, как в GET /fog/summary. Битов тайлов (до 8 КБ каждый) не нужно — только число клеток.
+        var season = totals.Season ?? SeasonCalendar.AllTime;
+        var tiles = await db.FogTiles.AsNoTracking()
+            .Where(f => f.UserId == userId && (f.Season == SeasonCalendar.AllTime || f.Season == season))
+            .Select(f => new { f.Season, f.TileX, f.TileY, f.CellCount })
+            .ToListAsync(cancellationToken);
+        double Explored(int fogSeason) => Math.Round(
+            tiles.Where(t => t.Season == fogSeason).Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY))),
+            1);
+
+        return TypedResults.Ok(new MyStatsResponse(
+            totals.Runs,
+            Math.Round(totals.Meters, 1),
+            Explored(SeasonCalendar.AllTime),
+            totals.Season,
+            totals.Season is { } current ? Explored(current) : 0,
+            totals.Rank));
     }
 
     private static async Task<Results<Ok<AccountExportResponse>, NotFound>> Export(
