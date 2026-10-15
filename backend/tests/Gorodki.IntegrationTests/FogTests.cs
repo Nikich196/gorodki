@@ -22,8 +22,9 @@ public sealed class FogTests(DatabaseFixture database)
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
-        var (client, _) = await api.CreatePlayerClientAsync();
+        var (client, _) = await api.CreatePlayerClientAsync(); // до сдвига часов: токен «из будущего» не прошёл бы проверку
         var (stranger, _) = await api.CreatePlayerClientAsync();
+        api.Time.SetUtcNow(SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 5)).AddHours(12)); // идёт Сезон 0 (с 15.10)
         var run = await WalkAndFinishAsync(Cancel, api, client, Square(NewArea(), 0, 0, 100));
 
         Assert.Contains(run.Id, await ReadyAsync(api));
@@ -34,11 +35,15 @@ public sealed class FogTests(DatabaseFixture database)
         Assert.InRange(opened!.Value, 480, 680);
         Assert.Null(again);
         var summary = await client.GetFromJsonAsync<FogSummaryResponse>("/fog/summary", Json, Cancel);
-        var foot = Assert.Single(summary!.Layers); // до первого сезона — только «за всё время»
-        Assert.Equal((FogLayerKind.Foot, (int?)null, opened.Value), (foot.Layer, foot.Season, foot.CellCount));
+        // Слой «за всё время» и слой идущего сезона — первая прогулка открывает в обоих одно и то же.
+        Assert.Equal(2, summary!.Layers.Count);
+        var foot = Assert.Single(summary.Layers, l => l.Season is null);
+        Assert.Equal((FogLayerKind.Foot, opened.Value), (foot.Layer, foot.CellCount));
         Assert.InRange(foot.AreaSquareMeters, 16_000, 24_000);
+        var seasonal = Assert.Single(summary.Layers, l => l.Season == 0);
+        Assert.Equal((FogLayerKind.Foot, opened.Value), (seasonal.Layer, seasonal.CellCount));
 
-        var mine = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot", Json, Cancel);
+        var mine = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot", Json, Cancel); // без season — за всё время
         var tile = Assert.Single(mine!.Tiles);
         Assert.Equal(opened.Value, FogTileCodec.Decompress(tile.Bits).Count);
         var runView = await client.GetFromJsonAsync<RunResponse>($"/runs/{run.Id}", Json, Cancel);
@@ -75,25 +80,30 @@ public sealed class FogTests(DatabaseFixture database)
         await using var api = new ApiFactory(database);
         var (client, _) = await api.CreatePlayerClientAsync(); // до сдвига часов: токен «из будущего» не прошёл бы проверку
         var area = NewArea();
-        var before = await WalkAndFinishAsync(Cancel, api, client, Square(area, 0, 0, 100)); // предсезонье
+        api.Time.SetUtcNow(SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 20)).AddHours(9)); // Сезон 0
+        var before = await WalkAndFinishAsync(Cancel, api, client, Square(area, 0, 0, 100));
         var beforeCells = await StampAsync(api, before.Id);
-        api.Time.SetUtcNow(SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 20)).AddHours(9));
+        api.Time.SetUtcNow(SeasonCalendar.MinskMidnight(new DateOnly(2026, 12, 1)).AddHours(9)); // Сезон 1
         var inSeason = await WalkAndFinishAsync(Cancel, api, client, Square(area, 50, 0, 100));
 
         var newCells = await StampAsync(api, inSeason.Id);
 
+        // В сводке — «за всё время» и идущий сезон; прошлого сезона в ней нет.
         var summary = (await client.GetFromJsonAsync<FogSummaryResponse>("/fog/summary", Json, Cancel))!.Layers;
         var allTime = Assert.Single(summary, l => l.Season is null);
-        var season = Assert.Single(summary, l => l.Season == 0);
+        var season = Assert.Single(summary, l => l.Season == 1);
+        Assert.DoesNotContain(summary, l => l.Season == 0);
         Assert.Equal(beforeCells + newCells, allTime.CellCount); // «+N га» — только новое за всё время
         Assert.True(season.CellCount > newCells!.Value); // сезонный слой — весь квартал второй прогулки, включая уже открытое раньше
         Assert.True(season.CellCount < allTime.CellCount);
 
-        var seasonal = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot&season=0", Json, Cancel);
-        Assert.Equal(0, seasonal!.Season);
+        var seasonal = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot&season=1", Json, Cancel);
+        Assert.Equal(1, seasonal!.Season);
         Assert.Equal(season.CellCount, seasonal.Tiles.Sum(t => FogTileCodec.Decompress(t.Bits).Count));
-        var past = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot&season=1", Json, Cancel);
-        Assert.Empty(past!.Tiles);
+        var past = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot&season=0", Json, Cancel);
+        Assert.Equal(beforeCells, past!.Tiles.Sum(t => FogTileCodec.Decompress(t.Bits).Count)); // прошлый сезон — только первая
+        var next = await client.GetFromJsonAsync<FogResponse>("/fog?layer=foot&season=2", Json, Cancel);
+        Assert.Empty(next!.Tiles);
     }
 
     [Fact]

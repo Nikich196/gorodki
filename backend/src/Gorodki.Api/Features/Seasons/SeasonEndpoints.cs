@@ -22,8 +22,10 @@ public sealed class SeasonStore(AppDbContext db)
     }
 
     /// <summary>
-    /// Идущий сезон, если смена на него уже выполнена (<see cref="SeasonEntity.ResetAt"/>); <c>null</c> — сезоны не начались
-    /// или смена ещё впереди. Петля или визит со временем раньше его начала опоздали к смене (<c>SeasonReset.Late</c>).
+    /// Идущий сезон, если смена на него уже выполнена (<see cref="SeasonEntity.ResetAt"/>) и меняла землю
+    /// (<see cref="SeasonRollover.ChangesLand"/>); <c>null</c> — сезоны не начались, смена ещё впереди или землю не меняла
+    /// (Сезон 0 с 15.10). Петля или визит со временем раньше его начала опоздали к смене (<c>SeasonReset.Late</c>); после
+    /// смены, которая землю не меняла, догонять нечего — они ложатся как есть.
     /// </summary>
     /// <remarks>
     /// Читать под блокировками тайлов: смена сезона берёт блокировки всех тайлов с землёй и ставит отметку в той же
@@ -36,7 +38,7 @@ public sealed class SeasonStore(AppDbContext db)
             .Where(s => s.StartsAt <= now)
             .OrderByDescending(s => s.StartsAt)
             .FirstOrDefaultAsync(cancellationToken);
-        return running?.ResetAt is null ? null : running;
+        return running?.ResetAt is null || !SeasonRollover.ChangesLand(running) ? null : running;
     }
 }
 
