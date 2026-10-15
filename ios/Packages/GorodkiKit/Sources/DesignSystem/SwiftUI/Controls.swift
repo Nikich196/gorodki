@@ -25,8 +25,19 @@ public struct CheckmarkToggleStyle: ToggleStyle {
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
+        CheckmarkToggle(configuration: configuration)
+    }
+}
+
+/// Отметка со щелчком и вибрацией выбора (бренд «Крепость», 15.10).
+private struct CheckmarkToggle: View {
+    let configuration: ToggleStyleConfiguration
+    @Environment(\.brandSound) private var sound
+
+    var body: some View {
         Button {
             configuration.isOn.toggle()
+            sound.play(.toggle)
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
@@ -41,6 +52,7 @@ public struct CheckmarkToggleStyle: ToggleStyle {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .sensoryFeedback(.selection, trigger: configuration.isOn)
         .accessibilityAddTraits(.isToggle)
         .accessibilityValue(configuration.isOn ? Text("отмечено") : Text("не отмечено"))
     }

@@ -109,6 +109,9 @@ struct RunStartSheet: View {
         }
         Spacer(minLength: 0)
         StartButton(player: model.player) {
+            // Старт как на стадионе: сигналы и удары в такт (бренд «Крепость», 15.10).
+            SoundBoard.shared.play(.start)
+            Haptics.shared.start()
             Task { await model.begin() }
         } label: {
             if model.starting {

@@ -196,11 +196,14 @@ struct SettingsView: View {
     @State private var signOutAsked = false
     @State private var unsentRuns = 0
     @State private var document: LegalDocument.Name?
+    /// Звуки бренда (`SoundBoard`): тот же ключ UserDefaults.
+    @AppStorage(SoundBoard.enabledKey) private var soundsEnabled = true
 
     var body: some View {
         List {
             mapSection
             privacySection
+            soundSection
             documentsSection
             accountSection
         }
@@ -303,6 +306,25 @@ struct SettingsView: View {
                     "Отдельное согласие на показ ника, цвета и земли по нику. Без него в рейтингах и на карте у других "
                         + "ты — «Игрок #1234».")
             }
+        }
+        .listRowBackground(Rectangle().fill(.regularMaterial))
+    }
+
+    /// Звуки бренда «Крепость» (15.10). Вибрация — системная: её выключают в «Настройках» iPhone («Звуки, тактильные
+    /// сигналы»).
+    private var soundSection: some View {
+        Section {
+            Toggle(isOn: $soundsEnabled) {
+                SettingsRow("Звуки", systemImage: "speaker.wave.2")
+            }
+            .tint(Brand.ember.color)
+            .onChange(of: soundsEnabled) { _, enabled in
+                if enabled { SoundBoard.shared.play(.toggle) }
+            }
+        } header: {
+            Text("Звук и вибрация")
+        } footer: {
+            Text("Сигналы старта, захвата и рейтинга — тихие и не прерывают музыку. В беззвучном режиме молчат.")
         }
         .listRowBackground(Rectangle().fill(.regularMaterial))
     }

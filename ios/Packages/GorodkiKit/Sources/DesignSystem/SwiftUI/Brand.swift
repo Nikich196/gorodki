@@ -183,6 +183,7 @@ public struct BrandMark: View {
     @State private var drawn: CGFloat = 0
     @State private var filled = false
     @State private var breathe = false
+    @Environment(\.brandSound) private var sound
 
     public init(size: CGFloat = 56, animated: Bool = false) {
         self.size = size
@@ -224,6 +225,10 @@ public struct BrandMark: View {
             filled = false
             withAnimation(.easeInOut(duration: 1.4)) { drawn = 1 }
             withAnimation(.spring(duration: 0.6).delay(1.3)) { filled = true }
+            Task {
+                try? await Task.sleep(for: .seconds(1.3))
+                sound.play(.chime)
+            }
             withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true).delay(1.8)) { breathe = true }
         }
     }
@@ -364,14 +369,15 @@ extension ButtonStyle where Self == BrandButtonStyle {
 private struct BrandButtonBody: View {
     let configuration: ButtonStyleConfiguration
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.brandSound) private var sound
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let theme = Theme(colorScheme)
         configuration.label
+            // Без .textCase(.uppercase): он меняет и подпись для VoiceOver («ДАЛЬШЕ»), а по ней кнопку находят и тесты.
             .font(.system(size: 17, weight: .heavy).width(.expanded))
-            .textCase(.uppercase)
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, minHeight: Metrics.controlHeight)
             .background {
@@ -393,6 +399,9 @@ private struct BrandButtonBody: View {
             .opacity(isEnabled ? 1 : 0.45)
             .contentShape(.capsule)
             .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, pressed in pressed }
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed && isEnabled { sound.play(.tap) }
+            }
     }
 }
 
@@ -540,4 +549,41 @@ public struct PulseRings: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
+}
+
+// MARK: - Звуки
+
+/// Звуки бренда (синтез, `ios/scripts/make-sounds.py`). Дизайн-система только сообщает, когда звучать; играет приложение
+/// (`SoundBoard`) — оно знает про беззвучный режим и переключатель «Звуки» в «Настройках».
+public enum BrandSound: String, CaseIterable, Sendable {
+    /// Старт забега: два коротких сигнала и длинный — как на стадионе.
+    case start
+    /// Захват подтверждён: восходящий колокольный аккорд.
+    case capture
+    /// Пьедестал рейтинга: короткие фанфары.
+    case rank
+    /// Знак прорисовался: мягкий колокольчик.
+    case chime
+    /// Листание интро.
+    case swoosh
+    /// Нажатие главной кнопки.
+    case tap
+    /// Отметка.
+    case toggle
+}
+
+/// Кто играет звуки бренда; по умолчанию — никто (превью, тесты, расширения).
+public struct BrandSoundPlayer: Sendable {
+    public var play: @MainActor @Sendable (BrandSound) -> Void
+
+    public init(play: @escaping @MainActor @Sendable (BrandSound) -> Void) {
+        self.play = play
+    }
+
+    public static let silent = BrandSoundPlayer { _ in }
+}
+
+extension EnvironmentValues {
+    /// Проигрыватель звуков бренда — его ставит корень приложения.
+    @Entry public var brandSound: BrandSoundPlayer = .silent
 }

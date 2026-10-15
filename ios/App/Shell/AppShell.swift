@@ -33,6 +33,7 @@ struct AppShell: View {
             }
         }
         .tint(Brand.ember.color)  // активная вкладка — огонь бренда «Крепость» (15.10)
+        .sensoryFeedback(.selection, trigger: model.tab)
         .runAccessory(run)
         .sheet(isPresented: $run.startSheetShown, onDismiss: { run.startSheetDismissed() }) {
             RunStartSheet(model: run)

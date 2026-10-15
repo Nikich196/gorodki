@@ -227,6 +227,8 @@ private struct LeaderboardPodium: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var raised = false
+    /// Пьедестал уже встречали фанфарами в этом запуске.
+    private static var celebrated = false
 
     private static let metals: [Color] = [
         Color(red: 0.96, green: 0.77, blue: 0.26), Color(red: 0.78, green: 0.82, blue: 0.87),
@@ -244,6 +246,12 @@ private struct LeaderboardPodium: View {
         }
         .padding(.top, 8)
         .onAppear {
+            // Фанфары и толчки — один раз за запуск: при каждом заходе на вкладку они бы надоели.
+            if !Self.celebrated {
+                Self.celebrated = true
+                SoundBoard.shared.play(.rank)
+                Haptics.shared.podium()
+            }
             guard !reduceMotion else {
                 raised = true
                 return

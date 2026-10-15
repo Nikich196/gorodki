@@ -15,6 +15,7 @@ struct GorodkiApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .environment(\.brandSound, SoundBoard.shared.player)
         }
         .onChange(of: scenePhase) { _, phase in
             let dependencies = AppDependencies.shared

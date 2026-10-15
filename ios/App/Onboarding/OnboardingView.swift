@@ -63,6 +63,7 @@ private struct IntroStep: View {
     var showDemo: (@MainActor @Sendable () -> Void)? = nil
     @State private var headerHeight: CGFloat = 120
     @State private var panelHeight: CGFloat = 340
+    @Environment(\.brandSound) private var sound
 
     var body: some View {
         ZStack {
@@ -88,6 +89,8 @@ private struct IntroStep: View {
         }
         .atmosphereBackground()
         .navigationBarTitleDisplayMode(.inline)
+        .sensoryFeedback(.selection, trigger: model.introPage)
+        .onChange(of: model.introPage) { sound.play(.swoosh) }
     }
 
     private var panel: some View {
