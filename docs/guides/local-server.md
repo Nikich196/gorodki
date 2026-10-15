@@ -42,7 +42,8 @@ xcodebuild build -project ios/Gorodki.xcodeproj -scheme "Gorodki Free" -configur
   -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO 'GORODKI_SERVER_URL=http://127.0.0.1:5080'
 ```
 
-Запуск с тестовым входом: аргумент `-GorodkiDevSignIn <имя>` (только Debug). Онбординг: код `TEST-2026` → 16+ →
+Запуск с тестовым входом: аргумент `-GorodkiDevSignIn <имя>` (только Debug) — или, чтобы вход работал и при запуске
+с экрана «Домой», `xcrun simctl spawn booted defaults write io.github.nikich196.gorodki.dev GorodkiDevSignIn <имя>`. Онбординг: код `TEST-2026` → 16+ →
 правила → согласие → «Войти через Google» (кнопка работает без Google). Симулятор в Xcode 27 открывается через
 `Xcode → Open Developer Tool → DeviceHub`.
 

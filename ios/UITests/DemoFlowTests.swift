@@ -21,7 +21,7 @@ final class DemoFlowTests: XCTestCase {
         demo.tap()
 
         XCTAssertTrue(
-            element(in: app, containing: "Демо: данные-примеры").waitForExistence(timeout: Self.screenTimeout),
+            element(in: app, containing: "Гость · данные-примеры").waitForExistence(timeout: Self.screenTimeout),
             "Нет плашки демо")
         pause(4)  // карта и земля дорисовываются
         snapshot("95-demo-map-day")

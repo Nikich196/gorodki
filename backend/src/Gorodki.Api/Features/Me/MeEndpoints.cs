@@ -83,16 +83,23 @@ public static class MeEndpoints
     }
 
     /// <summary>Включить или выключить согласие на показ профиля.</summary>
-    private static Task<Results<Ok<MeResponse>, NotFound>> SetPublicProfile(
+    private static async Task<Results<Ok<MeResponse>, NotFound>> SetPublicProfile(
         PublicProfileRequest request,
         ClaimsPrincipal principal,
         AppDbContext db,
         CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #71 (Егор): записать request.Enabled в PublicProfile вошедшего игрока и вернуть профиль, как GET /me.
-        // Игрока нет (аккаунт уже стёрт) — 404. Тесты — PublicProfileTests.
-        _ = (request, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #71");
+        if (principal.UserId() is not { } userId)
+        {
+            return TypedResults.NotFound();
+        }
+
+        // Одна команда в базу: согласие меняет только сам игрок, повтор того же ответа ничего не меняет. Игрока нет
+        // (аккаунт уже стёрт) — ни одной строки, 404.
+        var updated = await db.Users
+            .Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(set => set.SetProperty(u => u.PublicProfile, request.Enabled), cancellationToken);
+        return updated == 0 ? TypedResults.NotFound() : await GetMe(principal, db, cancellationToken);
     }
 
     /// <summary>Своя статистика для экрана профиля.</summary>

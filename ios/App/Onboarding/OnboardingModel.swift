@@ -71,15 +71,13 @@ final class OnboardingModel {
     }
 
     #if DEBUG
-        /// Локальная проверка в симуляторе: `-GorodkiDevSignIn <имя>` — вход тестового игрока на локальном сервере с
-        /// `Auth:DevSignIn` (только окружение Development, docs/guides/local-server.md). Без аргумента — как в выпуске.
-        private static func devGoogleToken(
-            _ arguments: [String] = ProcessInfo.processInfo.arguments
-        ) -> GoogleToken? {
-            guard let index = arguments.firstIndex(of: "-GorodkiDevSignIn"), index + 1 < arguments.count else {
-                return nil
-            }
-            let token = "dev:" + arguments[index + 1]
+        /// Локальная проверка в симуляторе: вход тестового игрока на локальном сервере с `Auth:DevSignIn` (только
+        /// окружение Development, docs/guides/local-server.md). Имя — `UserDefaults` по ключу `GorodkiDevSignIn`:
+        /// аргумент запуска `-GorodkiDevSignIn <имя>` — на один запуск, `defaults write` в симуляторе — и для запусков
+        /// с экрана «Домой». Имени нет — как в выпуске.
+        private static func devGoogleToken(_ defaults: UserDefaults = .standard) -> GoogleToken? {
+            guard let name = defaults.string(forKey: "GorodkiDevSignIn"), !name.isEmpty else { return nil }
+            let token = "dev:" + name
             return { token }
         }
     #else

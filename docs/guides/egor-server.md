@@ -21,18 +21,18 @@
 
 ## 0. Коротко
 
-> **Обновлено 07.10 (решение Никиты):** у тебя **7 несложных задач** — всё остальное из прежнего списка сделал Claude или
-> отложено «после показа». Твой список целиком:
+> **Обновлено 15.10 (решение Никиты):** у тебя **5 несложных задач** — #71 и #39 15.10 взял Claude, всё остальное из
+> прежнего списка сделал Claude или отложено «после показа». Твой список целиком:
 >
 > | № | Задача | Задача на GitHub |
 > |---|---|---|
 > | 1 | Безопасность аккаунтов: 2FA на GitHub, пароль и 2FA в Supabase | [#34](https://github.com/Nikich196/gorodki/issues/34) |
-> | 2 | Согласие на показ ника `PUT /me/public-profile` (E1) | [#71](https://github.com/Nikich196/gorodki/issues/71) |
+> | 2 | ~~Согласие на показ ника `PUT /me/public-profile` (E1)~~ — сделал Claude 15.10 | [#71](https://github.com/Nikich196/gorodki/issues/71) |
 > | 3 | Админка инвайтов `POST/GET /admin/invites`, `DELETE /admin/invites/{code}` (E2) | [#114](https://github.com/Nikich196/gorodki/issues/114) |
 > | 4 | Карточка игрока `GET /players/{id}` (E3) | [#115](https://github.com/Nikich196/gorodki/issues/115) |
 > | 5 | Своя статистика `GET /me/stats` (E4) | [#116](https://github.com/Nikich196/gorodki/issues/116) |
 > | 6 | Друзья по коду `GET/POST /friends`, `accept`, `DELETE` (E14a) | [#143](https://github.com/Nikich196/gorodki/issues/143) |
-> | 7 | Пингер сервера и базы на cron-job.org — после деплоя | [#39](https://github.com/Nikich196/gorodki/issues/39) |
+> | 7 | ~~Пингер сервера и базы на cron-job.org~~ — делает Claude вместе с деплоем (15.10) | [#39](https://github.com/Nikich196/gorodki/issues/39) |
 >
 > Сделал Claude (07.10): кланы и кланы в движке земли (#135), рейтинг территории и суточный срез (#136), «% Бреста» и
 > районов (#138), лента с респектами, жалобами и блокировками (#144). Отложено после показа (метка «после-показа»):
@@ -41,7 +41,7 @@
 
 - **Что ты делаешь:** новые адреса и таблицы по готовым образцам, данные для экранов (только чтение), админку, задачи по
   расписанию и чистые функции правил. Землю, журнал захватов и границу публичности трогает только Claude.
-- **С чего начать:** волна 0 — [#71](https://github.com/Nikich196/gorodki/issues/71) → [#114](https://github.com/Nikich196/gorodki/issues/114)
+- **С чего начать:** волна 0 — [#114](https://github.com/Nikich196/gorodki/issues/114)
   → [#115](https://github.com/Nikich196/gorodki/issues/115) → [#116](https://github.com/Nikich196/gorodki/issues/116).
   Всё для них уже лежит в `main`: заглушки `// ЗАДАЧА #NN`, запросы и ответы, тесты со `Skip = "ЗАДАЧА #NN"`.
 - **Как понять, что готово:** снимаешь `Skip`, тесты зелёные у тебя и в CI, в PR 5 строк «своими словами».
@@ -387,7 +387,7 @@ dotnet build Gorodki.slnx                 # собирается?
 
 | Волна | Задача | Что | Срок | Зависит от | Задача на GitHub |
 |---|---|---|---|---|---|
-| 0 | E1 | Согласие на показ ника `PUT /me/public-profile` | 04.11 | — | [#71](https://github.com/Nikich196/gorodki/issues/71) **Егор** |
+| 0 | E1 | Согласие на показ ника `PUT /me/public-profile` | 04.11 | — | [#71](https://github.com/Nikich196/gorodki/issues/71) — **сделано Claude 15.10** |
 | 0 | E2 **ворота** | Админка инвайтов `POST/GET /admin/invites`, `DELETE /admin/invites/{code}` | 01.11 (PR до 29.10) | — | [#114](https://github.com/Nikich196/gorodki/issues/114) **Егор** |
 | 0 | E3 | Карточка игрока `GET /players/{id}` | 01.11 (M1) | — | [#115](https://github.com/Nikich196/gorodki/issues/115) **Егор** |
 | 0 | E4 | Своя статистика `GET /me/stats` | 01.11 (M1) | — | [#116](https://github.com/Nikich196/gorodki/issues/116) **Егор** |
@@ -428,6 +428,9 @@ private static async Task<Results<Ok<MeResponse>, NotFound>> SetPublicProfile(..
 ```
 
 ### 6.1 E1 — согласие на показ ника (#71)
+
+> **Сделано Claude 15.10** (решение Никиты): `SetPublicProfile` в `MeEndpoints.cs`, тесты `PublicProfileTests` без `Skip`.
+> Карточка оставлена как разбор — посмотри решение, оно в одну команду `ExecuteUpdateAsync`.
 
 **Зачем.** PLAN §3.16: ник показывается чужим только с отдельного согласия; без него — «Игрок #1234». Флаг
 `users.public_profile` есть, рейтинги его читают, но поменять его нельзя.

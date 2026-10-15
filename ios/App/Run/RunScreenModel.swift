@@ -107,7 +107,7 @@ final class RunScreenModel {
     /// Лист «Старт».
     var startSheetShown = false
     var startStep: RunStartStep = .league
-    /// Выбранная лига: «Вело» — с Сезона 1 (PLAN.md, §5; D16), выбрать нельзя.
+    /// Выбранная лига (PLAN.md, §5): «Вело» открыта до Сезона 1 — docs/plan-deviations.md, №13.
     var league: League = .run
     /// Идёт «Начать»: кнопка ждёт.
     private(set) var starting = false
@@ -216,14 +216,14 @@ final class RunScreenModel {
 
     // MARK: - «Старт»
 
-    /// «Старт» на карте: забег идёт — открыть HUD; нет — лист с лигой.
-    func startTapped() {
+    /// «Старт» на карте: забег идёт — открыть HUD; нет — лист с лигой, выбранной на карте.
+    func startTapped(league: League = .run) {
         coverSource = "run.start"
         if state.isRunning {
             hudPresented = true
             return
         }
-        league = .run
+        self.league = league
         startStep = .league
         startError = nil
         startSheetShown = true

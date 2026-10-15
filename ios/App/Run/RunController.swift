@@ -71,7 +71,9 @@ final class RunController {
                 Task { @MainActor in RunController.shared.apply(state) }
             },
             // «≈+N га тумана» — против своего тумана за всё время (docs/architecture/run-hud.md, «+N га тумана»).
-            fogTiles: AppDependencies.shared.fog.map(CachedAllTimeFog.init))
+            fogTiles: AppDependencies.shared.fog.map {
+                CachedAllTimeFog(cache: $0, bikeCache: AppDependencies.shared.bikeFog)
+            })
     }
 
     // MARK: - Экран

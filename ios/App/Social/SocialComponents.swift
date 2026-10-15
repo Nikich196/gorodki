@@ -19,7 +19,7 @@ struct SocialFailureView: View {
             .buttonStyle(.neutral)
             .padding(.horizontal, 32)
             .padding(.bottom, 32)
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
         }
     }
 

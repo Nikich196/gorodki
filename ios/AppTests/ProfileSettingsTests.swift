@@ -212,13 +212,21 @@ struct ProfileSettingsTests {
         #expect(map.locationDeniedShown && map.locateRequest == 2)
     }
 
-    @Test("«Вело» до Сезона 1 — только пояснение, лига остаётся «Бег»")
-    func bikeLocked() {
+    @Test("«Вело» открыта: карта переключается на свою лигу, пояснение, подписка; «Бег» возвращает свою землю")
+    func bikeLeague() {
         let map = MapModel(profile: ProfileModel(signedIn: true))
+        var subscribed: [GameCore.League] = []
+        map.leagueChanged = { subscribed.append($0) }
+        let parcel = LandTile(key: LandTileKey(x: 1, y: 1), parcels: [], contestedZones: [])
+        map.apply(land: [parcel])
         map.select(.bike)
-        #expect(map.bikeHintShown && map.league == .run)
+        #expect(map.bikeHintShown && map.league == .bike)
+        #expect(map.land.tiles.isEmpty, "у «Вело» своя земля")
         map.select(.run)
         #expect(!map.bikeHintShown && map.league == .run)
+        #expect(Set(map.land.tiles.keys) == [parcel.key], "земля «Бега» вернулась без запроса")
+        map.select(.run)
+        #expect(subscribed == [.bike, .run], "повторное нажатие лигу не меняет")
     }
 
     // MARK: - Профиль и статистика

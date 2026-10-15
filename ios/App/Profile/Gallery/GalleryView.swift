@@ -118,7 +118,7 @@ struct GalleryView: View {
             }
             .padding(.vertical, 12)
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .navigationTitle("Галерея")
         .navigationDestination(for: GalleryItem.self) { item in
             GalleryDetailView(item: item, library: model.library)
@@ -327,7 +327,7 @@ struct GalleryDetailView: View {
             .ignoresSafeArea(edges: .top)
             info
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .navigationTitle(item.isVideo ? "Видео" : "Фото")
         .navigationBarTitleDisplayMode(.inline)
         .task {

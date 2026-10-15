@@ -1,11 +1,17 @@
 import DesignSystem
 import SwiftUI
 
-/// Три карточки интро (PLAN.md, §3.18: «Захватывай город шагами», обучение) — картинка из токенов дизайна и две строки.
+/// Три карточки интро (PLAN.md, §3.18: «Захватывай город шагами», обучение). Картинка карточки — живая сцена на карте
+/// Бреста за панелью (`IntroBackdrop`), у каждой — свой цвет точки страниц: своя земля, туман, соперник.
 struct IntroCard: Identifiable {
     let id: Int
     let title: String
     let text: String
+
+    /// Метка над заголовком: тема и номер карточки.
+    var tag: String {
+        ["ЗАХВАТ · 1 ИЗ 3", "ИССЛЕДОВАНИЕ · 2 ИЗ 3", "СОПЕРНИКИ · 3 ИЗ 3"][min(id, 2)]
+    }
 
     static let all = [
         IntroCard(
@@ -18,144 +24,95 @@ struct IntroCard: Identifiable {
             id: 2, title: "Держи свою землю",
             text: "Соседи могут отбить участок. Возвращайся, поднимай уровень, зови друзей в клан."),
     ]
+
+    /// Цвет точки страницы: своя земля (цвет игрока), кромка тумана, соперник.
+    func accent(_ theme: Theme) -> Color {
+        switch id {
+        case 0: PlayerColor.sky.edge[theme].color
+        case 1: FogStyle.edge[theme].color
+        default: PlayerColor.coral.edge[theme].color
+        }
+    }
 }
 
+/// Текст карточки в панели интро.
 struct IntroCardView: View {
     let card: IntroCard
 
     var body: some View {
-        VStack(spacing: 28) {
-            IntroIllustration(kind: card.id)
-                .frame(width: 260, height: 260)
-                .clipShape(.rect(cornerRadius: Radius.card))
-                .accessibilityHidden(true)
-            VStack(spacing: 12) {
-                Text(card.title)
-                    .font(.largeTitle.bold())
-                    .fontDesign(.rounded)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(card.title)
+                .font(.system(.title, design: .rounded, weight: .heavy))
+                .foregroundStyle(Palette.uiInk.color)
+                .minimumScaleFactor(0.8)
+            Text(card.text)
+                .font(.body)
+                .foregroundStyle(Palette.uiInk2.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// «ГОРОДКИ» над картой: знак-крепость (прорисовывается при запуске), надпись бренда, город и полоса из 12 цветов
+/// игроков — у каждого игрока свой цвет на карте.
+struct IntroWordmark: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            BrandMark(size: 62, animated: true)
+            VStack(alignment: .leading, spacing: 6) {
+                BrandWordmark(size: 36)
                     .foregroundStyle(Palette.uiInk.color)
-                Text(card.text)
-                    .font(.body)
-                    .foregroundStyle(Palette.uiInk2.color)
+                HStack(spacing: 10) {
+                    Label("Брест", systemImage: "mappin.and.ellipse")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.uiInk.color)
+                    PlayerPaletteStrip()
+                }
             }
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 28)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Городки. Брест")
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
-/// Картинки интро — теми же цветами, что карта: земля `mapLand`, участки — цвета игроков с кромкой, туман — `FogStyle`.
-private struct IntroIllustration: View {
-    let kind: Int
+/// Полоса цветов игроков — точки с кромкой, как участки на карте.
+private struct PlayerPaletteStrip: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let theme = Theme(colorScheme)
-        ZStack {
-            Palette.mapLand.color
-            StreetGrid()
-                .stroke(Palette.uiSeparator.color, lineWidth: 6)
-            switch kind {
-            case 0:
-                parcel(.sky, level: .two, theme: theme, in: CGRect(x: 0.2, y: 0.22, width: 0.6, height: 0.56))
+        HStack(spacing: 3) {
+            ForEach(PlayerColor.allCases) { color in
                 Circle()
-                    .fill(PlayerColor.sky.edge[theme].color)
-                    .frame(width: 16, height: 16)
-                    .offset(x: 78, y: 70)
-            case 1:
-                FogWithClearing()
-            default:
-                parcel(.coral, level: .one, theme: theme, in: CGRect(x: 0.08, y: 0.12, width: 0.5, height: 0.44))
-                parcel(.forest, level: .three, theme: theme, in: CGRect(x: 0.42, y: 0.34, width: 0.5, height: 0.5))
-                parcel(.violet, level: .two, theme: theme, in: CGRect(x: 0.12, y: 0.58, width: 0.36, height: 0.32))
+                    .fill(color.fill(.three, theme: theme).color)
+                    .overlay { Circle().stroke(color.edge[theme].color, lineWidth: 1.2) }
+                    .frame(width: 9, height: 9)
             }
         }
     }
-
-    private func parcel(_ color: PlayerColor, level: TerritoryLevel, theme: Theme, in unit: CGRect) -> some View {
-        GeometryReader { proxy in
-            let rect = CGRect(
-                x: unit.minX * proxy.size.width, y: unit.minY * proxy.size.height,
-                width: unit.width * proxy.size.width, height: unit.height * proxy.size.height)
-            ParcelShape(rect: rect)
-                .fill(color.fill(level, theme: theme).color)
-            ParcelShape(rect: rect)
-                .stroke(color.edge[theme].color, style: StrokeStyle(lineWidth: 3, lineJoin: .round))
-        }
-    }
 }
 
-/// Кварталы: несколько улиц поперёк картинки.
-private struct StreetGrid: Shape {
-    nonisolated func path(in rect: CGRect) -> Path {
-        var path = Path()
-        for fraction in [0.3, 0.68] {
-            path.move(to: CGPoint(x: rect.minX, y: rect.height * fraction))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * (fraction + 0.08)))
-            path.move(to: CGPoint(x: rect.width * fraction, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.width * (fraction - 0.06), y: rect.maxY))
-        }
-        return path
-    }
-}
-
-/// Участок неровной формы — как контур следа, а не квадрат.
-private struct ParcelShape: Shape {
-    let rect: CGRect
-
-    nonisolated func path(in _: CGRect) -> Path {
-        let points = [
-            CGPoint(x: 0.12, y: 0.08), CGPoint(x: 0.7, y: 0), CGPoint(x: 1, y: 0.38), CGPoint(x: 0.86, y: 0.94),
-            CGPoint(x: 0.3, y: 1), CGPoint(x: 0, y: 0.56),
-        ].map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
-        var path = Path()
-        path.addLines(points)
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// Туман с открытой полосой вдоль пройденного пути и кромкой открытого.
-private struct FogWithClearing: View {
+/// Точки страниц интро: текущая — вытянутая, цвета карточки.
+struct IntroPageDots: View {
+    let current: Int
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let theme = Theme(colorScheme)
-        let trail = TrailPath()
-        ZStack {
-            Rectangle()
-                .fill(FogStyle.haze[theme].color)
-                .mask {
-                    Rectangle()
-                        .overlay {
-                            trail.stroke(style: StrokeStyle(lineWidth: 46, lineCap: .round, lineJoin: .round))
-                                .blendMode(.destinationOut)
-                        }
-                        .compositingGroup()
-                }
-            trail.stroke(FogStyle.edge[theme].color, style: StrokeStyle(lineWidth: 50, lineCap: .round))
-                .mask {
-                    trail.stroke(style: StrokeStyle(lineWidth: 50, lineCap: .round, lineJoin: .round))
-                        .overlay {
-                            trail.stroke(style: StrokeStyle(lineWidth: 46, lineCap: .round, lineJoin: .round))
-                                .blendMode(.destinationOut)
-                        }
-                        .compositingGroup()
-                }
+        HStack(spacing: 6) {
+            ForEach(IntroCard.all) { card in
+                Capsule()
+                    .fill(card.id == current ? card.accent(theme) : Palette.uiInk3.color.opacity(0.5))
+                    .frame(width: card.id == current ? 24 : 8, height: 8)
+            }
         }
-    }
-}
-
-/// Путь пешехода через картинку.
-private struct TrailPath: Shape {
-    nonisolated func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.width * 0.12, y: rect.height * 0.86))
-        path.addCurve(
-            to: CGPoint(x: rect.width * 0.86, y: rect.height * 0.18),
-            control1: CGPoint(x: rect.width * 0.2, y: rect.height * 0.3),
-            control2: CGPoint(x: rect.width * 0.62, y: rect.height * 0.7))
-        return path
+        .animation(Motion.layerSwitch.unlessReduceMotion(reduceMotion), value: current)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Карточка \(current + 1) из \(IntroCard.all.count)")
     }
 }

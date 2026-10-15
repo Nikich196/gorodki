@@ -19,7 +19,7 @@ enum LeaderboardKind: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Лига рейтинга (PLAN.md, §3.5: «раздельно по лигам»): «Вело» — с Сезона 1 (D16), выбрать пока нельзя.
+/// Лига рейтинга (PLAN.md, §3.5: «раздельно по лигам»): «Бег» и «Вело» (открыта до Сезона 1 — plan-deviations, №13).
 enum LeaderboardLeague: String, CaseIterable, Identifiable, Sendable {
     case run, bike
 
@@ -32,7 +32,12 @@ enum LeaderboardLeague: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var locked: Bool { self == .bike }
+    var systemImage: String {
+        switch self {
+        case .run: "figure.run"
+        case .bike: "bicycle"
+        }
+    }
 
     var api: Components.Schemas.League {
         switch self {

@@ -34,9 +34,9 @@ extension LandTile {
     }
 }
 
-/// Живые данные карты: земля «Бега» (`TerritoryCache`) и свой туман «Пешком» за всё время (`FogCache`) из
-/// `AppDependencies`. Кэши сами решают, что перезапросить (версии, подсказки, запасной опрос), и переживают
-/// перезапуск на диске; здесь — только перевод в типы карты, вне главного потока.
+/// Живые данные карты одной лиги: земля (`TerritoryCache`) и свой туман за всё время (`FogCache`) из
+/// `AppDependencies` — «Бег» с «Пешком», «Вело» с «Вело». Кэши сами решают, что перезапросить (версии, подсказки,
+/// запасной опрос), и переживают перезапуск на диске; здесь — только перевод в типы карты, вне главного потока.
 struct CachedMapData: MapDataSource {
     let territory: TerritoryCache?
     let fogCache: FogCache?
@@ -93,9 +93,15 @@ extension MapModel {
     /// Карта приложения: кэши и клиент API из `AppDependencies`.
     static func live(profile: ProfileModel, home: HomeModel? = nil) -> MapModel {
         let dependencies = AppDependencies.shared
-        return MapModel(
+        let model = MapModel(
             profile: profile,
             data: CachedMapData(territory: dependencies.territory, fogCache: dependencies.fog),
+            bikeData: CachedMapData(territory: dependencies.bikeTerritory, fogCache: dependencies.bikeFog),
             names: dependencies.api.map { APIPlayerNames(api: $0) }, home: home)
+        // Подсказки «тайлы изменились» сервер шлёт по лиге — соединение подписывается на выбранную на карте.
+        model.leagueChanged = { league in
+            Task { await dependencies.realtime?.select(league == .bike ? .bike : .run) }
+        }
+        return model
     }
 }

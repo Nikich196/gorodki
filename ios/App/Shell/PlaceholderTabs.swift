@@ -10,6 +10,6 @@ struct TabPlaceholder: View {
 
     var body: some View {
         ContentStateView(title, systemImage: systemImage, message: text)
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
     }
 }

@@ -6,15 +6,15 @@ using static Gorodki.IntegrationTests.RunRequests;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Согласие на показ профиля — <c>PUT /me/public-profile</c> (PLAN.md, §3.16). Задача #71 для Егора: тесты со <c>Skip</c>
-/// снимаются вместе с реализацией (CONTRIBUTING.md, «Задачи для друга»).
+/// Согласие на показ профиля — <c>PUT /me/public-profile</c> (PLAN.md, §3.16; задача #71 — сделал Claude 15.10 по решению
+/// Никиты).
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class PublicProfileTests(DatabaseFixture database)
 {
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
-    [Fact(Skip = "ЗАДАЧА #71")]
+    [Fact]
     public async Task Consent_is_turned_on_and_off()
     {
         database.RequireDatabase();
@@ -33,7 +33,7 @@ public sealed class PublicProfileTests(DatabaseFixture database)
         Assert.False((await MeAsync(client)).PublicProfile);
     }
 
-    [Fact(Skip = "ЗАДАЧА #71")]
+    [Fact]
     public async Task Repeating_the_same_answer_changes_nothing()
     {
         database.RequireDatabase();
@@ -45,7 +45,7 @@ public sealed class PublicProfileTests(DatabaseFixture database)
         Assert.True((await MeAsync(client)).PublicProfile);
     }
 
-    [Fact(Skip = "ЗАДАЧА #71")]
+    [Fact]
     public async Task Only_the_players_own_consent_changes()
     {
         database.RequireDatabase();

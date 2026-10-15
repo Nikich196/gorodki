@@ -286,7 +286,7 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen("run-history", expecting: "Забеги", name: "34-run-history", settle: 2)
     }
 
-    /// «Старт» на карте — лист «Новый забег»: «Бег», «Вело» с замком до Сезона 1. Только днём.
+    /// «Старт» на карте — лист «Новый забег»: «Бег» и «Вело». Только днём.
     @MainActor
     func test35RunStartSheet() {
         let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player", "-GorodkiTheme", "day"])
@@ -373,7 +373,7 @@ final class ScreenSnapshotTests: XCTestCase {
         snapshotScreen("map-home", expecting: "Открыто", name: "49-map-home", settle: 6, themes: ["day"])
     }
 
-    /// «Вело» — нажатие показывает пояснение «с Сезона 1».
+    /// «Вело» — нажатие переключает карту на свою лигу и показывает пояснение «своя земля, свой туман».
     @MainActor
     func test50MapBikeHint() {
         let app = launchApp(["-GorodkiScreen", "map", "-GorodkiFixture", "player-map", "-GorodkiTheme", "day"])
@@ -382,11 +382,11 @@ final class ScreenSnapshotTests: XCTestCase {
         if shown {
             bike.tap()
         }
-        let hint = waitForAny([text(in: app, containing: "с Сезона 1")], timeout: Self.screenTimeout)
+        let hint = waitForAny([text(in: app, containing: "своя земля")], timeout: Self.screenTimeout)
         pause(0.5)
         snapshot("50-map-bike-hint-day")
         XCTAssertTrue(shown, "На карте нет «Вело»")
-        XCTAssertTrue(hint, "Нет пояснения «Вело — с Сезона 1»")
+        XCTAssertTrue(hint, "Нет пояснения «Вело: своя земля, свой туман»")
     }
 
     // MARK: - Социальные экраны (SampleSocialSource: образцы contracts/samples)

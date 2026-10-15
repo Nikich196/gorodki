@@ -56,6 +56,19 @@ struct CaptureCeremonyView: View {
             }
             .ignoresSafeArea()
 
+            // Бренд «Крепость» (15.10): сервер подтвердил захват — вспышка конфетти цвета игрока.
+            ConfettiBurst(
+                trigger: item.decision?.applied == true,
+                colors: [player.color, player.edgeColor, Brand.amber.color, Brand.ember.color, .white]
+            )
+            .ignoresSafeArea()
+            .onChange(of: item.decision?.applied == true) { _, applied in
+                // Подтверждено — колокольный аккорд и нарастающая волна вибрации.
+                guard applied else { return }
+                SoundBoard.shared.play(.capture)
+                Haptics.shared.capture()
+            }
+
             VStack(spacing: 0) {
                 Label("Петля замкнута · \(item.title)", systemImage: "figure.run")
                     .font(.subheadline.weight(.semibold))

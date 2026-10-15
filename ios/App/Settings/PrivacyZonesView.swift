@@ -147,7 +147,7 @@ struct PrivacyZonesView: View {
 
     var body: some View {
         content
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
             .navigationTitle("Приватные зоны")
             .navigationBarTitleDisplayMode(.inline)
             .task { if model.phase == .loading { await model.load() } }
@@ -217,7 +217,7 @@ struct PrivacyZonesView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
-                .background(Palette.uiBackground.color)
+                .background(.ultraThinMaterial)
             }
         }
     }
@@ -262,7 +262,7 @@ struct PrivacyZonesView: View {
                 }
             }
         }
-        .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+        .brandCard()
     }
 }
 
@@ -335,7 +335,7 @@ private struct AddPrivacyZoneView: View {
             }
             .padding(20)
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .safeAreaInset(edge: .bottom) {
             Button {
                 Task {
@@ -354,7 +354,7 @@ private struct AddPrivacyZoneView: View {
             .disabled(model.busy)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .background(Palette.uiBackground.color)
+            .background(.ultraThinMaterial)
         }
         .navigationTitle("Новая зона")
         .navigationBarTitleDisplayMode(.inline)

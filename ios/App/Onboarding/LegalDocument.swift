@@ -190,7 +190,7 @@ struct LegalDocumentSheet: View {
                         .padding(20)
                 }
             }
-            .background(Palette.uiBackground.color)
+            .liveGradientBackground()
             .navigationTitle(name.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

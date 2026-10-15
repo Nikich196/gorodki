@@ -15,10 +15,10 @@ struct TokenList<Content: View>: View {
 
     var body: some View {
         List {
-            content.listRowBackground(Palette.uiCell.color)
+            content.listRowBackground(Rectangle().fill(.regularMaterial))
         }
         .scrollContentBackground(.hidden)
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
     }
 }
 

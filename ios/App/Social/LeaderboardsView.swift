@@ -1,8 +1,9 @@
 import DesignSystem
+import GameCore
 import SwiftUI
 
 /// Вкладка «Рейтинги» (PLAN.md, §5, экран 20; решено 26.09 по делегированию — ios-app.md): «Захват | Исследование |
-/// Короли» в панели навигации, лига «Бег» («Вело» — с Сезона 1), свой ряд закреплён снизу, если его не видно;
+/// Короли» в панели навигации, лига «Бег | Вело», свой ряд закреплён снизу, если его не видно;
 /// «итог» или «предварительно» — у рейтинга сезона. Строки переезжают при смене мест (стабильные `id`), числа
 /// перекатываются (`numericText`).
 struct LeaderboardsTab: View {
@@ -17,7 +18,7 @@ struct LeaderboardsTab: View {
         NavigationStack {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Palette.uiBackground.color)
+                .atmosphereBackground()
                 .demoBadgeInset()
                 .navigationTitle("Рейтинги")
                 .navigationBarTitleDisplayMode(.inline)
@@ -36,7 +37,7 @@ struct LeaderboardsTab: View {
                 .safeAreaInset(edge: .bottom) {
                     if model.kind != .kings, let pinned = model.pinnedRow(mineRowVisible: mineVisible) {
                         LeaderboardRowView(row: pinned, myColor: myColor)
-                            .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+                            .brandCard()
                             .overlay {
                                 RoundedRectangle(cornerRadius: Radius.card).stroke(myColor.edgeColor, lineWidth: 1.5)
                             }
@@ -82,7 +83,7 @@ struct LeaderboardsTab: View {
         }
     }
 
-    /// Лига (меню, «Вело» — с замком) и подпись среза: сезон, «итог / предварительно», день.
+    /// Лига (меню «Бег | Вело») и подпись среза: сезон, «итог / предварительно», день.
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Menu {
@@ -90,13 +91,8 @@ struct LeaderboardsTab: View {
                     Button {
                         model.league = league
                     } label: {
-                        if league.locked {
-                            Label(league.title + " — с Сезона 1", systemImage: "lock")
-                        } else {
-                            Label(league.title, systemImage: model.league == league ? "checkmark" : "figure.run")
-                        }
+                        Label(league.title, systemImage: model.league == league ? "checkmark" : league.systemImage)
                     }
-                    .disabled(league.locked)
                 }
             } label: {
                 Label(model.league.title, systemImage: "chevron.down")
@@ -126,9 +122,23 @@ struct LeaderboardsTab: View {
         }
     }
 
+    /// Первые три места — на пьедестале (`LeaderboardPodium`), в списке — с четвёртого.
+    private var podiumCount: Int {
+        model.rows.count >= 3 ? 3 : 0
+    }
+
     private var rows: some View {
+        VStack(spacing: 12) {
+            if podiumCount > 0 {
+                LeaderboardPodium(rows: Array(model.rows.prefix(podiumCount)), myColor: myColor)
+            }
+            rowList
+        }
+    }
+
+    private var rowList: some View {
         VStack(spacing: 0) {
-            ForEach(model.rows) { row in
+            ForEach(model.rows.dropFirst(podiumCount)) { row in
                 LeaderboardRowView(row: row, myColor: myColor)
                     .onScrollVisibilityChange(threshold: 0.6) { visible in
                         if row.me { mineVisible = visible }
@@ -138,7 +148,7 @@ struct LeaderboardsTab: View {
                 }
             }
         }
-        .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+        .brandCard()
         .animation(Motion.numericRoll.unlessReduceMotion(reduceMotion), value: model.rows)
     }
 }
@@ -201,5 +211,106 @@ private struct TrailingIconLabelStyle: LabelStyle {
             configuration.title
             configuration.icon.font(.caption.weight(.bold))
         }
+    }
+}
+
+/// Пьедестал первой тройки (бренд «Крепость», 15.10): столбики поднимаются по очереди, у первого — огонь, корона
+/// и свечение; кольца аватаров — золото, серебро, бронза.
+private struct LeaderboardPodium: View {
+    let rows: [LeaderboardRow]
+    let myColor: PlayerColor
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var raised = false
+    /// Пьедестал уже встречали фанфарами в этом запуске.
+    private static var celebrated = false
+
+    private static let metals: [Color] = [
+        Color(red: 0.96, green: 0.77, blue: 0.26), Color(red: 0.78, green: 0.82, blue: 0.87),
+        Color(red: 0.82, green: 0.54, blue: 0.31),
+    ]
+
+    var body: some View {
+        let theme = Theme(colorScheme)
+        // Слева второй, в центре первый, справа третий.
+        let order = [1, 0, 2].filter { $0 < rows.count }
+        HStack(alignment: .bottom, spacing: 10) {
+            ForEach(order, id: \.self) { index in
+                column(rows[index], place: index, theme: theme)
+            }
+        }
+        .padding(.top, 8)
+        .onAppear {
+            // Фанфары и толчки — один раз за запуск: при каждом заходе на вкладку они бы надоели.
+            if !Self.celebrated {
+                Self.celebrated = true
+                SoundBoard.shared.play(.rank)
+                Haptics.shared.podium()
+            }
+            guard !reduceMotion else {
+                raised = true
+                return
+            }
+            raised = false
+            withAnimation(.spring(duration: 0.9, bounce: 0.35).delay(0.15)) { raised = true }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func column(_ row: LeaderboardRow, place: Int, theme: Theme) -> some View {
+        let heights: [CGFloat] = [118, 88, 68]
+        let fills: [LinearGradient] = [
+            Brand.fire(theme),
+            LinearGradient(
+                colors: [Brand.dusk[theme].color, Brand.dusk[theme].color.opacity(0.7)], startPoint: .top,
+                endPoint: .bottom),
+            LinearGradient(
+                colors: [Brand.river[theme].color, Brand.river[theme].color.opacity(0.7)], startPoint: .top,
+                endPoint: .bottom),
+        ]
+        return VStack(spacing: 6) {
+            if place == 0 {
+                Image(systemName: "crown.fill")
+                    .font(.title2)
+                    .foregroundStyle(Self.metals[0])
+                    .shadow(color: Self.metals[0].opacity(0.7), radius: 8)
+                    .scaleEffect(raised ? 1 : 0.4)
+                    .opacity(raised ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            Text(String(row.name.prefix(1)))
+                .font(.system(size: place == 0 ? 26 : 20, weight: .black).width(.expanded))
+                .foregroundStyle(row.me ? myColor.startInkColor : Palette.uiInk.color)
+                .frame(width: place == 0 ? 62 : 50, height: place == 0 ? 62 : 50)
+                .background(row.me ? myColor.color : Palette.uiCell2.color, in: .circle)
+                .overlay { Circle().strokeBorder(Self.metals[place], lineWidth: 3) }
+                .shadow(color: Self.metals[place].opacity(place == 0 ? 0.6 : 0.3), radius: place == 0 ? 12 : 6)
+                .accessibilityHidden(true)
+            Text(row.name)
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(Palette.uiInk.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(row.value)
+                .font(.caption.weight(.heavy).width(.expanded))
+                .foregroundStyle(Palette.uiInk2.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14)
+                .fill(fills[place])
+                .overlay(alignment: .top) {
+                    Text(NumberText.integer(row.rank))
+                        .font(.system(size: place == 0 ? 40 : 30, weight: .black).width(.expanded))
+                        .italic()
+                        .foregroundStyle(.white)
+                        .padding(.top, 8)
+                        .accessibilityHidden(true)
+                }
+                .frame(height: raised ? heights[place] : 10)
+                .shadow(color: place == 0 ? Brand.ember[theme].color.opacity(0.4) : .clear, radius: 14, y: 6)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(row.rank) место: \(row.name), \(row.value)\(row.me ? ", это ты" : "")")
     }
 }

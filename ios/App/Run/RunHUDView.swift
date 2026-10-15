@@ -541,10 +541,10 @@ private struct MissedCeremoniesSheet: View {
                             .foregroundStyle(Palette.uiInk2.color)
                     }
                 }
-                .listRowBackground(Palette.uiCell.color)
+                .listRowBackground(Rectangle().fill(.regularMaterial))
             }
             .scrollContentBackground(.hidden)
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
             .navigationTitle("Пока экран был выключен")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
