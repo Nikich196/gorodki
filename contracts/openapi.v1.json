@@ -1869,7 +1869,7 @@
           "Друзья"
         ],
         "summary": "Добавить по коду: заявка; если он уже добавил меня — сразу друзья",
-        "description": "Нет такого кода (или игрок заблокировал тебя) — 404 friend_code_invalid: блокировка так не выдаёт себя. Свой код — 400 friend_self. Ответ — игрок со статусом outgoing или friend.",
+        "description": "Нет такого кода (или игрок заблокировал тебя) — 404 friend_code_invalid: блокировка так не выдаёт себя. Свой код — 400 friend_self; ты сам заблокировал этого игрока — 400 friend_blocked (сначала сними блокировку). Ответ — игрок со статусом outgoing или friend; повтор ничего не меняет.",
         "operationId": "addFriend",
         "requestBody": {
           "content": {
@@ -1921,7 +1921,7 @@
           "Друзья"
         ],
         "summary": "Принять входящую заявку",
-        "description": "Заявки от этого игрока нет — 404 friend_request_not_found.",
+        "description": "Заявки от этого игрока нет — 404 friend_request_not_found. Повтор (уже друзья) — тот же ответ.",
         "operationId": "acceptFriend",
         "parameters": [
           {
@@ -2760,6 +2760,21 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "friendCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "friends": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExportFriend"
+            }
           }
         }
       },
@@ -3597,6 +3612,29 @@
             "contentEncoding": "base64",
             "type": "string",
             "format": "byte"
+          }
+        }
+      },
+      "ExportFriend": {
+        "required": [
+          "playerId",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "playerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FriendStatus"
+          },
+          "addedAtMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
           }
         }
       },
