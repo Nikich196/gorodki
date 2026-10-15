@@ -51,11 +51,8 @@ struct FriendsSectionView: View {
                         social.addFriendShown = true
                     } label: {
                         Label("Добавить по коду друга", systemImage: "person.badge.plus")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 52)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(Palette.uiInk.color)
+                    .buttonStyle(.brand)
                     .matchedTransitionSource(id: "friend.add", in: transition)
                     if let error = model.actionError {
                         Text(error)
@@ -69,12 +66,13 @@ struct FriendsSectionView: View {
                                 Button("Принять") { Task { await model.accept(friend) } }
                                     .lineLimit(1)
                                     .fixedSize()
-                                    .buttonStyle(.borderedProminent)
-                                    .tint(Palette.uiButton.color)
-                                    .foregroundStyle(Palette.uiButtonInk.color)
+                                    .fontWeight(.semibold)
+                                    .buttonStyle(.glassProminent)
+                                    .tint(Brand.ember.color)
+                                    .foregroundStyle(.white)
                                 Button("Отклонить", systemImage: "xmark") { Task { await model.remove(friend) } }
                                     .labelStyle(.iconOnly)
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(.glass)
                                     .tint(Palette.uiInk2.color)
                             }
                         }

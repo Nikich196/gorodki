@@ -78,9 +78,10 @@ private struct InboxRowView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: row.symbolName)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(row.read ? Palette.uiInk2.color : Palette.uiInk.color)
+                .foregroundStyle(row.tint.color)
                 .frame(width: 36, height: 36)
-                .background(Palette.uiCell2.color, in: .circle)
+                .background(row.tint.color.opacity(row.read ? 0.10 : 0.18), in: .circle)
+                .symbolEffect(.bounce, value: row.read)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: row.text)
@@ -94,7 +95,7 @@ private struct InboxRowView: View {
             Spacer(minLength: 0)
             if !row.read {
                 Circle()
-                    .fill(Palette.uiInk.color)
+                    .fill(row.tint.color)
                     .frame(width: 8, height: 8)
                     .padding(.top, 8)
                     .accessibilityLabel("Новое")

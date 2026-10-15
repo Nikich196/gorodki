@@ -46,11 +46,10 @@ struct ProfileOverview: View {
                     .font(.subheadline)
                     .foregroundStyle(Palette.uiInk2.color)
                 if model.signedIn {
-                    HStack(spacing: 6) {
-                        tag("Лига «Бег»", systemImage: "figure.run")
-                        if model.publicProfile == false {
-                            tag("Ник скрыт", systemImage: "eye.slash")
-                        }
+                    // Не влезают в строку — друг под другом: значок не переносится на две строки.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) { tags }
+                        VStack(alignment: .leading, spacing: 6) { tags }
                     }
                 }
             }
@@ -82,8 +81,18 @@ struct ProfileOverview: View {
         }
     }
 
+    @ViewBuilder
+    private var tags: some View {
+        tag("Лига «Бег»", systemImage: "figure.run")
+        if model.publicProfile == false {
+            tag("Ник скрыт", systemImage: "eye.slash")
+        }
+    }
+
     private func tag(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
+            .lineLimit(1)
+            .fixedSize()
             .font(.caption.weight(.semibold))
             .foregroundStyle(Palette.uiInk2.color)
             .padding(.horizontal, 8)

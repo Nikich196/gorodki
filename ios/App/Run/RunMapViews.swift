@@ -131,9 +131,11 @@ struct TargetMarker: View {
 /// След в рамке без карты — итог забега: точки на плоскости, вписанные в рамку с отступом. Рисуется `trim`-ом.
 struct TrackShape: Shape {
     let coordinates: [Coordinate]
+    /// Поле вокруг следа внутри рамки.
+    var inset: CGFloat = 12
 
     nonisolated func path(in rect: CGRect) -> Path {
-        let points = TrackGeometry.fit(coordinates, in: rect.insetBy(dx: 12, dy: 12))
+        let points = TrackGeometry.fit(coordinates, in: rect.insetBy(dx: inset, dy: inset))
         var path = Path()
         guard let first = points.first else { return path }
         path.move(to: first)

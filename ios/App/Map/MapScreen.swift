@@ -267,10 +267,18 @@ struct ParcelSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 14) {
-                    Circle()
-                        .fill(color.color)
-                        .overlay { Circle().stroke(color.edgeColor, lineWidth: 3) }
-                        .frame(width: 40, height: 40)
+                    Text(verbatim: String(content.title.prefix(1)))
+                        .font(.system(size: 20, weight: .black).width(.expanded))
+                        .foregroundStyle(color.startInkColor)
+                        .frame(width: 48, height: 48)
+                        .background {
+                            Circle().fill(
+                                LinearGradient(
+                                    colors: [color.color, color.edgeColor], startPoint: .topLeading,
+                                    endPoint: .bottomTrailing))
+                        }
+                        .overlay { Circle().strokeBorder(.white.opacity(0.6), lineWidth: 2) }
+                        .shadow(color: color.edgeColor.opacity(0.5), radius: 10)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(verbatim: content.title)
@@ -284,9 +292,16 @@ struct ParcelSheet: View {
                 VStack(spacing: 0) {
                     ForEach(content.rows) { row in
                         HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text(verbatim: row.title)
-                                .font(.body)
-                                .foregroundStyle(Palette.uiInk2.color)
+                            Label {
+                                Text(verbatim: row.title)
+                            } icon: {
+                                Image(systemName: row.symbolName)
+                                    .foregroundStyle(color.edgeColor)
+                            }
+                            .font(.body)
+                            .foregroundStyle(Palette.uiInk2.color)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             Spacer(minLength: 8)
                             Text(verbatim: row.value)
                                 .font(.body.weight(.semibold).monospacedDigit())

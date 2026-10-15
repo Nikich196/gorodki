@@ -590,10 +590,14 @@ struct RunAccessory: View {
                     .foregroundStyle(Palette.uiInk2.color)
                 Spacer(minLength: 4)
                 if placement != .inline, let meters = readout.closure.meters {
-                    Text(readout.closure.caption + " " + NumberText.meters(meters))
+                    // Полная подпись «До замыкания 140 м» в плашку не влезала — значок петли и метры, подпись — голосом.
+                    Label(NumberText.meters(meters), systemImage: "arrow.triangle.capsulepath")
                         .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(model.player.edgeColor)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .fixedSize()
+                        .contentTransition(.numericText(countsDown: true))
+                        .accessibilityLabel(Text(readout.closure.caption + " " + NumberText.meters(meters)))
                 }
                 if !model.stage.missed.isEmpty {
                     Image(systemName: "seal.fill")

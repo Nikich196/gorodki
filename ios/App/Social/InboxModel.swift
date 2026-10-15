@@ -1,3 +1,4 @@
+import DesignSystem
 import Foundation
 import GameCore
 import GorodkiAPI
@@ -30,6 +31,19 @@ struct InboxRow: Identifiable, Equatable, Sendable {
         case .seasonEnd: "flag.checkered"
         case .decay: "hourglass"
         case .streak: "flame"
+        }
+    }
+
+    /// Цвет значка по виду (дизайн-проход 15.10): угроза — коралл, корона и дуэль — огонь, рейд — фиолет, сезон —
+    /// река, угасание — песок, серия — янтарь.
+    var tint: Themed<RGBA> {
+        switch kind {
+        case .attack: PlayerColor.coral.edge
+        case .dethroned, .duel: Brand.ember
+        case .raid: PlayerColor.violet.edge
+        case .seasonEnd: Brand.river
+        case .decay: PlayerColor.sun.edge
+        case .streak: Brand.amber
         }
     }
 }

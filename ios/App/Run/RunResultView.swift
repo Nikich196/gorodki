@@ -16,7 +16,8 @@ struct RunResultView: View {
     @State private var appeared = false
 
     /// След — кромкой цвета игрока (tokens.md, §3); вне оболочки (фикстуры деталей) — нейтральным.
-    private var trailColor: Color { run?.player.edgeColor ?? Palette.uiInk.color }
+    /// След — цвет игрока; без идущего забега (детали из истории) — огонь бренда, а не чёрный.
+    private var trailColor: Color { run?.player.edgeColor ?? Brand.ember.color }
 
     var body: some View {
         ScrollView {
@@ -164,7 +165,11 @@ private struct TrackCard: View {
                 TrackShape(coordinates: track)
                     .trim(from: 0, to: appeared ? 1 : 0)
                     .stroke(
-                        color, style: StrokeStyle(lineWidth: TrailStyle.width - 1.5, lineCap: .round, lineJoin: .round))
+                        LinearGradient(
+                            colors: [color.mix(with: .white, by: 0.3), color], startPoint: .topLeading,
+                            endPoint: .bottomTrailing),
+                        style: StrokeStyle(lineWidth: TrailStyle.width - 1.5, lineCap: .round, lineJoin: .round))
+                    .shadow(color: color.opacity(0.55), radius: 6)
             } else {
                 Label(
                     "След появится, когда забег сохранится",
@@ -195,9 +200,11 @@ private struct TrackMapCard: View {
                         .stroke(
                             Palette.trailCase.color,
                             style: StrokeStyle(lineWidth: TrailStyle.caseWidth, lineCap: .round, lineJoin: .round))
+                    // Градиент вдоль следа — от бледного начала к яркому концу: видно, куда бежал.
                     MapPolyline(coordinates: track.map(\.location))
                         .stroke(
-                            color, style: StrokeStyle(lineWidth: TrailStyle.width, lineCap: .round, lineJoin: .round))
+                            Gradient(colors: [color.mix(with: .white, by: 0.5), color]),
+                            style: StrokeStyle(lineWidth: TrailStyle.width, lineCap: .round, lineJoin: .round))
                 }
                 .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
             } else {
@@ -493,13 +500,12 @@ private struct HistoryRowView: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: row.league == .run ? "figure.run" : "bicycle")
-                .font(.title3.weight(.semibold))
-                .frame(width: 44, height: 44)
-                .background(Palette.uiCell2.color, in: .circle)
+            RouteThumbnail(track: row.track, league: row.league)
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.startedAt.formatted(.dateTime.day().month(.wide).hour().minute().locale(NumberText.locale)))
                     .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Text(row.summary + (row.isReplay ? " · повтор" : ""))
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(Palette.uiInk2.color)
@@ -516,5 +522,39 @@ private struct HistoryRowView: View {
         .foregroundStyle(Palette.uiInk.color)
         .contentCard(padding: 14)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Миниатюра маршрута в строке истории (дизайн-проход 15.10): свой след вместо одинакового значка — забеги различимы
+/// с первого взгляда. Цвет — лиги: «Бег» — огонь, «Вело» — река. Маршрута нет — значок лиги.
+private struct RouteThumbnail: View {
+    let track: [Coordinate]
+    let league: League
+
+    var body: some View {
+        let color = league == .bike ? Brand.river.color : Brand.ember.color
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(color.opacity(0.12))
+            if track.count >= 2 {
+                TrackShape(coordinates: track, inset: 0)
+                    .stroke(
+                        LinearGradient(
+                            colors: [color.mix(with: .white, by: 0.35), color], startPoint: .topLeading,
+                            endPoint: .bottomTrailing),
+                        style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round)
+                    )
+                    .padding(9)
+            } else {
+                Image(systemName: league == .bike ? "bicycle" : "figure.run")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(color)
+            }
+        }
+        .frame(width: 48, height: 48)
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(color.opacity(0.25), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
     }
 }

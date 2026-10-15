@@ -73,6 +73,10 @@ public enum PlayerColor: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Заливка «Старта» (дизайн-проход 15.10: пастельная база на стекле выглядела бледной): дневная кромка — тот же тон,
+    /// насыщенный, в обеих темах. Белая надпись на ней — не меньше 3:1 у всех двенадцати цветов (крупный текст).
+    public var startTint: RGBA { edge.day }
+
     /// Заливка участка уровня `level`: цвет и альфа вместе (уровень — воспринимаемая насыщенность, PLAN.md §6.3).
     public func fill(_ level: TerritoryLevel, theme: Theme) -> RGBA {
         fills[theme][level]

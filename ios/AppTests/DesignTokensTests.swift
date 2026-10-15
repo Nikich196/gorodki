@@ -51,6 +51,12 @@ struct DesignTokensTests {
         #expect(TypeRole.startLabel.weight == .heavy)
     }
 
+    @Test("Белая надпись на насыщенном «Старте» читается: контраст ≥ 3:1 у всех 12 цветов", arguments: PlayerColor.allCases)
+    func startTintContrast(_ color: PlayerColor) {
+        let ratio = color.startTint.contrastRatio(to: RGBA(0xFFFFFF))
+        #expect(ratio >= 3, "\(color): \(ratio)")
+    }
+
     @Test("Кромка видна: днём ≥ 3:1 к земле, ночью ≥ 4,5:1", arguments: PlayerColor.allCases)
     func edgeContrast(_ color: PlayerColor) {
         #expect(color.edge.day.contrastRatio(to: Palette.mapLand.day) >= 3, "\(color) днём")
