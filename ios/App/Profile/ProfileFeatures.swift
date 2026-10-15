@@ -52,7 +52,7 @@ struct ProfileFeatures: View {
             VStack(spacing: 0) {
                 content()
             }
-            .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+            .brandCard()
         }
     }
 

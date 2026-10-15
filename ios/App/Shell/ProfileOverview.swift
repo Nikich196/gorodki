@@ -31,21 +31,17 @@ struct ProfileOverview: View {
 
     // MARK: - Шапка
 
+    /// Шапка-герой (бренд «Крепость»): свечение цвета игрока, силуэт Холмских ворот, аватар в вращающемся кольце огня.
     private var header: some View {
         HStack(spacing: 16) {
-            Text(String((model.displayName ?? "?").prefix(1)))
-                .font(.title.bold())
-                .fontDesign(.rounded)
-                .foregroundStyle(model.playerColor.startInkColor)
-                .frame(width: 64, height: 64)
-                .background(model.playerColor.color, in: .circle)
-                .padding(4)
-                .overlay { Circle().stroke(model.playerColor.edgeColor, lineWidth: 3) }
-                .accessibilityHidden(true)
+            ProfileAvatar(initial: String((model.displayName ?? "?").prefix(1)), color: model.playerColor)
             VStack(alignment: .leading, spacing: 6) {
                 Text(model.displayName ?? (model.signedIn ? "Игрок" : "Вход не выполнен"))
-                    .font(.title2.bold())
+                    .font(.system(size: 24, weight: .black).width(.expanded))
+                    .italic()
                     .foregroundStyle(Palette.uiInk.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(Palette.uiInk2.color)
@@ -58,8 +54,23 @@ struct ProfileOverview: View {
                     }
                 }
             }
+            Spacer(minLength: 0)
         }
-        .contentCard()
+        .padding(18)
+        .padding(.bottom, 26)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(alignment: .bottom) {
+            ZStack(alignment: .bottom) {
+                RadialGradient(
+                    colors: [model.playerColor.color.opacity(0.45), model.playerColor.color.opacity(0)],
+                    center: .topLeading, startRadius: 0, endRadius: 320)
+                FortressSkylineView(color: Palette.uiInk.color.opacity(0.10))
+                    .frame(height: 54)
+                    .padding(.horizontal, 8)
+            }
+            .clipShape(.rect(cornerRadius: Radius.card))
+        }
+        .brandCard()
     }
 
     private var subtitle: String {
@@ -77,7 +88,7 @@ struct ProfileOverview: View {
             .foregroundStyle(Palette.uiInk2.color)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Palette.uiCell2.color, in: .capsule)
+            .glassEffect(.regular, in: .capsule)
     }
 
     // MARK: - Сезон
@@ -85,52 +96,56 @@ struct ProfileOverview: View {
     /// Сезон: день и полоса дней, открыто за сезон, место в «Кто открыл больше». Очки сезона и места в Арене —
     /// «скоро»: в ответах сервера их пока нет.
     private var seasonCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(model.season?.name ?? model.seasonName ?? "Сезон")
-                    .font(.subheadline.weight(.semibold))
+                Text((model.season?.name ?? model.seasonName ?? "Сезон").uppercased())
+                    .font(.system(size: 13, weight: .heavy).width(.expanded))
                     .foregroundStyle(Palette.uiInk.color)
                 Spacer(minLength: 8)
                 if let season = model.season {
                     Text(season.text)
-                        .font(.subheadline)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Palette.uiInk2.color)
                 }
             }
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 18) {
+                if let season = model.season, let days = season.days, days > 0 {
+                    ZStack {
+                        BrandRing(progress: Double(min(season.day, days)) / Double(days), lineWidth: 9)
+                        VStack(spacing: 0) {
+                            Text(NumberText.integer(min(season.day, days)))
+                                .font(.system(size: 26, weight: .black).width(.expanded))
+                                .foregroundStyle(Palette.uiInk.color)
+                            Text("из \(days)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Palette.uiInk2.color)
+                        }
+                    }
+                    .frame(width: 92, height: 92)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(season.text))
+                }
+                VStack(alignment: .leading, spacing: 4) {
                     Text(area(model.seasonExploredSquareMeters))
-                        .font(.role(.seasonPoints))
+                        .font(.system(size: 34, weight: .black).width(.expanded))
+                        .italic()
                         .foregroundStyle(Palette.uiInk.color)
                         .contentTransition(.numericText(value: model.seasonExploredSquareMeters ?? 0))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                        .minimumScaleFactor(0.5)
                     Text("открыто за сезон")
                         .font(.footnote)
                         .foregroundStyle(Palette.uiInk2.color)
-                }
-                Spacer(minLength: 8)
-                if let rank = model.explorationRank {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("№ \(rank)")
-                            .font(.title2.bold().monospacedDigit())
-                            .foregroundStyle(Palette.uiInk.color)
-                        Text("в «Кто открыл больше»")
-                            .font(.footnote)
-                            .foregroundStyle(Palette.uiInk2.color)
+                    if let rank = model.explorationRank {
+                        RankPill(rank: rank)
                     }
                 }
-            }
-            if let season = model.season, let days = season.days, days > 0 {
-                ProgressView(value: Double(min(season.day, days)), total: Double(days))
-                    .tint(Palette.uiInk.color)
-                    .accessibilityLabel(Text(season.text))
             }
             Text("Очки сезона и места в Арене — скоро")
                 .font(.caption)
                 .foregroundStyle(Palette.uiInk3.color)
         }
-        .contentCard()
+        .contentCard(padding: 18)
     }
 
     // MARK: - Плитки
@@ -142,24 +157,30 @@ struct ProfileOverview: View {
                     ExplorationStatsView(model: statsModel())
                         .navigationTransition(.zoom(sourceID: "exploration", in: zoom))
                 } label: {
-                    StatTile(title: "Открыто тумана", value: area(model.exploredSquareMeters))
-                        .overlay(alignment: .topTrailing) {
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(Palette.uiInk3.color)
-                                .padding(12)
-                                .accessibilityHidden(true)
-                        }
+                    StatTile(
+                        title: "Открыто тумана", value: area(model.exploredSquareMeters), systemImage: "cloud.sun.fill"
+                    )
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Palette.uiInk3.color)
+                            .padding(12)
+                            .accessibilityHidden(true)
+                    }
                 }
                 .buttonStyle(.plain)
                 .matchedTransitionSource(id: "exploration", in: zoom)
-                StatTile(title: "Открыто за сезон", value: area(model.seasonExploredSquareMeters))
+                StatTile(
+                    title: "Открыто за сезон", value: area(model.seasonExploredSquareMeters),
+                    systemImage: "flag.checkered")
             }
             GridRow {
-                StatTile(title: "Забеги", value: model.runs.map { NumberText.integer($0) } ?? "—")
+                StatTile(
+                    title: "Забеги", value: model.runs.map { NumberText.integer($0) } ?? "—", systemImage: "figure.run")
                 StatTile(
                     title: "Засчитано",
-                    value: model.distanceMeters.map { NumberText.kilometers(fromMeters: $0, fractionDigits: 1) } ?? "—")
+                    value: model.distanceMeters.map { NumberText.kilometers(fromMeters: $0, fractionDigits: 1) } ?? "—",
+                    systemImage: "point.topleft.down.to.point.bottomright.curvepath.fill")
             }
         }
     }
@@ -213,7 +234,7 @@ struct ProfileOverview: View {
                     }
                 }
             }
-            .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+            .brandCard()
         }
     }
 
@@ -233,5 +254,63 @@ struct ProfileOverview: View {
 
     private func area(_ squareMeters: Double?) -> String {
         squareMeters.map { NumberText.hectares(fromSquareMeters: $0, fractionDigits: 2) } ?? "—"
+    }
+}
+
+/// Аватар профиля: буква в цвете игрока и кольцо огня бренда, которое медленно вращается.
+private struct ProfileAvatar: View {
+    let initial: String
+    let color: PlayerColor
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spin = false
+
+    var body: some View {
+        let theme = Theme(colorScheme)
+        Text(initial)
+            .font(.system(size: 28, weight: .black).width(.expanded))
+            .foregroundStyle(color.startInkColor)
+            .frame(width: 66, height: 66)
+            .background(color.color, in: .circle)
+            .padding(5)
+            .overlay {
+                Circle()
+                    .strokeBorder(
+                        AngularGradient(
+                            colors: [
+                                Brand.amber[theme].color, Brand.ember[theme].color, Brand.dusk[theme].color,
+                                Brand.amber[theme].color,
+                            ],
+                            center: .center),
+                        lineWidth: 3.5
+                    )
+                    .rotationEffect(.degrees(spin ? 360 : 0))
+            }
+            .shadow(color: color.color.opacity(0.5), radius: 12)
+            .accessibilityHidden(true)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.linear(duration: 8).repeatForever(autoreverses: false)) { spin = true }
+            }
+    }
+}
+
+/// Место в рейтинге: корона и номер на капсуле огня.
+private struct RankPill: View {
+    let rank: Int
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Label {
+            Text("№ \(rank) · Кто открыл больше")
+        } icon: {
+            Image(systemName: "crown.fill")
+        }
+        .font(.caption.weight(.heavy))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Brand.fire(Theme(colorScheme)), in: .capsule)
+        .padding(.top, 4)
     }
 }

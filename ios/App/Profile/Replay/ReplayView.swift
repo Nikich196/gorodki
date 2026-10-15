@@ -200,7 +200,7 @@ struct ReplayView: View {
             }
             .padding(20)
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .navigationTitle("Видео-повтор")
         .task { await model.load() }
         .onDisappear { model.playback?.pause() }

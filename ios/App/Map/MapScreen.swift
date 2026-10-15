@@ -280,7 +280,7 @@ struct ParcelSheet: View {
                         }
                     }
                 }
-                .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+                .brandCard()
             }
             .padding(20)
             .animation(animation, value: content)

@@ -77,7 +77,7 @@ struct MyQRView: View {
             }
             .padding(20)
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .navigationTitle("Мой QR")
         .onAppear {
             guard !reduceMotion else { return }
@@ -115,7 +115,7 @@ struct MyQRView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(20)
-        .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+        .brandCard()
     }
 
     @ViewBuilder

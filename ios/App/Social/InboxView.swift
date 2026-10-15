@@ -11,7 +11,7 @@ struct InboxView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
             .navigationTitle("Входящие")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -52,7 +52,7 @@ struct InboxView: View {
                             }
                         }
                     }
-                    .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+                    .brandCard()
                 }
                 .padding(16)
             }

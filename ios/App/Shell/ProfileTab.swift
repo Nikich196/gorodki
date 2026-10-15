@@ -142,7 +142,7 @@ struct ProfileTab: View {
                 }
                 .padding(20)
             }
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
             .demoBadgeInset()
             .navigationTitle("Профиль")
             .refreshable { await model.refresh() }
@@ -192,7 +192,7 @@ struct ProfileTab: View {
             }
         }
         .buttonStyle(.plain)
-        .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+        .brandCard()
     }
 
     /// Текст ошибки выхода для игрока. `signedOut` — вход к этому времени уже стёрт (упало стирание данных).
@@ -213,14 +213,22 @@ struct ProfileTab: View {
 struct StatTile: View {
     let title: String
     let value: String
+    var systemImage: String? = nil
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.headline)
+                    .foregroundStyle(Brand.fire(Theme(colorScheme)))
+                    .accessibilityHidden(true)
+            }
             Text(value)
-                .font(.role(.statTile))
+                .font(.system(size: 24, weight: .black).width(.expanded))
                 .foregroundStyle(Palette.uiInk.color)
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .minimumScaleFactor(0.5)
             Text(title)
                 .font(.caption)
                 .foregroundStyle(Palette.uiInk2.color)
@@ -228,7 +236,7 @@ struct StatTile: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.tile))
+        .brandCard(cornerRadius: Radius.tile)
     }
 }
 

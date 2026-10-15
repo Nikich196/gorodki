@@ -134,7 +134,7 @@ struct FriendsSectionView: View {
                         }
                     }
                 }
-                .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+                .brandCard()
             }
         }
     }
@@ -168,7 +168,7 @@ struct AddFriendSheet: View {
                 .disabled(!model.canAdd)
             }
             .padding(20)
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
             .navigationTitle("Добавить друга")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

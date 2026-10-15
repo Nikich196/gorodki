@@ -32,7 +32,7 @@ struct AppShell: View {
                 ProfileTab(model: model.profile, home: model.home, onFogCleared: { model.fogCleared() })
             }
         }
-        .tint(Palette.uiInk.color)  // активная вкладка — нейтральная (tokens.md, §6, п. 3)
+        .tint(Brand.ember.color)  // активная вкладка — огонь бренда «Крепость» (15.10)
         .runAccessory(run)
         .sheet(isPresented: $run.startSheetShown, onDismiss: { run.startSheetDismissed() }) {
             RunStartSheet(model: run)

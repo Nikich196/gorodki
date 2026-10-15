@@ -56,21 +56,52 @@ struct OnboardingView: View {
 
 // MARK: - Шаги
 
+/// Первый экран: карта Бреста на весь экран с живой сценой карточки (`IntroBackdrop`), сверху «ГОРОДКИ», снизу
+/// стеклянная панель — текст карточки (листается), точки страниц и кнопки.
 private struct IntroStep: View {
     @Bindable var model: OnboardingModel
     var showDemo: (@MainActor @Sendable () -> Void)? = nil
+    @State private var headerHeight: CGFloat = 120
+    @State private var panelHeight: CGFloat = 340
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack {
+            IntroBackdrop(page: model.introPage, topInset: headerHeight, bottomInset: panelHeight)
+                .ignoresSafeArea()
+            VStack(spacing: 0) {
+                IntroWordmark()
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.frame(in: .global).maxY
+                    } action: {
+                        headerHeight = $0
+                    }
+                Spacer(minLength: 0)
+                panel
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.size.height
+                    } action: {
+                        panelHeight = $0 + 24
+                    }
+            }
+        }
+        .atmosphereBackground()
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 16) {
             TabView(selection: $model.introPage) {
                 ForEach(IntroCard.all) { card in
                     IntroCardView(card: card)
                         .tag(card.id)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
-            VStack(spacing: 12) {
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 132)
+            IntroPageDots(current: model.introPage)
+            VStack(spacing: 4) {
                 Button(model.introPage < IntroCard.all.count - 1 ? "Дальше" : "Начать") {
                     if model.introPage < IntroCard.all.count - 1 {
                         withAnimation { model.introPage += 1 }
@@ -79,26 +110,28 @@ private struct IntroStep: View {
                     }
                 }
                 .buttonStyle(.neutral)
-                Button("Уже играю — войти") {
-                    model.startReturning()
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Palette.uiInk.color)
-                .frame(minHeight: 44)
-                if let showDemo {
-                    Button("Посмотреть демо", systemImage: "play.circle", action: showDemo)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Palette.uiInk2.color)
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("intro.demo")
+                HStack {
+                    Button("Уже играю — войти") {
+                        model.startReturning()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.uiInk.color)
+                    .frame(minHeight: 44)
+                    Spacer(minLength: 8)
+                    if let showDemo {
+                        Button("Посмотреть демо", systemImage: "play.circle", action: showDemo)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Palette.uiInk2.color)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("intro.demo")
+                    }
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
         }
-        .background(Palette.uiBackground.color)
-        .navigationTitle("Городки")
-        .navigationBarTitleDisplayMode(.inline)
+        .padding(20)
+        .panelGlass()
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 }
 
@@ -274,8 +307,8 @@ private struct StepScaffold<Content: View, Footer: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text(title)
-                    .font(.largeTitle.bold())
-                    .fontDesign(.rounded)
+                    .font(.system(size: 30, weight: .black).width(.expanded))
+                    .italic()
                     .foregroundStyle(Palette.uiInk.color)
                 Text(text)
                     .font(.body)
@@ -294,9 +327,9 @@ private struct StepScaffold<Content: View, Footer: View>: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .background(Palette.uiBackground.color)
+            .background(.ultraThinMaterial)
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .navigationBarTitleDisplayMode(.inline)
     }
 }

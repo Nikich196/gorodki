@@ -59,7 +59,7 @@ struct RunResultView: View {
             }
             .padding(16)
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .navigationTitle(model.justFinished ? "Итог забега" : "Детали забега")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -177,7 +177,7 @@ private struct TrackCard: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 1.4), value: appeared)
         .frame(maxWidth: .infinity)
         .frame(height: 200)
-        .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+        .brandCard()
         .accessibilityHidden(true)
     }
 }
@@ -464,7 +464,7 @@ struct RunHistoryView: View {
             }
             .padding(16)
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .navigationTitle("Забеги")
         .navigationDestination(for: UUID.self) { id in
             RunDetailsScreen(model: model.details(id))

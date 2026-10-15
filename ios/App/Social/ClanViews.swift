@@ -18,7 +18,7 @@ struct ClanTab: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
             .demoBadgeInset()
             .navigationTitle(social.clanSection.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -187,7 +187,7 @@ struct CreateClanSheet: View {
                 }
                 .padding(16)
             }
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
             .navigationTitle("Новый клан")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -282,7 +282,7 @@ struct ClanDetailView: View {
                         }
                     }
                 }
-                .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+                .brandCard()
                 if let error = model.actionError {
                     Text(error)
                         .font(.footnote)
@@ -292,7 +292,7 @@ struct ClanDetailView: View {
                 Button("Выйти из клана", role: .destructive) { leaveAsked = true }
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+                    .brandCard()
                     .disabled(model.busy)
             }
             .padding(16)

@@ -205,7 +205,7 @@ struct SettingsView: View {
             accountSection
         }
         .scrollContentBackground(.hidden)
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .navigationTitle("Настройки")
         .navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.success, trigger: model.successes)
@@ -279,7 +279,7 @@ struct SettingsView: View {
                 Text("«Дом» и его круг хранятся только на этом телефоне.")
             }
         }
-        .listRowBackground(Palette.uiCell.color)
+        .listRowBackground(Rectangle().fill(.regularMaterial))
     }
 
     private var privacySection: some View {
@@ -304,7 +304,7 @@ struct SettingsView: View {
                         + "ты — «Игрок #1234».")
             }
         }
-        .listRowBackground(Palette.uiCell.color)
+        .listRowBackground(Rectangle().fill(.regularMaterial))
     }
 
     private var documentsSection: some View {
@@ -317,7 +317,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .listRowBackground(Palette.uiCell.color)
+        .listRowBackground(Rectangle().fill(.regularMaterial))
     }
 
     private var accountSection: some View {
@@ -356,7 +356,7 @@ struct SettingsView: View {
                     .monospacedDigit()
             }
         }
-        .listRowBackground(Palette.uiCell.color)
+        .listRowBackground(Rectangle().fill(.regularMaterial))
     }
 
     /// Что потеряется при выходе: `RunController.signOut` заканчивает забег и стирает очередь синхронизации.

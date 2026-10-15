@@ -63,7 +63,7 @@ struct ExplorationStatsView: View {
 
     var body: some View {
         content
-            .background(Palette.uiBackground.color)
+            .atmosphereBackground()
             .navigationTitle("Исследование")
             .task {
                 if model.phase == .loading { await model.load() }
@@ -183,7 +183,7 @@ struct ExplorationStatsView: View {
                     }
                 }
             }
-            .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+            .brandCard()
         }
     }
 

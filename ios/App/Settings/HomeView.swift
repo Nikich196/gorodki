@@ -104,7 +104,7 @@ struct HomeView: View {
             }
             .padding(20)
         }
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 8) {
                 Button(model.home == nil ? "Поставить «Дом» здесь" : "Перенести «Дом» сюда") {
@@ -122,7 +122,7 @@ struct HomeView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .background(Palette.uiBackground.color)
+            .background(.ultraThinMaterial)
         }
         .navigationTitle("Дом")
         .navigationBarTitleDisplayMode(.inline)

@@ -23,6 +23,12 @@ struct RunStartButton: View {
             Label(run?.isRunning == true ? "Забег" : "Старт", systemImage: "figure.run")
         }
         .frame(width: 200)
+        .background {
+            // Пока забег не идёт — пульс зовёт начать (бренд «Крепость», 15.10).
+            if run?.isRunning != true {
+                PulseRings(color: player.color)
+            }
+        }
         .modifier(TransitionSource(id: RunTransitionID.start, namespace: transition))
     }
 }
@@ -76,7 +82,7 @@ struct RunStartSheet: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Palette.uiBackground.color)
+        .atmosphereBackground()
         .animation(Motion.numericRoll, value: model.startStep)
     }
 
@@ -146,7 +152,7 @@ private struct LeagueOption: View {
             }
             .foregroundStyle(Palette.uiInk.color)
             .padding(14)
-            .background(Palette.uiCell.color, in: .rect(cornerRadius: Radius.card))
+            .brandCard()
             .overlay {
                 RoundedRectangle(cornerRadius: Radius.card)
                     .stroke(selected ? Palette.uiInk.color : .clear, lineWidth: 2)
