@@ -240,14 +240,15 @@ public sealed class DuelsTests(DatabaseFixture database)
         await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(NewArea(), 0, 0, 100))).RunId);
         var notifier = new RecordingNotifier();
 
-        // До границы впереди никто: свежий захват Бориса видит только он сам.
+        // До границы впереди никто: свежий захват Бориса видит только он сам. База общая — судья проходит и по дуэлям
+        // соседних тестов, поэтому смотрим только на свою.
         await RefereeAsync(api, r => r.TrackLeadersAsync(CancellationToken.None), notifier);
-        Assert.Empty(notifier.Leaders);
+        Assert.DoesNotContain(notifier.Leaders, lead => lead.Duel == duel.Id);
         api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
         await RefereeAsync(api, r => r.TrackLeadersAsync(CancellationToken.None), notifier);
         await RefereeAsync(api, r => r.TrackLeadersAsync(CancellationToken.None), notifier); // повтор — без второго уведомления
 
-        Assert.Equal([(duel.Id, borisId)], notifier.Leaders);
+        Assert.Equal([(duel.Id, borisId)], notifier.Leaders.Where(lead => lead.Duel == duel.Id));
         Assert.Equal(DuelSideKind.Opponent, (await StoredAsync(duel.Id)).Leader);
     }
 
