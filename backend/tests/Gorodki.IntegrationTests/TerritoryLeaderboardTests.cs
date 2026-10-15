@@ -1,7 +1,8 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Scoring;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Time;
@@ -13,9 +14,10 @@ using static Gorodki.IntegrationTests.Walks;
 namespace Gorodki.IntegrationTests;
 
 /// <summary>
-/// Рейтинг территории — <c>GET /leaderboards/territory</c> и суточный срез (PLAN.md, §3.5), задача #136 (E7, сделано Claude
-/// 07.10): удержание по видимой земле, повтор не начисляет дважды, захват до границы публичности не даёт очков в срезе,
-/// итоговый проход в момент закрытия сезона (04:00). Время — настоящие сезоны (С0 с 16.11, С1 с 30.11), как в <c>ScoringTests</c>.
+/// Рейтинг территории — <c>GET /leaderboards/territory</c> (PLAN.md, §3.5), задача #136 (E7, сделано Claude 07.10): места
+/// каждые 5 минут (plan-deviations, №15) — очки попадают в них первым проходом после своей границы публичности и не раньше;
+/// удержание по видимой земле — раз в сутки, сколько бы проходов ни было; итоговый проход в момент закрытия сезона (04:00).
+/// Время — настоящие сезоны (С0 с 15.10, С1 с 30.11), как в <c>ScoringTests</c>.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
@@ -67,7 +69,7 @@ public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
     private static readonly DateTimeOffset SeasonOne = new(2026, 11, 29, 21, 0, 0, TimeSpan.Zero); // 30.11 00:00 по Минску
 
     [Fact]
-    public async Task Daily_snapshot_pays_hold_once_for_visible_touched_land_and_ranks_only_visible_points()
+    public async Task Hold_is_paid_once_a_day_for_visible_touched_land_however_many_passes_and_places_count_only_visible_points()
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
@@ -82,31 +84,85 @@ public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
         GoTo(api, midnight - TimeSpan.FromMinutes(10));
         await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(NewArea(), 0, 0, 100))).RunId); // скрыт до 00:10
         GoTo(api, midnight + TimeSpan.FromSeconds(30));
+        var paidAt = api.Time.GetUtcNow();
 
         Assert.True(await RunAsync(api) > 0);
-        Assert.Equal(0, await RunAsync(api)); // повтор — ничего: ни удержания, ни мест второй раз
-
-        await using (var db = database.CreateContext())
-        {
-            var hold = await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.UserId == annaId && e.Kind == ScoreKind.Hold, Cancel);
-            Assert.Equal((0, day, 10, api.Time.GetUtcNow()), (hold.Season, hold.GameDay, hold.Points, hold.VisibleAt)); // 100 соток × 0,1
-            // Захват Бориса в 23:50 ещё скрыт: его земли «на карте» нет — нет и удержания.
-            Assert.False(await db.ScoreEvents.AnyAsync(e => e.UserId == borisId && e.Kind == ScoreKind.Hold, Cancel));
-        }
 
         var board = (await anna.GetFromJsonAsync<TerritoryLeaderboardResponse>("/leaderboards/territory?league=run&season=0", Json, Cancel))!;
         Assert.Equal(("2026-11-19", false), (board.Day, board.Final));
         Assert.Equal(await VisiblePointsAsync(annaId, 0, api.Time.GetUtcNow()), board.Mine!.Points); // захват и удержание
         Assert.True(board.Mine.Points > 10);
-        // Очки захвата Бориса станут видны только в 00:10 — в срезе 00:00 его нет совсем.
+        // Очки захвата Бориса станут видны только в 00:10 — в проходе 00:00 его нет совсем.
+        Assert.Null((await boris.GetFromJsonAsync<TerritoryLeaderboardResponse>("/leaderboards/territory?season=0", Json, Cancel))!.Mine);
+        Assert.DoesNotContain(board.Entries, e => e.Name.Contains(borisId.ToString("N")[^10..], StringComparison.Ordinal));
+
+        // Проходы каждые 5 минут до 00:30 и ещё один в полдень: места переснимаются, удержание за 18.11 — нет.
+        for (var at = midnight + TimeSpan.FromMinutes(5); at <= midnight + TimeSpan.FromMinutes(30); at += TimeSpan.FromMinutes(5))
+        {
+            GoTo(api, at);
+            await RunAsync(api);
+        }
+
+        GoTo(api, midnight + TimeSpan.FromHours(12));
+        await RunAsync(api);
+
+        await using (var db = database.CreateContext())
+        {
+            var hold = await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.UserId == annaId && e.Kind == ScoreKind.Hold, Cancel);
+            Assert.Equal((0, day, 10, paidAt), (hold.Season, hold.GameDay, hold.Points, hold.VisibleAt)); // 100 соток × 0,1
+            // Захват Бориса в 23:50 в 00:00 был скрыт: его земли «на карте» не было — нет и удержания, и позже его не доначислить.
+            Assert.False(await db.ScoreEvents.AnyAsync(e => e.UserId == borisId && e.Kind == ScoreKind.Hold, Cancel));
+        }
+
+        // А очки захвата Бориса в местах — с 00:10, как и сам захват на карте.
+        var borisLater = (await boris.GetFromJsonAsync<TerritoryLeaderboardResponse>("/leaderboards/territory?season=0", Json, Cancel))!;
+        Assert.Equal(await VisiblePointsAsync(borisId, 0, api.Time.GetUtcNow()), borisLater.Mine!.Points);
+        Assert.Equal("2026-11-19", borisLater.Day);
+    }
+
+    [Fact]
+    public async Task Points_enter_the_places_at_their_public_boundary_which_is_a_five_minute_pass_and_not_a_millisecond_before()
+    {
+        // Граница публичности — всегда на сетке по 5 минут (TerritoryReader.PublicAt), а проход идёт каждые 5 минут по той же
+        // сетке: очки попадают в места проходом на своей границе. Захват, ещё скрытый задержкой, — нет.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var day = new DateOnly(2026, 11, 24); // Сезон 0
+        await ForgetAsync(day, finalSeason: 0);
+        GoTo(api, SeasonCalendar.MinskMidnight(day).AddHours(12));
+        var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100));
+        await ProcessAsync(api, claim.RunId);
+        DateTimeOffset visibleAt;
+        await using (var db = database.CreateContext())
+        {
+            visibleAt = (await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.CaptureId == claim.CaptureId, Cancel)).VisibleAt;
+        }
+
+        Assert.Equal(0, visibleAt.UtcTicks % TerritoryReader.RevealStep.Ticks);
+        GoTo(api, visibleAt - TimeSpan.FromMinutes(2)); // Борис берёт землю за 2 минуты до границы Анны — его захват ещё скрыт
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(NewArea(), 0, 0, 100))).RunId);
+
+        GoTo(api, visibleAt - TimeSpan.FromMilliseconds(1));
+        await RunAsync(api);
+        Assert.Null((await anna.GetFromJsonAsync<TerritoryLeaderboardResponse>("/leaderboards/territory?season=0", Json, Cancel))!.Mine);
+
+        GoTo(api, visibleAt);
+        await RunAsync(api);
+        var board = (await anna.GetFromJsonAsync<TerritoryLeaderboardResponse>("/leaderboards/territory?season=0", Json, Cancel))!;
+        Assert.Equal(await VisiblePointsAsync(annaId, 0, visibleAt), board.Mine!.Points);
+        Assert.True(board.Mine.Points > 0);
+        Assert.Equal("2026-11-24", board.Day); // срез — сегодняшний
         Assert.Null((await boris.GetFromJsonAsync<TerritoryLeaderboardResponse>("/leaderboards/territory?season=0", Json, Cancel))!.Mine);
         Assert.DoesNotContain(board.Entries, e => e.Name.Contains(borisId.ToString("N")[^10..], StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task Two_servers_taking_the_snapshot_at_once_take_it_once()
+    public async Task Two_servers_at_once_pay_the_hold_once_and_leave_one_place_per_player()
     {
-        // Во время деплоя задача может пойти на двух экземплярах сразу: отметка проверяется ещё раз под блокировкой (6).
+        // Во время деплоя задача может пойти на двух экземплярах сразу: отметка удержания проверяется ещё раз под блокировкой
+        // (6), места пишутся заменой под той же блокировкой.
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
@@ -116,9 +172,8 @@ public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
         await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100))).RunId);
         GoTo(api, SeasonCalendar.MinskMidnight(day.AddDays(1)) + TimeSpan.FromSeconds(30));
 
-        var both = await Task.WhenAll(RunAsync(api), RunAsync(api));
+        await Task.WhenAll(RunAsync(api), RunAsync(api));
 
-        Assert.Contains(0, both);
         await using var db = database.CreateContext();
         Assert.Equal(1, await db.ScoreEvents.CountAsync(e => e.UserId == annaId && e.Kind == ScoreKind.Hold, Cancel));
         Assert.Equal(1, await db.LeaderboardSnapshots.CountAsync(

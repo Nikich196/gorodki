@@ -11,10 +11,11 @@ using Microsoft.EntityFrameworkCore;
 namespace Gorodki.Api.Features.Leaderboards;
 
 /// <summary>
-/// Суточный срез очков и рейтинг территории (PLAN.md, §3.5: «удержание: ежедневный срез в 00:00 по Минску, ступени, потолок
-/// в зачёт»; «рейтинги — по ежедневному снимку, раздельно по лигам»), задача #136 (E7). Задача Hangfire
-/// <c>territory-snapshot</c> — каждый час по Минску: в 00:00 делает срез, в остальные часы видит, что он уже есть; в момент
-/// закрытия сезона (<see cref="ScoreBook.ClosesAt"/>, 04:00 первого дня следующего) — итоговый проход по прошлому сезону.
+/// Удержание и рейтинг территории (PLAN.md, §3.5: «удержание: ежедневный срез в 00:00 по Минску, ступени, потолок в зачёт»;
+/// «рейтинги — раздельно по лигам»), задача #136 (E7). Задача Hangfire <c>territory-snapshot</c> — каждые 5 минут по Минску:
+/// места по очкам сезона переснимаются каждый проход (docs/plan-deviations.md, №15: «всё открыто и работает сразу»), удержание
+/// за прошедшие сутки начисляется один раз — первым проходом после полуночи; в момент закрытия сезона
+/// (<see cref="ScoreBook.ClosesAt"/>, 04:00 первого дня следующего) — итоговый проход по прошлому сезону.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -22,10 +23,14 @@ namespace Gorodki.Api.Features.Leaderboards;
 /// (<see cref="TerritoryReader.VisibleOwnedAreaAsync(Guid, League, TerritoryViewer, DateTimeOffset?, CancellationToken)"/>,
 /// посторонний зритель): захват последних 20–25 минут ещё не прибавлен, скрытый чужой захват земли игрока ещё не вычтен.
 /// Очки — только видимые начисления (<see cref="ScoreBook.SeasonTotalsAsync"/>); итог — <see cref="ScoreBook.FinalTotalsAsync"/>.
+/// Поэтому частый пересчёт ничего не выдаёт раньше карты: очки захвата попадают в места с той же границы, что сам захват на
+/// карте, — первым проходом после неё, то есть не позже чем через 5 минут.
 /// </para>
 /// <para>
-/// <b>Один раз.</b> Срез за сутки и итог сезона отмечаются в <c>job_runs</c> в той же транзакции, под блокировкой (6); строка
-/// удержания уникальна на (игрок, лига, сутки) — повтор задачи второй раз не начисляет и не переснимает.
+/// <b>Один раз — удержание и итог.</b> Удержание за сутки и итог сезона отмечаются в <c>job_runs</c> в той же транзакции,
+/// под блокировкой (6); строка удержания уникальна на (игрок, лига, сутки) — повторный проход второй раз не начисляет.
+/// <b>Места — заменой.</b> Строки текущих суток стираются и пишутся заново под той же блокировкой: второй экземпляр
+/// сервера дублей не даст, а таблица не растёт — за прошлые сутки остаётся их последний проход, хранится неделя.
 /// </para>
 /// </remarks>
 public sealed class TerritorySnapshots(
@@ -36,7 +41,7 @@ public sealed class TerritorySnapshots(
     TimeProvider time,
     ILogger<TerritorySnapshots> logger)
 {
-    /// <summary>Отметка суточного среза в <c>job_runs</c>; ключ — номер игровых суток среза.</summary>
+    /// <summary>Отметка удержания в <c>job_runs</c>; ключ — номер игровых суток, первым проходом которых оно начислено.</summary>
     public const string DailyJob = "territory-daily";
 
     /// <summary>Отметка итогового прохода в <c>job_runs</c>; ключ — номер сезона.</summary>
@@ -45,22 +50,24 @@ public sealed class TerritorySnapshots(
     /// <summary>Пространство блокировки среза территории (docs/architecture/jobs.md, «Пространства блокировок»).</summary>
     public const int LockSpace = 6;
 
-    /// <summary>Сколько дней хранить ежедневные срезы (итог сезона хранится дольше).</summary>
+    /// <summary>Сколько дней хранить срезы прошлых суток (итог сезона хранится дольше).</summary>
     public const int KeepDays = LeaderboardSnapshots.KeepDays;
 
     /// <summary>Слой среза территории — лига: «Бег» в слое <c>foot</c>, «Вело» — в <c>bike</c>.</summary>
     public static LeaderboardLayer LayerOf(League league) => league == League.Bike ? LeaderboardLayer.Bike : LeaderboardLayer.Foot;
 
-    /// <summary>Задача по расписанию: суточный срез, если его ещё нет, и итог закрытых сезонов. Возвращает число строк.</summary>
+    /// <summary>
+    /// Задача по расписанию (каждые 5 минут): удержание за прошедшие сутки, если его ещё не было, места по очкам сезона и итог
+    /// закрытых сезонов. Возвращает число записанных строк (удержание, места, итог).
+    /// </summary>
     public async Task<int> RunIfDueAsync(CancellationToken cancellationToken) =>
-        await TakeDailyIfDueAsync(cancellationToken) + await TakeFinalIfDueAsync(cancellationToken);
+        await PayHoldIfDueAsync(cancellationToken) + await RankAsync(cancellationToken) + await TakeFinalIfDueAsync(cancellationToken);
 
     /// <summary>
-    /// Срез за текущие игровые сутки: удержание за прошедшие сутки (если они были в сезоне) и места по очкам сезона — идущего
-    /// и того, к которому относились прошедшие сутки (в первый день сезона это прошлый сезон, его рейтинг пока
-    /// предварительный). Возвращает число новых строк (удержание и места); 0 — срез уже был.
+    /// Удержание за прошедшие игровые сутки (если они были в сезоне) — один раз за сутки, первым проходом после полуночи по
+    /// Минску (§3.5). Возвращает число новых строк удержания; 0 — уже начислено (или некому).
     /// </summary>
-    public async Task<int> TakeDailyIfDueAsync(CancellationToken cancellationToken)
+    public async Task<int> PayHoldIfDueAsync(CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         var day = GameClock.GameDayOf(now);
@@ -103,7 +110,7 @@ public sealed class TerritorySnapshots(
                         Points = score.Points,
                         Basis = Math.Round(score.Basis, 3),
                         EffectiveAt = holdAt,
-                        VisibleAt = now, // видно с момента среза: площадь уже по публичной проекции
+                        VisibleAt = now, // видно с момента начисления: площадь уже по публичной проекции
                         CreatedAt = now,
                     });
                 }
@@ -126,11 +133,31 @@ public sealed class TerritorySnapshots(
             .ToHashSet();
         var fresh = holds.Where(h => !paid.Contains((h.UserId, h.League))).ToList();
         db.ScoreEvents.AddRange(fresh);
+        db.JobRuns.Add(new JobRunEntity { Job = DailyJob, Key = day.DayNumber, DoneAt = now });
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        logger.LogInformation("Удержание за {Day}: {Holds} начислений", holdDay, fresh.Count);
+        return fresh.Count;
+    }
 
-        // Места — по очкам сезона после записи удержания. Сезон, у которого уже снят итог, не переснимается.
+    /// <summary>
+    /// Места по очкам сезона за текущие игровые сутки — заменой: строки сегодняшнего дня стираются и пишутся заново, прошлые
+    /// сутки остаются своим последним проходом. Сезоны — все начатые без снятого итога: идущий и, до итога в 04:00 первого
+    /// дня нового сезона, прошлый (его места пока предварительные). Возвращает число записанных мест.
+    /// </summary>
+    public async Task<int> RankAsync(CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        var day = GameClock.GameDayOf(now);
+        var calendar = await seasons.CalendarAsync(cancellationToken);
+
+        db.ChangeTracker.Clear();
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({LockSpace}, 0)", cancellationToken);
+
+        // Сезон, у которого уже снят итог, не переснимается: его места — итоговые (TakeFinalIfDueAsync).
         var finals = await db.JobRuns.AsNoTracking().Where(j => j.Job == FinalJob).Select(j => j.Key).ToListAsync(cancellationToken);
-        var boards = new[] { calendar.At(now)?.Number, holdSeason?.Number }.OfType<int>().Distinct().Where(s => !finals.Contains(s));
+        var boards = calendar.Seasons.Where(s => s.StartsAt <= now).Select(s => s.Number).Except(finals).ToList();
         var rows = new List<LeaderboardSnapshotEntity>();
         foreach (var season in boards)
         {
@@ -140,15 +167,17 @@ public sealed class TerritorySnapshots(
             }
         }
 
+        await db.LeaderboardSnapshots
+            .Where(s => s.Board == LeaderboardBoard.Territory && s.Day == day && !s.Final && boards.Contains(s.Season))
+            .ExecuteDeleteAsync(cancellationToken);
         db.LeaderboardSnapshots.AddRange(rows);
-        db.JobRuns.Add(new JobRunEntity { Job = DailyJob, Key = day.DayNumber, DoneAt = now });
         await db.SaveChangesAsync(cancellationToken);
         await db.LeaderboardSnapshots
             .Where(s => s.Board == LeaderboardBoard.Territory && !s.Final && s.Day < day.AddDays(-KeepDays))
             .ExecuteDeleteAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        logger.LogInformation("Срез территории за {Day}: удержание {Holds}, мест {Rows}", day, fresh.Count, rows.Count);
-        return fresh.Count + rows.Count;
+        logger.LogDebug("Места рейтинга территории за {Day}: {Rows}", day, rows.Count);
+        return rows.Count;
     }
 
     /// <summary>

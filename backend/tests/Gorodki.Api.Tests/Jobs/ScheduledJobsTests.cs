@@ -44,7 +44,7 @@ public sealed class ScheduledJobsTests
     }
 
     [Fact]
-    public void Territory_snapshot_is_checked_every_hour_by_Minsk_time_so_it_runs_at_midnight_and_at_the_seasons_close()
+    public void Territory_ranking_is_refreshed_every_five_minutes_by_Minsk_time_so_it_also_runs_at_midnight_and_at_the_seasons_close()
     {
         var jobs = new RecordedSchedule();
 
@@ -53,7 +53,22 @@ public sealed class ScheduledJobsTests
         var (_, job, cron, options) = Assert.Single(jobs.Added, j => j.Id == ScheduledJobs.TerritorySnapshotJob);
         Assert.Equal(typeof(TerritorySnapshots), job.Type);
         Assert.Equal(nameof(TerritorySnapshots.RunIfDueAsync), job.Method.Name);
-        Assert.Equal("0 * * * *", cron); // 00:00 — срез, 04:00 первого дня сезона — итог прошлого
+        // Места — каждые 5 минут (plan-deviations, №15); 00:00 — удержание за сутки, 04:00 первого дня сезона — итог прошлого.
+        Assert.Equal("*/5 * * * *", cron);
+        Assert.Equal("Europe/Minsk", options.TimeZone.Id);
+    }
+
+    [Fact]
+    public void Exploration_ranking_is_refreshed_every_five_minutes_by_Minsk_time()
+    {
+        var jobs = new RecordedSchedule();
+
+        ScheduledJobs.Register(jobs);
+
+        var (_, job, cron, options) = Assert.Single(jobs.Added, j => j.Id == ScheduledJobs.ExplorationSnapshotJob);
+        Assert.Equal(typeof(LeaderboardSnapshots), job.Type);
+        Assert.Equal(nameof(LeaderboardSnapshots.RefreshAsync), job.Method.Name);
+        Assert.Equal("*/5 * * * *", cron);
         Assert.Equal("Europe/Minsk", options.TimeZone.Id);
     }
 

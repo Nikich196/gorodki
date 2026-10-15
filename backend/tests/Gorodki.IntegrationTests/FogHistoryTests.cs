@@ -213,7 +213,7 @@ public sealed class FogHistoryTests(DatabaseFixture database)
     }
 
     [Fact]
-    public async Task Clear_waits_for_the_daily_snapshot_only_when_there_is_fog_and_answers_busy_after_the_lock_timeout()
+    public async Task Clear_waits_for_the_ranking_snapshot_only_when_there_is_fog_and_answers_busy_after_the_lock_timeout()
     {
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
@@ -225,7 +225,7 @@ public sealed class FogHistoryTests(DatabaseFixture database)
 
         await using (var snapshot = database.CreateContext())
         {
-            // Долгий срез рейтингов за сегодня держит свою блокировку, как LeaderboardSnapshots.TakeIfDueAsync.
+            // Долгий срез рейтингов за сегодня держит свою блокировку, как LeaderboardSnapshots.RefreshAsync.
             await using var transaction = await snapshot.Database.BeginTransactionAsync(Cancel);
             await snapshot.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(4, {day.DayNumber})", Cancel);
 
@@ -287,6 +287,6 @@ public sealed class FogHistoryTests(DatabaseFixture database)
     private static async Task<int> SnapshotAsync(ApiFactory api)
     {
         await using var scope = api.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<LeaderboardSnapshots>().TakeIfDueAsync(CancellationToken.None);
+        return await scope.ServiceProvider.GetRequiredService<LeaderboardSnapshots>().RefreshAsync(CancellationToken.None);
     }
 }
