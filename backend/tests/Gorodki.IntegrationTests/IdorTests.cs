@@ -45,9 +45,9 @@ public sealed class IdorTests(DatabaseFixture database)
         ["GET /players/{id:guid}"] = HttpStatusCode.OK,
 
         // Заготовки задач Егора (C15). Карточка клана публична, как карточка игрока (участники — по номерам, ники — с согласия);
-        // код-приглашение Борису не виден. Остальное — «нет такого»: Анна не в клане Бориса, фишки, заявки, посты (ещё до
-        // границы публичности) и дуэли Анны — не его; отрезок — несуществующий номер. Блокировка — право Бориса: 204, данные
-        // Анны не меняются. Бан — только администратору.
+        // код-приглашение Борису не виден. Остальное — «нет такого»: Анна не в клане Бориса, фишки, заявки в друзья (заявку
+        // Карла Анне не принять, дружбу Анны не разорвать), посты (ещё до границы публичности) и дуэли Анны — не его; отрезок —
+        // несуществующий номер. Блокировка — право Бориса: 204, данные Анны не меняются. Бан — только администратору.
         ["GET /clans/{id:guid}"] = HttpStatusCode.OK,
         ["DELETE /clans/mine/members/{userId:guid}"] = HttpStatusCode.NotFound,
         ["PUT /clans/mine/members/{userId:guid}/role"] = HttpStatusCode.NotFound,
@@ -73,10 +73,7 @@ public sealed class IdorTests(DatabaseFixture database)
     private static readonly Dictionary<string, string> AwaitingTasks = new()
     {
         ["DELETE /admin/invites/{code}"] = "ЗАДАЧА #114",
-        ["GET /players/{id:guid}"] = "ЗАДАЧА #115",
         ["POST /me/inventory/{id:guid}/activate"] = "ЗАДАЧА #140",
-        ["POST /friends/{id:guid}/accept"] = "ЗАДАЧА #143",
-        ["DELETE /friends/{id:guid}"] = "ЗАДАЧА #143",
         ["GET /segments/{id:guid}"] = "ЗАДАЧА #146",
         ["GET /segments/{id:guid}/leaderboard"] = "ЗАДАЧА #146",
         ["GET /duels/{id:guid}"] = "ЗАДАЧА #147",
@@ -121,6 +118,8 @@ public sealed class IdorTests(DatabaseFixture database)
         var (anna, annaId) = await api.CreatePlayerClientAsync();
         var (boris, _) = await api.CreatePlayerClientAsync();
         var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
+        var (carl, carlId) = await api.CreatePlayerClientAsync();
+        var (dina, _) = await api.CreatePlayerClientAsync();
 
         // Ресурсы Анны: забег с кусками и заявкой (без завершения), приватная зона, задание отката (заводит админ).
         var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100));
@@ -153,6 +152,15 @@ public sealed class IdorTests(DatabaseFixture database)
             await db.SaveChangesAsync(Cancel);
         }
 
+        // Друзья Анны: Карл прислал ей заявку, с Диной они друзья. Борис не примет заявку Карла и не разорвёт дружбу Анны.
+        var annaCode = (await anna.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
+        var dinaCode = (await dina.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
+        foreach (var (client, code) in new[] { (carl, annaCode), (dina, annaCode), (anna, dinaCode) })
+        {
+            var added = await client.PostAsJsonAsync("/friends", new AddFriendRequest { Code = code }, Json, Cancel);
+            Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+        }
+
         var before = await SnapshotAsync(claim.RunId, annaId);
 
         var now = api.Time.GetUtcNow().ToUnixTimeMilliseconds();
@@ -171,10 +179,13 @@ public sealed class IdorTests(DatabaseFixture database)
             ["POST /admin/users/{userId:guid}/rollback"] = await boris.PostAsJsonAsync(
                 $"/admin/users/{annaId}/rollback", new RollbackRequest("чужими руками"), Json, Cancel),
             ["GET /admin/rollbacks/{rollbackId:guid}"] = await boris.GetAsync($"/admin/rollbacks/{rollbackId}", Cancel),
+            ["GET /players/{id:guid}"] = await boris.GetAsync($"/players/{annaId}", Cancel),
             ["GET /clans/{id:guid}"] = await boris.GetAsync($"/clans/{annaClanId}", Cancel),
             ["DELETE /clans/mine/members/{userId:guid}"] = await boris.DeleteAsync($"/clans/mine/members/{annaId}", Cancel),
             ["PUT /clans/mine/members/{userId:guid}/role"] = await boris.PutAsJsonAsync(
                 $"/clans/mine/members/{annaId}/role", new ClanRoleRequest { Role = ClanRole.Member }, Json, Cancel),
+            ["POST /friends/{id:guid}/accept"] = await boris.PostAsync($"/friends/{carlId}/accept", null, Cancel),
+            ["DELETE /friends/{id:guid}"] = await boris.DeleteAsync($"/friends/{annaId}", Cancel),
             ["POST /feed/{id:guid}/respect"] = await boris.PostAsync($"/feed/{postId}/respect", null, Cancel),
             ["POST /feed/{id:guid}/report"] = await boris.PostAsJsonAsync($"/feed/{postId}/report", new ReportPostRequest("чужое"), Json, Cancel),
             ["PUT /me/blocks/{id:guid}"] = await boris.PutAsync($"/me/blocks/{annaId}", null, Cancel),
@@ -211,7 +222,9 @@ public sealed class IdorTests(DatabaseFixture database)
         return await db.Users.Where(u => u.Id == userId).Select(u => u.DisplayName).SingleAsync(Cancel);
     }
 
-    /// <summary>Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката, клан и роль в нём.</summary>
+    /// <summary>
+    /// Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката, клан и роль в нём, лента, друзья.
+    /// </summary>
     private async Task<string> SnapshotAsync(Guid runId, Guid annaId)
     {
         await using var db = database.CreateContext();
@@ -223,6 +236,10 @@ public sealed class IdorTests(DatabaseFixture database)
         var feed = await db.FeedPosts.Where(p => p.AuthorId == annaId)
             .Select(p => new { p.Id, Respects = db.FeedRespects.Count(r => r.PostId == p.Id), Reports = db.FeedReports.Count(r => r.PostId == p.Id) })
             .ToListAsync(Cancel);
-        return $"{run.UserId} {run.Status} {run.EndedAt} {chunks} [{string.Join(",", captures)}] {rollbacks} {clan} {string.Join(",", feed)}";
+        var friends = await db.FriendLinks.Where(f => f.UserId == annaId || f.FriendId == annaId)
+            .OrderBy(f => f.UserId).ThenBy(f => f.FriendId).Select(f => $"{f.UserId}>{f.FriendId}").ToListAsync(Cancel);
+        Assert.Equal(3, friends.Count); // заявка Карла и дружба с Диной (две строки) на месте
+        return $"{run.UserId} {run.Status} {run.EndedAt} {chunks} [{string.Join(",", captures)}] {rollbacks} {clan} "
+            + $"{string.Join(",", feed)} {string.Join(",", friends)}";
     }
 }

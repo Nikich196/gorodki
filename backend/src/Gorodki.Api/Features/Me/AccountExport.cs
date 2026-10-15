@@ -37,6 +37,13 @@ namespace Gorodki.Api.Features.Me;
 /// <param name="Respected">Посты, которым игрок поставил респект. Необязательное поле.</param>
 /// <param name="Reports">Свои жалобы на посты. Необязательное поле.</param>
 /// <param name="Blocked">Кого игрок заблокировал (номера). Кто заблокировал его — данные тех игроков, здесь их нет.</param>
+/// <param name="FriendCode">
+/// Свой код дружбы; <c>null</c> — ещё не выдан (игрок не открывал «Друзей»). Необязательное поле.
+/// </param>
+/// <param name="Friends">
+/// Друзья и заявки — как в <c>GET /friends</c>, но номерами, без ников (ник — данные того игрока), и все, что хранятся.
+/// Необязательное поле.
+/// </param>
 public sealed record AccountExportResponse(
     long ExportedAtMs,
     ExportProfile Profile,
@@ -53,7 +60,16 @@ public sealed record AccountExportResponse(
     IReadOnlyList<ExportPost>? Posts = null,
     IReadOnlyList<Guid>? Respected = null,
     IReadOnlyList<ExportReport>? Reports = null,
-    IReadOnlyList<Guid>? Blocked = null);
+    IReadOnlyList<Guid>? Blocked = null,
+    string? FriendCode = null,
+    IReadOnlyList<ExportFriend>? Friends = null);
+
+/// <summary>Друг или заявка в «Моих данных».</summary>
+/// <param name="AddedAtMs">
+/// Когда игрок сам добавил этого человека по коду или принял его заявку; у входящей заявки — <c>null</c>: когда её отправили —
+/// действие того игрока.
+/// </param>
+public sealed record ExportFriend(Guid PlayerId, FriendStatus Status, long? AddedAtMs);
 
 /// <summary>Свой пост ленты: только числа и дата, как в ленте.</summary>
 /// <param name="Day">Игровые сутки по Минску, <c>yyyy-MM-dd</c>.</param>
@@ -311,6 +327,24 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
         var blocked = await db.PlayerBlocks.AsNoTracking()
             .Where(b => b.BlockerId == userId).OrderBy(b => b.CreatedAt).ThenBy(b => b.BlockedId).Select(b => b.BlockedId)
             .ToListAsync(cancellationToken);
+        var links = await db.FriendLinks.AsNoTracking()
+            .Where(f => f.UserId == userId || f.FriendId == userId)
+            .Select(f => new { OtherId = f.UserId == userId ? f.FriendId : f.UserId, Mine = f.UserId == userId, f.CreatedAt })
+            .ToListAsync(cancellationToken);
+        var friends = links
+            .GroupBy(l => l.OtherId)
+            .Select(pair => new
+            {
+                PlayerId = pair.Key,
+                Mine = pair.Where(l => l.Mine).Select(l => (DateTimeOffset?)l.CreatedAt).SingleOrDefault(),
+                Theirs = pair.Any(l => !l.Mine),
+            })
+            .Select(f => new ExportFriend(
+                f.PlayerId,
+                f.Mine is null ? FriendStatus.Incoming : f.Theirs ? FriendStatus.Friend : FriendStatus.Outgoing,
+                f.Mine?.ToUnixTimeMilliseconds()))
+            .OrderBy(f => f.Status).ThenBy(f => f.AddedAtMs).ThenBy(f => f.PlayerId)
+            .ToList();
 
         return new AccountExportResponse(
             time.GetUtcNow().ToUnixTimeMilliseconds(),
@@ -346,6 +380,8 @@ public sealed class AccountExport(AppDbContext db, GameConfigStore configs, Terr
                 p.Respects))],
             respected,
             reports,
-            blocked);
+            blocked,
+            user.FriendCode,
+            friends);
     }
 }

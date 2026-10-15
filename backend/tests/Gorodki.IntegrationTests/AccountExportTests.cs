@@ -51,6 +51,17 @@ public sealed class AccountExportTests(DatabaseFixture database)
         var borisId = (await boris.GetFromJsonAsync<MeResponse>("/me", Json, Cancel))!.Id;
         Assert.Equal(HttpStatusCode.NoContent, (await anna.PutAsync($"/me/blocks/{borisId}", null, Cancel)).StatusCode);
 
+        // Друзья (#143): с Карлом — друзья, Дина прислала заявку, Анна добавила Веру (ещё не приняла).
+        var (carl, carlId) = await api.CreatePlayerClientAsync();
+        var (dina, dinaId) = await api.CreatePlayerClientAsync();
+        var (vera, veraId) = await api.CreatePlayerClientAsync();
+        var annaCode = (await anna.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
+        await carl.PostAsJsonAsync("/friends", new AddFriendRequest { Code = annaCode }, Json, Cancel);
+        Assert.Equal(HttpStatusCode.OK, (await anna.PostAsync($"/friends/{carlId}/accept", null, Cancel)).StatusCode);
+        await dina.PostAsJsonAsync("/friends", new AddFriendRequest { Code = annaCode }, Json, Cancel);
+        var veraCode = (await vera.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
+        await anna.PostAsJsonAsync("/friends", new AddFriendRequest { Code = veraCode }, Json, Cancel);
+
         var response = await anna.GetAsync("/me/export", Cancel);
         var mine = (await response.Content.ReadFromJsonAsync<AccountExportResponse>(Json, Cancel))!;
         var theirs = (await boris.GetFromJsonAsync<AccountExportResponse>("/me/export", Json, Cancel))!;
@@ -81,6 +92,11 @@ public sealed class AccountExportTests(DatabaseFixture database)
         Assert.Equal(FeedPostKind.Capture, post.Kind);
         Assert.InRange(post.CapturedSquareMeters ?? 0, 9_500, 10_500);
         Assert.Equal([borisId], mine.Blocked);
+        Assert.Equal(annaCode, mine.FriendCode);
+        Assert.Equal(
+            [(dinaId, FriendStatus.Incoming, false), (carlId, FriendStatus.Friend, true), (veraId, FriendStatus.Outgoing, true)],
+            mine.Friends!.OrderBy(f => f.Status switch { FriendStatus.Incoming => 0, FriendStatus.Friend => 1, _ => 2 })
+                .Select(f => (f.PlayerId, f.Status, f.AddedAtMs is not null))); // у входящей — без времени: это действие Дины
 
         // Ничего чужого: у Бориса — только его забеги и захваты.
         Assert.DoesNotContain(theirs.Runs, r => r.Id == walk.Id || r.Id == claim.RunId);
@@ -88,6 +104,8 @@ public sealed class AccountExportTests(DatabaseFixture database)
         Assert.Null(theirs.Clan);
         Assert.DoesNotContain(theirs.Posts!, p => p.Id == post.Id);
         Assert.Empty(theirs.Blocked!); // кто заблокировал Бориса — данные Анны, не его
+        Assert.Null(theirs.FriendCode); // Борис «Друзей» не открывал — кода нет
+        Assert.Empty(theirs.Friends!);
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
     }
 }

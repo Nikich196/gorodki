@@ -66,6 +66,12 @@ public sealed class UserEntity
     /// Вышел из клана или исключён — до этого момента нельзя вступить в другой или создать свой (PLAN.md, §3.3: 72 ч).
     /// </summary>
     public DateTimeOffset? ClanJoinAfter { get; set; }
+
+    /// <summary>
+    /// Код дружбы <c>XXXX-XXXX</c> для QR и ссылки (PLAN.md, §3.8; задача #143): выдаётся при первом <c>GET /friends</c> и
+    /// дальше не меняется; уникален. <c>null</c> — игрок ещё не открывал «Друзей».
+    /// </summary>
+    public string? FriendCode { get; set; }
 }
 
 /// <summary>
@@ -1004,5 +1010,24 @@ public sealed class PlayerBlockEntity
 
     public Guid BlockedId { get; set; }
 
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+// ── Друзья (PLAN.md, §3.8; задача #143, E14a) ──
+
+/// <summary>
+/// «Игрок добавил друга»: по его коду или приняв его заявку. Дружба — только взаимная: строки в обе стороны; строка в одну
+/// сторону — заявка (у того, кто добавил, — исходящая, у другого — входящая). Удалить из друзей, отклонить или отозвать
+/// заявку — стереть обе строки пары; блокировка стирает их тоже.
+/// </summary>
+public sealed class FriendLinkEntity
+{
+    /// <summary>Кто добавил.</summary>
+    public Guid UserId { get; set; }
+
+    /// <summary>Кого добавил.</summary>
+    public Guid FriendId { get; set; }
+
+    /// <summary>Когда добавил (или принял заявку).</summary>
     public DateTimeOffset CreatedAt { get; set; }
 }

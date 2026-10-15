@@ -117,7 +117,8 @@ public sealed class AccountDeletion(
         }
 
         // Захваты не удаляются вместе с забегом (история), поэтому — явно; журнал уходит с ними каскадом. Остальное
-        // (забеги с точками, туман, токены, задания отката) удаляется каскадом вместе с аккаунтом.
+        // (забеги с точками, туман, токены, задания отката, лента, друзья и заявки в обе стороны вместе с кодом дружбы)
+        // удаляется каскадом вместе с аккаунтом.
         await db.Captures.Where(c => c.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.Users.Where(u => u.Id == userId).ExecuteDeleteAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

@@ -1,7 +1,10 @@
 using System.Security.Claims;
+using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
 
 namespace Gorodki.Api.Features.Players;
 
@@ -32,16 +35,32 @@ public static class PlayerEndpoints
         return app;
     }
 
-    private static Task<Results<Ok<PlayerResponse>, ProblemHttpResult>> GetPlayer(
+    /// <summary>
+    /// Карточка по номеру: один запрос — игрок с этим номером, чей аккаунт не удаляется (человек попросил его забыть — уже
+    /// «нет такого», хотя строка ещё есть). В ответе только ник по правилу согласия и цвет: ни координат, ни времени, ни
+    /// площади и очков — значит, и нечему опередить границу публичности (§3.16). Задача #115 — сделано Claude 15.10.
+    /// </summary>
+    private static async Task<Results<Ok<PlayerResponse>, ProblemHttpResult>> GetPlayer(
         Guid id,
         ClaimsPrincipal principal,
         AppDbContext db,
         CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #115 (Егор): найти игрока id. Нет его или аккаунт удаляется (DeletionRequestedAt != null) — 404
-        // player_not_found. Имя — DisplayName, если PublicProfile или это сам спрашивающий (principal.UserId()), иначе
-        // LeaderboardEndpoints.Pseudonym(id). Тесты — PlayersTests; строка в IdorTests.AwaitingTasks.
-        _ = (id, principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #115");
+        var player = await db.Users.AsNoTracking()
+            .Where(u => u.Id == id && u.DeletionRequestedAt == null)
+            .Select(u => new { u.DisplayName, u.ColorIndex, u.PublicProfile })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (player is null)
+        {
+            return TypedResults.Problem(
+                title: "Такого игрока нет.",
+                statusCode: StatusCodes.Status404NotFound,
+                extensions: new Dictionary<string, object?> { ["code"] = "player_not_found" });
+        }
+
+        // Ник — как в рейтинге: свой — всегда, чужой — только с согласия (PUT /me/public-profile), иначе «Игрок #1234».
+        var isMe = principal.UserId() == id;
+        var name = isMe || player.PublicProfile ? player.DisplayName : LeaderboardEndpoints.Pseudonym(id);
+        return TypedResults.Ok(new PlayerResponse(id, name, player.ColorIndex, isMe));
     }
 }

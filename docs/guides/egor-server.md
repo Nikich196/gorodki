@@ -29,9 +29,9 @@
 > | 1 | Безопасность аккаунтов: 2FA на GitHub, пароль и 2FA в Supabase | [#34](https://github.com/Nikich196/gorodki/issues/34) |
 > | 2 | ~~Согласие на показ ника `PUT /me/public-profile` (E1)~~ — сделал Claude 15.10 | [#71](https://github.com/Nikich196/gorodki/issues/71) |
 > | 3 | Админка инвайтов `POST/GET /admin/invites`, `DELETE /admin/invites/{code}` (E2) | [#114](https://github.com/Nikich196/gorodki/issues/114) |
-> | 4 | Карточка игрока `GET /players/{id}` (E3) | [#115](https://github.com/Nikich196/gorodki/issues/115) |
+> | 4 | ~~Карточка игрока `GET /players/{id}` (E3)~~ — сделал Claude 15.10 | [#115](https://github.com/Nikich196/gorodki/issues/115) |
 > | 5 | Своя статистика `GET /me/stats` (E4) | [#116](https://github.com/Nikich196/gorodki/issues/116) |
-> | 6 | Друзья по коду `GET/POST /friends`, `accept`, `DELETE` (E14a) | [#143](https://github.com/Nikich196/gorodki/issues/143) |
+> | 6 | ~~Друзья по коду `GET/POST /friends`, `accept`, `DELETE` (E14a)~~ — сделал Claude 15.10 | [#143](https://github.com/Nikich196/gorodki/issues/143) |
 > | 7 | ~~Пингер сервера и базы на cron-job.org~~ — делает Claude вместе с деплоем (15.10) | [#39](https://github.com/Nikich196/gorodki/issues/39) |
 >
 > Сделал Claude (07.10): кланы и кланы в движке земли (#135), рейтинг территории и суточный срез (#136), «% Бреста» и
@@ -389,7 +389,7 @@ dotnet build Gorodki.slnx                 # собирается?
 |---|---|---|---|---|---|
 | 0 | E1 | Согласие на показ ника `PUT /me/public-profile` | 04.11 | — | [#71](https://github.com/Nikich196/gorodki/issues/71) — **сделано Claude 15.10** |
 | 0 | E2 **ворота** | Админка инвайтов `POST/GET /admin/invites`, `DELETE /admin/invites/{code}` | 01.11 (PR до 29.10) | — | [#114](https://github.com/Nikich196/gorodki/issues/114) **Егор** |
-| 0 | E3 | Карточка игрока `GET /players/{id}` | 01.11 (M1) | — | [#115](https://github.com/Nikich196/gorodki/issues/115) **Егор** |
+| 0 | E3 | Карточка игрока `GET /players/{id}` | 01.11 (M1) | — | [#115](https://github.com/Nikich196/gorodki/issues/115) — **сделано Claude 15.10** |
 | 0 | E4 | Своя статистика `GET /me/stats` | 01.11 (M1) | — | [#116](https://github.com/Nikich196/gorodki/issues/116) **Егор** |
 | 1 | E6 | Часовые чистки → повторяющиеся задачи Hangfire | октябрь | C5 (каркас Hangfire) | после заготовки — *после показа* |
 | 1 | E19 | `POST /admin/config` — новая версия игрового конфига | октябрь | полевой тест №1 (24–25.10) | после заготовки — *после показа* |
@@ -402,7 +402,7 @@ dotnet build Gorodki.slnx                 # собирается?
 | 3 | E22 | Серия и «Заморозка серии» | 30.11 | — | [#148](https://github.com/Nikich196/gorodki/issues/148) — заготовка готова — *после показа* |
 | 3 | E10 | «Входящие» и бюджет уведомлений | 30.11 | C10 (события после границы) | [#139](https://github.com/Nikich196/gorodki/issues/139) — заготовка готова — *после показа* |
 | 3 | E13 | Оценка доверия, подозрительные забеги, бан | 30.11 | — | [#142](https://github.com/Nikich196/gorodki/issues/142) — заготовка готова — *после показа* |
-| 3 | E14a, E14b | Друзья по коду; лента | 30.11 | помощник границы (C11) для ленты | [#143](https://github.com/Nikich196/gorodki/issues/143), [#144](https://github.com/Nikich196/gorodki/issues/144) — заготовки готовы — E14a **Егор**, E14b **сделано Claude 07.10** |
+| 3 | E14a, E14b | Друзья по коду; лента | 30.11 | помощник границы (C11) для ленты | [#143](https://github.com/Nikich196/gorodki/issues/143), [#144](https://github.com/Nikich196/gorodki/issues/144) — заготовки готовы — E14a **сделано Claude 15.10**, E14b **сделано Claude 07.10** |
 | 3 | E15 | «Коллекция» и админка тайников | 30.11 | C12 (тайники) | [#145](https://github.com/Nikich196/gorodki/issues/145) — заготовка готова — *после показа* |
 | 3 | E8 | Зал славы | 30.11 | E7 | [#137](https://github.com/Nikich196/gorodki/issues/137) — заготовка готова — *после показа* |
 | 3 | E23 | Бот-симулятор (20 ботов × 30 дней, CSV) | 30.11 | — | после заготовки — *после показа* |
@@ -550,6 +550,10 @@ flowchart LR
 2–4 — адреса.
 
 ### 6.3 E3 — карточка игрока (#115)
+
+> **Сделано Claude 15.10** (решение Никиты): `GetPlayer` в `PlayerEndpoints.cs` — один запрос и правило имени, тесты
+> `PlayersTests` без `Skip` (и два новых: согласие через `PUT /me/public-profile`, в карточке ровно четыре поля), строка в
+> `IdorTests`. Карточка оставлена как разбор.
 
 **Зачем.** На карте у куска земли есть только номер владельца (`ownerId`) и цвет. По нажатию телефон спросит, чей это
 участок.
@@ -785,7 +789,10 @@ flowchart LR
 `GET /admin/runs/suspicious`, `POST /admin/users/{id}/ban`. **Заготовка готова:
 [#142](https://github.com/Nikich196/gorodki/issues/142)** (адреса вне описания API).
 
-**E14a — друзья, E14b — лента** (PLAN §3.8). Волна 3, 30.11. a — свой код для QR, добавить, принять, удалить, список.
+**E14a — друзья, E14b — лента** (PLAN §3.8). Волна 3, 30.11. a — свой код для QR, добавить, принять, удалить, список
+(**сделано Claude 15.10**: таблица `friend_links` «кто кого добавил» — строки в обе стороны и есть дружба, код
+`users.friend_code` выдаётся при первом `GET /friends`, блокировка снимает дружбу и заявки, лента «друзья и клан» видит
+друзей; подробности — в `FriendEndpoints.cs`).
 b — посты из захватов и забегов (только числа; `visible_at` — через помощник границы Claude; дата без времени),
 респекты, жалобы, блокировки, `GET /feed?scope=`. Комментариев нет. **Заготовки готовы:
 [#143](https://github.com/Nikich196/gorodki/issues/143) (друзья), [#144](https://github.com/Nikich196/gorodki/issues/144)
