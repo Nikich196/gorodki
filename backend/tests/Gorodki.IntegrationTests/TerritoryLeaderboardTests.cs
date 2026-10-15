@@ -181,13 +181,17 @@ public sealed class TerritoryLeaderboardTests(DatabaseFixture database)
         return await ScoreBook.Visible(db, at).Where(e => e.UserId == userId && e.League == League.Run && e.Season == season).SumAsync(e => e.Points, Cancel);
     }
 
-    /// <summary>База общая: срез этих суток (и итог сезона) мог сделать другой тест — забываем, чтобы проверить свой.</summary>
+    /// <summary>
+    /// База общая: срез этих суток (и итог сезона) мог сделать другой тест — забываем, чтобы проверить свой. Срезы более
+    /// поздних суток — тоже: рейтинг показывает последний срез, и чужой поздний срез подменил бы свой (порядок тестов в
+    /// классе зависит от пути сборки).
+    /// </summary>
     private async Task ForgetAsync(DateOnly day, int? finalSeason)
     {
         await using var db = database.CreateContext();
         await db.JobRuns.Where(j => (j.Job == TerritorySnapshots.DailyJob && j.Key == day.DayNumber)
             || (j.Job == TerritorySnapshots.FinalJob && j.Key == finalSeason)).ExecuteDeleteAsync(Cancel);
-        await db.LeaderboardSnapshots.Where(s => s.Board == LeaderboardBoard.Territory && (s.Day == day || (s.Final && s.Season == finalSeason)))
+        await db.LeaderboardSnapshots.Where(s => s.Board == LeaderboardBoard.Territory && (s.Day >= day || (s.Final && s.Season == finalSeason)))
             .ExecuteDeleteAsync(Cancel);
     }
 }
