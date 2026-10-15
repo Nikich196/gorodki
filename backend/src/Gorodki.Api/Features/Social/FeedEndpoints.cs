@@ -59,9 +59,9 @@ public sealed record ReportPostRequest(string? Reason);
 /// (E14b) — сделано Claude 07.10.
 /// </summary>
 /// <remarks>
-/// <b>«Друзья и клан».</b> Пока друзей нет (#143, задача Егора), лента <c>friends</c> — свои посты и посты соклановцев
-/// (текущий состав клана); друзья добавятся в <see cref="Circle"/> одной строкой. Курсор страницы — номер последнего поста
-/// (случайный), а не время: по курсору нельзя узнать, когда был захват.
+/// <b>«Друзья и клан».</b> Лента <c>friends</c> — свои посты, посты соклановцев (текущий состав клана) и взаимных друзей
+/// (#143, <see cref="Circle"/>). Дружба не ускоряет границу публичности: пост друга виден с того же момента, что и всем.
+/// Курсор страницы — номер последнего поста (случайный), а не время: по курсору нельзя узнать, когда был захват.
 /// </remarks>
 public static class FeedEndpoints
 {
@@ -250,8 +250,12 @@ public static class FeedEndpoints
             return Problem(StatusCodes.Status400BadRequest, "block_self", "Себя заблокировать нельзя.");
         }
 
-        // Нет такого игрока — тоже 204, ничего не записано: блокировка не подтверждает, что номер существует.
+        // Нет такого игрока — тоже 204, ничего не записано: блокировка не подтверждает, что номер существует. Под блокировкой
+        // пары, как заявка и принятие в друзья (FriendEndpoints.LockPairAsync): заявка, отправленная в эту же секунду,
+        // блокировку не переживёт.
         var now = time.GetUtcNow();
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await FriendEndpoints.LockPairAsync(db, me, id, cancellationToken);
         await db.Database.ExecuteSqlAsync(
             $"""
             INSERT INTO app.player_blocks (blocker_id, blocked_id, created_at)
@@ -260,7 +264,12 @@ public static class FeedEndpoints
             """,
             cancellationToken);
 
-        // ЗАДАЧА #143 (Егор, E14a): здесь же снять дружбу и заявки в обе стороны с этим игроком — когда появится таблица друзей.
+        // Дружба и заявки с ним снимаются в обе стороны (#143): так обещает приложение — «дружба и заявки с ним снимутся».
+        // Снятая блокировка их не возвращает.
+        await db.FriendLinks
+            .Where(f => (f.UserId == me && f.FriendId == id) || (f.UserId == id && f.FriendId == me))
+            .ExecuteDeleteAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return TypedResults.NoContent();
     }
 
@@ -287,12 +296,14 @@ public static class FeedEndpoints
                 && db.Users.Any(u => u.Id == p.AuthorId && u.DeletionRequestedAt == null));
 
     /// <summary>
-    /// «Друзья и клан» (§3.8): свои посты и посты соклановцев по текущему составу клана. Друзья (#143) добавятся сюда условием
-    /// «автор — взаимный друг».
+    /// «Друзья и клан» (§3.8): свои посты, посты соклановцев по текущему составу клана и посты взаимных друзей (#143: строки
+    /// дружбы в обе стороны — заявка, ещё не принятая, ленту не открывает).
     /// </summary>
     private static System.Linq.Expressions.Expression<Func<FeedPostEntity, bool>> Circle(AppDbContext db, Guid me) =>
         p => p.AuthorId == me
-            || db.ClanMembers.Any(m => m.UserId == p.AuthorId && db.ClanMembers.Any(mine => mine.UserId == me && mine.ClanId == m.ClanId));
+            || db.ClanMembers.Any(m => m.UserId == p.AuthorId && db.ClanMembers.Any(mine => mine.UserId == me && mine.ClanId == m.ClanId))
+            || (db.FriendLinks.Any(f => f.UserId == me && f.FriendId == p.AuthorId)
+                && db.FriendLinks.Any(f => f.UserId == p.AuthorId && f.FriendId == me));
 
     private static ProblemHttpResult FeedInvalid() =>
         Problem(StatusCodes.Status400BadRequest, "feed_invalid", "scope — friends или all; курсор — из nextCursor прошлой страницы.");

@@ -4,6 +4,7 @@ using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
+using Gorodki.Api.Features.Social;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Clans;
@@ -51,6 +52,16 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         var clan = await anna.PostAsJsonAsync("/clans", new CreateClanRequest { Name = $"Удаление {Guid.NewGuid().ToString("N")[..8]}" }, Json, Cancel);
         var clanBody = (await clan.Content.ReadFromJsonAsync<ClanResponse>(Json, Cancel))!;
         Assert.Equal(HttpStatusCode.OK, (await vera.PostAsJsonAsync("/clans/join", new JoinClanRequest { Code = clanBody.InviteCode! }, Json, Cancel)).StatusCode);
+
+        // Друзья (#143): Анна и Борис — друзья, Вера прислала Анне заявку; у Анны выдан код дружбы. Всё это — строки с её
+        // номером в обе стороны: после удаления их нет, и у Бориса Анны в «Друзьях» больше нет.
+        var annaCode = (await anna.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
+        var borisCode = (await boris.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
+        foreach (var (client, code) in new[] { (boris, annaCode), (anna, borisCode), (vera, annaCode) })
+        {
+            var added = await client.PostAsJsonAsync("/friends", new AddFriendRequest { Code = code }, Json, Cancel);
+            Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+        }
 
         // Запрос: принят, повтор не сдвигает срок, вход в удаляемый аккаунт закрыт.
         var first = await anna.DeleteAsync("/me", Cancel);
@@ -103,6 +114,7 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         // Полнота: номер Анны остался только в журнале чужого захвата — «земля до» захвата Бориса (членства в клане — нет).
         Assert.Equal(["capture_journal_pieces.owner_id"], await TablesMentioningAsync(annaId));
         Assert.InRange(await LandAreaAsync(borisId), 9_700, 10_300); // земля Бориса не тронута
+        Assert.Empty((await boris.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.Friends); // и дружбы с Анной нет
         var clanAfter = (await vera.GetFromJsonAsync<ClanResponse>($"/clans/{clanBody.Id}", Json, Cancel))!;
         Assert.Equal(ClanRole.Leader, Assert.Single(clanAfter.Members).Role); // лидерство перешло, а не пропало
         Assert.True(await TileVersionAsync(tile) > versionBefore); // у соседей карта обновится

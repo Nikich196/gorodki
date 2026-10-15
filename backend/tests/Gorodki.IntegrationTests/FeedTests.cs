@@ -14,7 +14,7 @@ namespace Gorodki.IntegrationTests;
 /// <summary>
 /// Лента — <c>/feed</c>, блокировки — <c>/me/blocks</c> (PLAN.md, §3.8), задача #144 (сделано Claude 07.10). Главное здесь —
 /// граница публичности: пост о захвате появляется не раньше самого захвата на карте, без координат и без времени. Лента
-/// «друзья и клан» пока — свои и соклановцы: друзей (#143) ещё нет, тест с друзьями ждёт эту задачу.
+/// «друзья и клан» — свои, соклановцы и взаимные друзья (#143, сделано Claude 15.10).
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class FeedTests(DatabaseFixture database)
@@ -133,20 +133,31 @@ public sealed class FeedTests(DatabaseFixture database)
         Assert.Equal((400, "feed_invalid"), await Problems.OfAsync(await anna.GetAsync("/feed?scope=all&cursor=12", Cancel), Cancel));
     }
 
-    [Fact(Skip = "ЗАДАЧА #143")]
-    public async Task A_friends_posts_are_in_the_friends_scope()
+    [Fact]
+    public async Task A_friends_posts_are_in_the_friends_scope_not_earlier_and_blocking_takes_them_out()
     {
-        // Друзья (E14a, Егор): когда появятся, посты друга — в ленте «друзья и клан» (FeedEndpoints.Circle), а блокировка
-        // снимает дружбу (FeedEndpoints.BlockPlayer).
+        // Друзья (#143): посты взаимного друга — в ленте «друзья и клан» (FeedEndpoints.Circle), с той же границы публичности,
+        // что у всех; заявка, ещё не принятая, ленту не открывает; блокировка снимает дружбу (FeedEndpoints.BlockPlayer).
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
-        var (boris, _) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (carl, _) = await api.CreatePlayerClientAsync();
         await BefriendAsync(anna, boris);
+        var annaCode = (await anna.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
+        await carl.PostAsJsonAsync("/friends", new AddFriendRequest { Code = annaCode }, Json, Cancel); // заявка без ответа
         await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100))).RunId);
+        Assert.DoesNotContain((await FeedAsync(boris, "friends")).Posts, p => p.AuthorId == annaId); // другу — тоже не раньше
+
         api.Time.Advance(TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
 
         Assert.Contains((await FeedAsync(boris, "friends")).Posts, p => p.AuthorId == annaId);
+        Assert.DoesNotContain((await FeedAsync(carl, "friends")).Posts, p => p.AuthorId == annaId);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await anna.PutAsync($"/me/blocks/{borisId}", null, Cancel)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await anna.DeleteAsync($"/me/blocks/{borisId}", Cancel)).StatusCode);
+        Assert.DoesNotContain((await FeedAsync(boris, "friends")).Posts, p => p.AuthorId == annaId); // дружба не вернулась
+        Assert.Contains(await AllPagesAsync(boris), p => p.AuthorId == annaId); // а в «Все» пост виден снова
     }
 
     // MARK: — вспомогательное

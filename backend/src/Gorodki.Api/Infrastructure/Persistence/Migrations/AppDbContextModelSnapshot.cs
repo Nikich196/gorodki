@@ -19,7 +19,7 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("app")
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "extensions", "btree_gist");
@@ -756,6 +756,32 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.ToTable("fog_tiles", "app", t =>
                         {
                             t.HasCheckConstraint("ck_fog_tiles_cells", "cell_count BETWEEN 1 AND 65536");
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FriendLinkEntity", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<Guid>("FriendId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("friend_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("UserId", "FriendId")
+                        .HasName("pk_friend_links");
+
+                    b.HasIndex("FriendId")
+                        .HasDatabaseName("ix_friend_links_friend_id");
+
+                    b.ToTable("friend_links", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_friend_links_not_self", "user_id <> friend_id");
                         });
                 });
 
@@ -1710,6 +1736,11 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(24)")
                         .HasColumnName("display_name");
 
+                    b.Property<string>("FriendCode")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("friend_code");
+
                     b.Property<DateTimeOffset?>("FrozenUntil")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("frozen_until");
@@ -1745,6 +1776,11 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_users_apple_subject")
                         .HasFilter("apple_subject IS NOT NULL");
+
+                    b.HasIndex("FriendCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_users_friend_code")
+                        .HasFilter("friend_code IS NOT NULL");
 
                     b.HasIndex("GoogleSubject")
                         .IsUnique()
@@ -1912,6 +1948,23 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_fog_tiles_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FriendLinkEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("FriendId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_friend_links_users_friend_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_friend_links_users_user_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.LandZoneEntity", b =>

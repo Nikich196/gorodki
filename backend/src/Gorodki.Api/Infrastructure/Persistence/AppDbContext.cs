@@ -79,6 +79,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<PlayerBlockEntity> PlayerBlocks => Set<PlayerBlockEntity>();
 
+    public DbSet<FriendLinkEntity> FriendLinks => Set<FriendLinkEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -198,7 +200,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             user.Property(u => u.GoogleSubject).HasMaxLength(255);
             user.Property(u => u.AppleSubject).HasMaxLength(255);
             user.Property(u => u.InviteCode).HasMaxLength(16);
+            user.Property(u => u.FriendCode).HasMaxLength(16);
             user.HasIndex(u => u.NormalizedName).IsUnique();
+            user.HasIndex(u => u.FriendCode).IsUnique().HasFilter("friend_code IS NOT NULL");
             user.HasIndex(u => u.GoogleSubject).IsUnique().HasFilter("google_subject IS NOT NULL");
             user.HasIndex(u => u.AppleSubject).IsUnique().HasFilter("apple_subject IS NOT NULL");
             user.ToTable(t => t.HasCheckConstraint("ck_users_color_index", "color_index BETWEEN 0 AND 11"));
@@ -457,8 +461,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     }
 
     /// <summary>
-    /// Лента (PLAN.md, §3.8): посты, респекты, жалобы, блокировки. Всё с номером игрока уходит каскадом вместе с аккаунтом;
-    /// пост — и вместе со своим захватом или забегом. Лента читается по <c>(visible_at, id)</c> от новых к старым.
+    /// Лента и друзья (PLAN.md, §3.8): посты, респекты, жалобы, блокировки, друзья. Всё с номером игрока уходит каскадом
+    /// вместе с аккаунтом; пост — и вместе со своим захватом или забегом. Лента читается по <c>(visible_at, id)</c> от новых
+    /// к старым.
     /// </summary>
     private static void ConfigureFeed(ModelBuilder model)
     {
@@ -504,6 +509,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             block.HasOne<UserEntity>().WithMany().HasForeignKey(b => b.BlockerId).OnDelete(DeleteBehavior.Cascade);
             block.HasOne<UserEntity>().WithMany().HasForeignKey(b => b.BlockedId).OnDelete(DeleteBehavior.Cascade);
             block.ToTable(t => t.HasCheckConstraint("ck_player_blocks_not_self", "blocker_id <> blocked_id"));
+        });
+
+        // Друзья (§3.8, задача #143): строка «кто кого добавил»; дружба — строки в обе стороны. Обе стороны — игроки:
+        // удалили любого — строки уходят каскадом.
+        model.Entity<FriendLinkEntity>(link =>
+        {
+            link.HasKey(f => new { f.UserId, f.FriendId });
+            link.HasIndex(f => f.FriendId);
+            link.HasOne<UserEntity>().WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.Cascade);
+            link.HasOne<UserEntity>().WithMany().HasForeignKey(f => f.FriendId).OnDelete(DeleteBehavior.Cascade);
+            link.ToTable(t => t.HasCheckConstraint("ck_friend_links_not_self", "user_id <> friend_id"));
         });
     }
 
