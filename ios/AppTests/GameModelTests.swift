@@ -94,4 +94,17 @@ struct GameModelTests {
         #expect(byId["cache"]?.unlocked == true && byId["king"]?.unlocked == false)
         #expect(byId["clan"]?.unlocked == true)
     }
+
+    @Test("Награды: первый раз вид только запоминает текущие, дальше показывается лишь новая — и один раз")
+    func rewardsOnce() throws {
+        let defaults = try #require(UserDefaults(suiteName: "rewards-\(UUID().uuidString)"))
+        let first = Reward(
+            id: "achievement:first-run", symbol: "figure.run", color: .orange, label: "", title: "", subtitle: "")
+        let second = Reward(
+            id: "achievement:ten-km", symbol: "10.circle", color: .orange, label: "", title: "", subtitle: "")
+        #expect(SeenRewards.unseen([first], kind: "achievements", defaults: defaults).isEmpty, "старые — без показа")
+        #expect(SeenRewards.unseen([first, second], kind: "achievements", defaults: defaults) == [second])
+        SeenRewards.markSeen(second.id, defaults: defaults)
+        #expect(SeenRewards.unseen([first, second], kind: "achievements", defaults: defaults).isEmpty)
+    }
 }

@@ -114,7 +114,21 @@ struct GameHubSection: View {
             }
             .brandCard(padding: 0)
         }
-        .task { await game.loadOverview() }
+        .task {
+            async let overview: Void = game.loadOverview()
+            async let clan: Void = social.clan.load()
+            _ = await (overview, clan)
+        }
+        // Новые достижения — карточкой с анимацией (`RewardRevealView`), когда ответили все источники.
+        .onChange(of: unlockedAchievements, initial: true) { _, unlocked in
+            guard AchievementInputs.ready(profile: profile, social: social) else { return }
+            game.offer(unlocked.map(\.reward), kind: "achievements")
+        }
+    }
+
+    private var unlockedAchievements: [Achievement] {
+        guard AchievementInputs.ready(profile: profile, social: social) else { return [] }
+        return Achievements.evaluate(.current(profile: profile, social: social)).filter(\.unlocked)
     }
 
     private var divider: some View {

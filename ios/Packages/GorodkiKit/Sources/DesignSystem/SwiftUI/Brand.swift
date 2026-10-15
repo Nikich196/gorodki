@@ -639,6 +639,8 @@ public enum BrandSound: String, CaseIterable, Sendable {
     case swoosh
     /// Нажатие главной кнопки.
     case tap
+    /// Награда: «свуш» и колокольный аккорд — карточка переворачивается.
+    case reveal
     /// Отметка.
     case toggle
 }

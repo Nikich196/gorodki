@@ -157,28 +157,7 @@ struct AchievementsScreen: View {
     }
 
     private var inputs: AchievementInputs {
-        let game = social.game
-        let arena = profile.exploration?.allTime.districts?.first { $0.name.contains("Арена") }
-        return AchievementInputs(
-            runs: profile.runs, distanceMeters: profile.distanceMeters,
-            exploredSquareMeters: profile.exploredSquareMeters,
-            brestPercent: profile.exploration?.allTime.brestPercent, arenaPercent: arena?.percent,
-            streakDays: game.streak.value.map { Int($0.days) },
-            crowns: game.segments.value.map { $0.segments.filter { $0.seasonCrown?.me == true }.count },
-            cachesFound: game.collection.value.map { $0.caches.filter { $0.foundAtMs != nil }.count },
-            duelWins: game.duels.value.map { duels in
-                duels.filter { $0.status == .finished && $0.winnerId == $0.me.playerId }.count
-            },
-            inClan: Self.inClan(social.clan.state))
-    }
-
-    /// В клане ли: пока клан грузится или не загрузился — неизвестно.
-    private static func inClan(_ state: ClanModel.State) -> Bool? {
-        switch state {
-        case .member: true
-        case .none: false
-        case .loading, .failed: nil
-        }
+        AchievementInputs.current(profile: profile, social: social)
     }
 }
 
@@ -226,5 +205,53 @@ private struct AchievementTile: View {
         .brandCard(padding: 12)
         .accessibilityElement(children: .combine)
         .accessibilityValue(achievement.unlocked ? "открыто" : achievement.progressText)
+    }
+}
+
+extension AchievementInputs {
+    /// Числа из профиля, игровых разделов и клана — то, что приложение уже загрузило.
+    @MainActor
+    static func current(profile: ProfileModel, social: SocialScreens) -> AchievementInputs {
+        let game = social.game
+        let arena = profile.exploration?.allTime.districts?.first { $0.name.contains("Арена") }
+        return AchievementInputs(
+            runs: profile.runs, distanceMeters: profile.distanceMeters,
+            exploredSquareMeters: profile.exploredSquareMeters,
+            brestPercent: profile.exploration?.allTime.brestPercent, arenaPercent: arena?.percent,
+            streakDays: game.streak.value.map { Int($0.days) },
+            crowns: game.segments.value.map { $0.segments.filter { $0.seasonCrown?.me == true }.count },
+            cachesFound: game.collection.value.map { $0.caches.filter { $0.foundAtMs != nil }.count },
+            duelWins: game.duels.value.map { duels in
+                duels.filter { $0.status == .finished && $0.winnerId == $0.me.playerId }.count
+            },
+            inClan: inClan(social.clan.state))
+    }
+
+    /// Все источники ответили (загрузились или нет) — можно сравнивать с прошлым и показывать новые награды.
+    @MainActor
+    static func ready(profile: ProfileModel, social: SocialScreens) -> Bool {
+        let game = social.game
+        let answered: [Bool] = [
+            game.streak.isSettled, game.segments.isSettled, game.collection.isSettled, game.duels.isSettled,
+        ]
+        return answered.allSatisfy(\.self) && profile.exploredSquareMeters != nil && social.clan.state != .loading
+    }
+
+    /// В клане ли: пока клан грузится или не загрузился — неизвестно.
+    private static func inClan(_ state: ClanModel.State) -> Bool? {
+        switch state {
+        case .member: true
+        case .none: false
+        case .loading, .failed: nil
+        }
+    }
+}
+
+extension Achievement {
+    /// Карточка награды для показа (`RewardRevealView`).
+    var reward: Reward {
+        Reward(
+            id: "achievement:\(id)", symbol: symbol, color: rarity.color,
+            label: "ДОСТИЖЕНИЕ · " + rarity.title.uppercased(), title: title, subtitle: detail)
     }
 }
