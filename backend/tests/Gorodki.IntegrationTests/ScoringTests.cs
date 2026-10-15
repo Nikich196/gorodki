@@ -62,18 +62,21 @@ public sealed class ScoringTests(DatabaseFixture database)
     }
 
     [Fact]
-    public async Task Demo_captures_score_at_once_and_points_outside_seasons_have_no_season()
+    public async Task Demo_captures_score_at_once_and_points_before_november_16_are_already_season_zero()
     {
+        // Сезон 0 идёт с 15.10, а не с 16.11 (plan-deviations, №15): очки октября и начала ноября — уже его, а не «вне
+        // сезонов». Очки до начала сезонов (season = null) — в SeasonRolloverTests: там у Сезона 0 своя дата начала.
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (demo, _) = await api.CreatePlayerClientAsync(UserRole.Demo);
+        GoTo(api, SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 5)).AddHours(12));
 
-        var claim = await WalkAndClaimAsync(Cancel, api, demo, Square(NewArea(), 0, 0, 100)); // сейчас — предсезонье
+        var claim = await WalkAndClaimAsync(Cancel, api, demo, Square(NewArea(), 0, 0, 100));
         await ProcessAsync(api, claim.RunId);
 
         var (capture, score) = await CaptureAndScoreAsync(claim.CaptureId);
         Assert.Equal(capture.AppliedAt, score.VisibleAt); // демо на показе видно сразу, как и на карте
-        Assert.Null(score.Season);
+        Assert.Equal(0, score.Season);
     }
 
     [Fact]

@@ -9,6 +9,7 @@ using Gorodki.Domain.Config;
 using Gorodki.Domain.Geo;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Territory;
+using Gorodki.Domain.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NetTopologySuite.Geometries;
@@ -19,14 +20,25 @@ namespace Gorodki.IntegrationTests;
 
 /// <summary>
 /// Смена сезона на настоящей базе (PLAN.md, §3.4; #30): мягкий сброс земли и журнала той же формулой, что в домене,
-/// один раз; скрытый в этот момент захват остаётся скрытым; старт Сезона 0 с чистой карты; «касались в этом сезоне».
+/// один раз; скрытый в этот момент захват остаётся скрытым; старт с чистой карты; «касались в этом сезоне»; живой Сезон 0
+/// с 15.10 (plan-deviations, №15) — смена на него землю не меняет.
 /// </summary>
-/// <remarks>Задача меняет всю землю общей тестовой базы — поэтому каждый тест сам снимает отметку своего сезона.</remarks>
+/// <remarks>
+/// Задача меняет всю землю общей тестовой базы — поэтому каждый тест сам снимает отметку своего сезона. Сезон 0 в базе идёт
+/// с 15.10 без чистой карты, а часы тестов назад не ходят: тесты старта Сезона 0 ставят свою строку сезона (дата, чистая
+/// карта, отметка) и после себя возвращают живую (<see cref="SeasonZeroAsync"/>).
+/// </remarks>
 [Collection(DatabaseCollection.Name)]
 public sealed class SeasonRolloverTests(DatabaseFixture database)
 {
-    /// <summary>Начало Сезона 0 — 16.11 00:00 по Минску.</summary>
+    /// <summary>
+    /// Начало Сезона 0 в тестах его старта — 16.11 00:00 по Минску (дата плана до 15.10): строку сезона тест ставит сам
+    /// (<see cref="SeasonZeroAsync"/>).
+    /// </summary>
     private static readonly DateTimeOffset SeasonZero = new(2026, 11, 15, 21, 0, 0, TimeSpan.Zero);
+
+    /// <summary>Начало живого Сезона 0 — 15.10 00:00 по Минску (миграция <c>SeasonZeroLive</c>).</summary>
+    private static readonly DateTimeOffset LiveSeasonZero = new(2026, 10, 14, 21, 0, 0, TimeSpan.Zero);
 
     /// <summary>Начало Сезона 1 — 30.11 00:00 по Минску.</summary>
     private static readonly DateTimeOffset SeasonOne = new(2026, 11, 29, 21, 0, 0, TimeSpan.Zero);
@@ -186,6 +198,105 @@ public sealed class SeasonRolloverTests(DatabaseFixture database)
     }
 
     [Fact]
+    public async Task Live_season_zero_changes_no_land_on_the_first_run_and_even_without_its_mark()
+    {
+        // Живая база (plan-deviations, №15): Сезон 0 идёт с 15.10 без чистой карты, смена отмечена выполненной в момент начала.
+        // Первый запуск задачи ничего не стирает и не сбрасывает. И если отметки нет (база до миграции, ручная правка), смена
+        // на первый сезон без чистой карты землю не меняет — только ставит отметку.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        GoTo(api, SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 10)).AddHours(12)); // идёт Сезон 0
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        var borisClaim = await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100)); // половина — L1 Анны, со щитом
+        await ProcessAsync(api, borisClaim.RunId);
+
+        // Остаток Анны — L3 с осадой и окном снятия уровней: любой сброс был бы виден сразу.
+        await using (var db = database.CreateContext())
+        {
+            await db.Parcels.Where(p => p.OwnerId == annaId).ExecuteUpdateAsync(
+                s => s.SetProperty(p => p.Level, (short)3)
+                    .SetProperty(p => p.SiegeUntil, api.Time.GetUtcNow().AddHours(5))
+                    .SetProperty(p => p.LossWindowSince, api.Time.GetUtcNow().AddHours(-2))
+                    .SetProperty(p => p.LossAttackers, new[] { borisId }),
+                Cancel);
+        }
+
+        var land = await ParcelsAsync(annaId, borisId);
+        var journal = await JournalAsync(borisClaim.CaptureId);
+        var version = await VersionAsync(TileOf(area));
+        Assert.Contains(land.Values, p => p.ShieldUntil is not null);
+
+        Assert.Equal(0, await RolloverAsync(api));
+        await using (var db = database.CreateContext())
+        {
+            var zero = await db.Seasons.AsNoTracking().SingleAsync(s => s.Number == 0, Cancel);
+            Assert.Equal((LiveSeasonZero, false, (DateTimeOffset?)LiveSeasonZero), (zero.StartsAt, zero.CleanStart, zero.ResetAt));
+        }
+
+        await using (await SeasonZeroAsync(LiveSeasonZero, cleanStart: false, changed: false))
+        {
+            Assert.Equal(0, await RolloverAsync(api));
+            await using var db = database.CreateContext();
+            Assert.Equal(api.Time.GetUtcNow(), (await db.Seasons.AsNoTracking().SingleAsync(s => s.Number == 0, Cancel)).ResetAt);
+        }
+
+        Assert.Equal(land, await ParcelsAsync(annaId, borisId));
+        Assert.Equal(journal, await JournalAsync(borisClaim.CaptureId));
+        Assert.Equal(version, await VersionAsync(TileOf(area)));
+    }
+
+    [Fact]
+    public async Task Loop_and_visit_from_before_season_zero_applied_after_its_start_land_as_they_are()
+    {
+        // Смена на Сезон 0 землю не меняла — опоздавшим петле и визиту догонять нечего: они ложатся как есть, без мягкого
+        // сброса (у смены между сезонами он есть — тесты ниже). Своя дата начала: часы тестов назад не ходят.
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var (boris, borisId) = await api.CreatePlayerClientAsync();
+        var (vera, _) = await api.CreatePlayerClientAsync();
+        var annaArea = NewArea();
+        var veraArea = NewArea();
+        await using var liveStart = await SeasonZeroAsync(SeasonZero, cleanStart: false, changed: true);
+        GoTo(api, SeasonZero - TimeSpan.FromHours(30));
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(annaArea, 0, 0, 100))).RunId);
+        await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, vera, Square(veraArea, 0, 0, 100))).RunId);
+        var annaBefore = Assert.Single((await ParcelsAsync(annaId)).Values);
+
+        GoTo(api, SeasonZero - TimeSpan.FromMinutes(5));
+        var late = await WalkAndClaimAsync(Cancel, api, boris, Square(veraArea, 0, 0, 100)); // петля Бориса по L1 Веры
+        GoTo(api, SeasonZero - TimeSpan.FromMinutes(3)); // путь Анны — 100 м по своему квадрату около 23:52
+        var annaRun = await WalkAndFinishAsync(Cancel, api, anna, [(annaArea.X - 300, annaArea.Y + 50), (annaArea.X + 400, annaArea.Y + 50)], TimeSpan.FromMinutes(9));
+
+        GoTo(api, SeasonZero + TimeSpan.FromMinutes(1));
+        Assert.Equal(0, await RolloverAsync(api));
+        Assert.Equal(1, await ProcessAsync(api, late.RunId));
+        GoTo(api, SeasonZero + TerritoryReader.PublicDelay + TerritoryReader.RevealStep);
+        Assert.Equal(1, await VisitAsync(api, annaRun.Id));
+
+        await using (var db = database.CreateContext())
+        {
+            var capture = await db.Captures.AsNoTracking().SingleAsync(c => c.Id == late.CaptureId, Cancel);
+            Assert.Equal(CaptureStatus.Applied, capture.Status);
+            Assert.True(capture.EffectiveAt < SeasonZero);
+            Assert.Null((await db.ScoreEvents.AsNoTracking().SingleAsync(e => e.CaptureId == late.CaptureId, Cancel)).Season);
+        }
+
+        // Взятая петлёй земля — со щитом передачи, как у петли до полуночи без смены.
+        var taken = (await ParcelsAsync(borisId)).Values.ToList();
+        Assert.NotEmpty(taken);
+        Assert.All(taken, p => Assert.NotNull(p.ShieldUntil));
+        // Визит — обычный визит, без сброса.
+        var annas = Assert.Single((await ParcelsAsync(annaId)).Values);
+        Assert.True(annas.TouchedAt < SeasonZero);
+        Assert.Equal(CaptureRules.Visit(annaBefore, annas.TouchedAt, Rules), annas);
+    }
+
+    [Fact]
     public async Task Season_zero_starts_from_a_clean_map_once_and_points_stay_as_history()
     {
         database.RequireDatabase();
@@ -193,13 +304,13 @@ public sealed class SeasonRolloverTests(DatabaseFixture database)
         var (anna, annaId) = await api.CreatePlayerClientAsync();
         var (vera, _) = await api.CreatePlayerClientAsync();
         var area = NewArea();
+        await using var cleanStart = await SeasonZeroAsync(SeasonZero, cleanStart: true);
         GoTo(api, SeasonZero - TimeSpan.FromHours(1)); // полевой тест
         var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
         await ProcessAsync(api, claim.RunId);
         Assert.NotEmpty(await ParcelsAsync(annaId));
         var versionBefore = await VersionAsync(TileOf(area));
 
-        await ReopenAsync(0);
         GoTo(api, SeasonZero + TimeSpan.FromMinutes(1));
         Assert.True(await RolloverAsync(api) > 0);
 
@@ -237,7 +348,7 @@ public sealed class SeasonRolloverTests(DatabaseFixture database)
         var (boris, borisId) = await api.CreatePlayerClientAsync();
         var (vera, veraId) = await api.CreatePlayerClientAsync();
         var area = NewArea();
-        await ReopenAsync(0);
+        await using var cleanStart = await SeasonZeroAsync(SeasonZero, cleanStart: true);
         GoTo(api, SeasonZero - TimeSpan.FromHours(1)); // полевой тест
         var fieldTest = await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100));
         await ProcessAsync(api, fieldTest.RunId);
@@ -276,10 +387,10 @@ public sealed class SeasonRolloverTests(DatabaseFixture database)
         database.RequireDatabase();
         await using var api = new ApiFactory(database);
         var (anna, annaId) = await api.CreatePlayerClientAsync();
+        await using var cleanStart = await SeasonZeroAsync(SeasonZero, cleanStart: true);
         GoTo(api, SeasonZero - TimeSpan.FromMinutes(5));
         var claim = await WalkAndClaimAsync(Cancel, api, anna, Square(NewArea(), 0, 0, 100)); // петля ≈ в 23:50
 
-        await ReopenAsync(0);
         GoTo(api, SeasonZero + TimeSpan.FromMinutes(1));
         await RolloverAsync(api); // земли в базе может и не быть — версий не станет больше, но смена пройдёт
         await using (var check = database.CreateContext())
@@ -422,12 +533,12 @@ public sealed class SeasonRolloverTests(DatabaseFixture database)
         var (boris, borisId) = await api.CreatePlayerClientAsync();
         var (admin, _) = await api.CreatePlayerClientAsync(UserRole.Admin);
         var area = NewArea();
+        await using var cleanStart = await SeasonZeroAsync(SeasonZero, cleanStart: true);
         GoTo(api, SeasonZero - TimeSpan.FromHours(3));
         await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, anna, Square(area, 0, 0, 100))).RunId);
         api.Time.Advance(TimeSpan.FromMinutes(30));
         await ProcessAsync(api, (await WalkAndClaimAsync(Cancel, api, boris, Square(area, 50, 0, 100))).RunId);
 
-        await ReopenAsync(0);
         GoTo(api, SeasonZero + TimeSpan.FromMinutes(1));
         var (job, hookCalls) = await RollBackRacingTheChangeAsync(api, admin, borisId);
 
@@ -508,6 +619,36 @@ public sealed class SeasonRolloverTests(DatabaseFixture database)
     {
         await using var db = database.CreateContext();
         await db.Seasons.Where(s => s.Number == season).ExecuteUpdateAsync(s => s.SetProperty(x => x.ResetAt, (DateTimeOffset?)null), Cancel);
+    }
+
+    /// <summary>
+    /// Своя строка Сезона 0 на время теста: начало <paramref name="start"/>, чистая карта или нет, смена ещё впереди или
+    /// (<paramref name="changed"/>) отмечена выполненной в момент начала — как на живой базе. Живая строка (с 15.10, без
+    /// чистой карты) возвращается, когда тест закончится, даже упавший: база общая, а тесты идут друг за другом.
+    /// </summary>
+    private async Task<IAsyncDisposable> SeasonZeroAsync(DateTimeOffset start, bool cleanStart, bool changed = false)
+    {
+        await using var db = database.CreateContext();
+        var live = await db.Seasons.AsNoTracking().SingleAsync(s => s.Number == 0, Cancel);
+        await db.Seasons.Where(s => s.Number == 0).ExecuteUpdateAsync(
+            set => set.SetProperty(s => s.StartsAt, start)
+                .SetProperty(s => s.CleanStart, cleanStart)
+                .SetProperty(s => s.ResetAt, changed ? start : null),
+            Cancel);
+        return new SeasonZeroRow(database, live);
+    }
+
+    /// <summary>Возвращает строку Сезона 0 такой, какой она была до теста.</summary>
+    private sealed class SeasonZeroRow(DatabaseFixture database, SeasonEntity live) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            await using var db = database.CreateContext();
+            await db.Seasons.Where(s => s.Number == 0).ExecuteUpdateAsync(
+                set => set.SetProperty(s => s.StartsAt, live.StartsAt)
+                    .SetProperty(s => s.CleanStart, live.CleanStart)
+                    .SetProperty(s => s.ResetAt, live.ResetAt));
+        }
     }
 
     private async Task<double> OwnedAsync(ApiFactory api, Guid userId, Guid? viewer, DateTimeOffset? touchedSince)

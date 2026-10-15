@@ -1,3 +1,5 @@
+using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Fog;
 using Gorodki.Domain.Time;
@@ -6,39 +8,60 @@ using Microsoft.EntityFrameworkCore;
 namespace Gorodki.Api.Features.Leaderboards;
 
 /// <summary>
-/// Ежедневный срез рейтингов (PLAN.md, §3.5: «рейтинги — по ежедневному снимку»; §3.10: «кто открыл больше» — сезон
-/// и всё время, «Пешком / Вело / Всего», только числа). Срез делается раз в игровые сутки по Минску — при первом часовом
-/// проходе фонового обработчика после полуночи.
+/// Рейтинг «Кто открыл больше» (PLAN.md, §3.10: сезон и всё время, «Пешком / Вело / Всего», только числа). Места
+/// переснимаются каждые 5 минут — задача Hangfire <c>exploration-snapshot</c> (docs/plan-deviations.md, №15: «всё открыто и
+/// работает сразу»; раньше — раз в сутки после полуночи).
 /// </summary>
 /// <remarks>
-/// Живой рейтинг выдавал бы «её гектары только что выросли — она только что бегала»; срез раз в сутки этого не говорит
-/// (правило приватности — docs/architecture/territory-map.md). Свои гектары игрок видит сразу — в <c>GET /fog/summary</c>.
+/// <para>
+/// <b>Граница публичности (§3.16).</b> Живой рейтинг выдавал бы «её гектары только что выросли — она только что бегала».
+/// Поэтому туман игрока, который открывал его позже границы публичности (<see cref="TerritoryReader.PublicHorizon"/>, те же
+/// 20 минут шагами по 5, что у карты), в проход не берётся: у него остаются места его прошлого среза. Новые гектары
+/// появляются в рейтинге с той же задержкой, что захват на карте, а свои игрок видит сразу — в <c>GET /fog/summary</c>.
+/// Демо-аккаунта это не касается: на показе его изменения видны сразу, как на карте (§11).
+/// </para>
+/// <para>
+/// <b>Хранение.</b> Строки текущих суток заменяются каждым проходом, за прошлые сутки остаётся их последний проход; хранятся
+/// <see cref="KeepDays"/> дней. Проход идёт под блокировкой суток (4) — второй экземпляр сервера дублей не даст, а очистка
+/// истории исследований (<see cref="Fog.FogHistory"/>) не разминётся со срезом.
+/// </para>
 /// </remarks>
-public sealed class LeaderboardSnapshots(AppDbContext db, TimeProvider time, ILogger<LeaderboardSnapshots> logger)
+public sealed class LeaderboardSnapshots(
+    AppDbContext db, GameConfigStore configs, TimeProvider time, ILogger<LeaderboardSnapshots> logger)
 {
-    /// <summary>Сколько дней хранить срезы.</summary>
+    /// <summary>Сколько дней хранить срезы прошлых суток.</summary>
     public const int KeepDays = 7;
 
-    /// <summary>Делает срез за текущие игровые сутки, если его ещё нет. Возвращает число строк среза (0 — уже был).</summary>
-    public async Task<int> TakeIfDueAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Переснимает места за текущие игровые сутки (задача по расписанию, каждые 5 минут). Возвращает число записанных строк.
+    /// </summary>
+    public async Task<int> RefreshAsync(CancellationToken cancellationToken)
     {
-        var day = GameClock.GameDayOf(time.GetUtcNow());
-        if (await db.LeaderboardSnapshots.AnyAsync(s => s.Day == day && s.Board == LeaderboardBoard.Exploration, cancellationToken))
-        {
-            return 0;
-        }
+        var now = time.GetUtcNow();
+        var day = GameClock.GameDayOf(now);
+        var delay = TimeSpan.FromMinutes((await configs.GetCurrentAsync(cancellationToken)).Rules.Privacy.PublicEventDelayMinutes);
+        var horizon = TerritoryReader.PublicHorizon(now, delay);
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(4, {day.DayNumber})", cancellationToken);
-        if (await db.LeaderboardSnapshots.AnyAsync(s => s.Day == day && s.Board == LeaderboardBoard.Exploration, cancellationToken))
-        {
-            return 0; // второй экземпляр сервера успел раньше
-        }
 
+        // Туман и признак «открывал туман позже границы» — одним запросом, то есть одним снимком базы: туман забега, который
+        // открывается в эту секунду, либо не виден запросу вовсе, либо виден вместе с отметкой забега — и игрок придержан.
         var tiles = await db.FogTiles.AsNoTracking()
-            .Select(f => new { f.UserId, f.Layer, f.Season, f.TileX, f.TileY, f.CellCount })
+            .Select(f => new
+            {
+                f.UserId,
+                f.Layer,
+                f.Season,
+                f.TileX,
+                f.TileY,
+                f.CellCount,
+                Fresh = db.Runs.Any(r => r.UserId == f.UserId && r.FogStampedAt > horizon)
+                    && !db.Users.Any(u => u.Id == f.UserId && u.Role == UserRole.Demo),
+            })
             .ToListAsync(cancellationToken);
         var areas = tiles
+            .Where(t => !t.Fresh)
             .GroupBy(t => (t.UserId, t.Layer, t.Season))
             .Select(g => (g.Key.UserId, Layer: (LeaderboardLayer)g.Key.Layer, g.Key.Season,
                 Area: g.Sum(t => t.CellCount * FogTileCodec.CellAreaSquareMeters(new FogTileKey(t.TileX, t.TileY)))))
@@ -48,24 +71,41 @@ public sealed class LeaderboardSnapshots(AppDbContext db, TimeProvider time, ILo
             .GroupBy(a => (a.UserId, a.Season))
             .Select(g => (g.Key.UserId, Layer: LeaderboardLayer.Total, g.Key.Season, Area: g.Sum(a => a.Area)))
             .ToList());
+        var values = areas.Select(a => (a.UserId, a.Layer, a.Season, Value: Math.Round(a.Area, 1))).ToList();
+
+        // Придержанные — местами своего последнего среза (сегодняшнего или раньше). Нет его (первый туман, история только что
+        // очищена) — в рейтинг игрок попадёт, когда туман станет публичным.
+        var fresh = tiles.Where(t => t.Fresh).Select(t => t.UserId).Distinct().ToList();
+        var previous = await db.LeaderboardSnapshots.AsNoTracking()
+            .Where(s => s.Board == LeaderboardBoard.Exploration && fresh.Contains(s.UserId))
+            .Select(s => new { s.Day, s.UserId, s.Layer, s.Season, s.Value })
+            .ToListAsync(cancellationToken);
+        values.AddRange(previous
+            .GroupBy(s => s.UserId)
+            .SelectMany(g => g.Where(s => s.Day == g.Max(x => x.Day)))
+            .Select(s => (s.UserId, s.Layer, s.Season, s.Value)));
 
         var rows = new List<LeaderboardSnapshotEntity>();
-        foreach (var board in areas.GroupBy(a => (a.Layer, a.Season)))
+        foreach (var board in values.GroupBy(v => (v.Layer, v.Season)))
         {
             // Одинаковая площадь — одинаковое место: 1, 2, 2, 4.
-            var values = board.Select(a => Math.Round(a.Area, 1)).OrderDescending().ToList();
-            rows.AddRange(board.Select(a => new LeaderboardSnapshotEntity
+            var ordered = board.Select(v => v.Value).OrderDescending().ToList();
+            rows.AddRange(board.Select(v => new LeaderboardSnapshotEntity
             {
                 Day = day,
                 Board = LeaderboardBoard.Exploration,
                 Layer = board.Key.Layer,
                 Season = board.Key.Season,
-                UserId = a.UserId,
-                Value = Math.Round(a.Area, 1),
-                Rank = 1 + values.Count(v => v > Math.Round(a.Area, 1)),
+                UserId = v.UserId,
+                Value = v.Value,
+                Rank = 1 + ordered.Count(o => o > v.Value),
             }));
         }
 
+        // Замена: строки сегодняшних суток — заново, прошлые сутки остаются своим последним проходом.
+        await db.LeaderboardSnapshots
+            .Where(s => s.Board == LeaderboardBoard.Exploration && s.Day == day)
+            .ExecuteDeleteAsync(cancellationToken);
         db.LeaderboardSnapshots.AddRange(rows);
         await db.SaveChangesAsync(cancellationToken);
         // Только свои срезы: у рейтинга территории своя чистка, а его итог сезона хранится дольше недели (TerritorySnapshots).
@@ -73,7 +113,7 @@ public sealed class LeaderboardSnapshots(AppDbContext db, TimeProvider time, ILo
             .Where(s => s.Board == LeaderboardBoard.Exploration && s.Day < day.AddDays(-KeepDays))
             .ExecuteDeleteAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        logger.LogInformation("Срез рейтингов за {Day}: {Rows} строк", day, rows.Count);
+        logger.LogDebug("Срез «Кто открыл больше» за {Day}: {Rows} строк, придержано игроков {Held}", day, rows.Count, fresh.Count);
         return rows.Count;
     }
 

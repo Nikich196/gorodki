@@ -13,8 +13,8 @@ namespace Gorodki.Api.Infrastructure.Jobs;
 
 /// <summary>
 /// Задачи по расписанию — Hangfire (ADR 0005, вариант В). Очередь захватов, визитов, тумана и откатов остаётся в
-/// <c>CaptureWorker</c> (там нужен мгновенный сигнал и строго один поток), а сюда идут задачи «раз в час» и «в 00:00 по
-/// Минску». Хранилище — схема <c>hangfire</c> в той же базе (Hangfire создаёт её сам, миграция EF не нужна), свой пул
+/// <c>CaptureWorker</c> (там нужен мгновенный сигнал и строго один поток), а сюда идут задачи «раз в час», «в 00:00 по
+/// Минску» и «каждые 5 минут» (рейтинги). Хранилище — схема <c>hangfire</c> в той же базе (Hangfire создаёт её сам, миграция EF не нужна), свой пул
 /// на 3 соединения; дашборд <see cref="DashboardPath"/> — только чтение и только администратору.
 /// </summary>
 /// <remarks>
@@ -57,10 +57,23 @@ public static class ScheduledJobs
     public const string SeasonRolloverJob = "season-rollover";
 
     /// <summary>
-    /// Суточный срез очков и рейтинг территории (PLAN.md, §3.5, #136): каждый час по Минску — значит, и в 00:00; срез —
-    /// раз в сутки, итог сезона — раз в сезон, в момент его закрытия (04:00 первого дня следующего) (<see cref="TerritorySnapshots"/>).
+    /// Рейтинг территории и удержание (PLAN.md, §3.5, #136): каждые 5 минут по Минску — значит, и в 00:00; места — каждый
+    /// проход (docs/plan-deviations.md, №15), удержание — раз в сутки первым проходом после полуночи, итог сезона — раз в
+    /// сезон, в момент его закрытия (04:00 первого дня следующего) (<see cref="TerritorySnapshots"/>).
     /// </summary>
     public const string TerritorySnapshotJob = "territory-snapshot";
+
+    /// <summary>
+    /// Рейтинг «Кто открыл больше» (PLAN.md, §3.10): каждые 5 минут по Минску, с границей публичности для свежего тумана
+    /// (<see cref="LeaderboardSnapshots"/>). Раньше — стадия часовой чистки <c>CaptureWorker</c>, раз в сутки.
+    /// </summary>
+    public const string ExplorationSnapshotJob = "exploration-snapshot";
+
+    /// <summary>
+    /// Каждые 5 минут — шаг, которым раскрываются захваты на карте (<c>TerritoryReader.RevealStep</c>): очки и гектары, ставшие
+    /// публичными, попадают в рейтинг первым проходом после своей границы.
+    /// </summary>
+    public const string EveryFiveMinutes = "*/5 * * * *";
 
     public static bool IsEnabled(IConfiguration configuration) => configuration.GetValue(EnabledSetting, defaultValue: true);
 
@@ -128,7 +141,8 @@ public static class ScheduledJobs
 
         jobs.AddOrUpdate<RefreshTokenRetention>(RefreshTokensJob, r => r.PurgeExpiredAsync(CancellationToken.None), Cron.Hourly(), minsk);
         jobs.AddOrUpdate<SeasonRollover>(SeasonRolloverJob, r => r.RunIfDueAsync(CancellationToken.None), Cron.Hourly(), minsk);
-        jobs.AddOrUpdate<TerritorySnapshots>(TerritorySnapshotJob, t => t.RunIfDueAsync(CancellationToken.None), Cron.Hourly(), minsk);
+        jobs.AddOrUpdate<TerritorySnapshots>(TerritorySnapshotJob, t => t.RunIfDueAsync(CancellationToken.None), EveryFiveMinutes, minsk);
+        jobs.AddOrUpdate<LeaderboardSnapshots>(ExplorationSnapshotJob, s => s.RefreshAsync(CancellationToken.None), EveryFiveMinutes, minsk);
     }
 
     /// <summary>Строка подключения Hangfire: та же база, свой пул на <see cref="MaxPoolSize"/> и своё имя в <c>pg_stat_activity</c>.</summary>

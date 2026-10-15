@@ -14,7 +14,7 @@ public sealed class SeasonsTests(DatabaseFixture database)
     private CancellationToken Cancel => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task Seeded_seasons_are_the_plan_dates_at_minsk_midnight()
+    public async Task Seeded_seasons_are_the_plan_dates_at_minsk_midnight_and_season_zero_is_live_since_october_15()
     {
         database.RequireDatabase();
         await using var db = database.CreateContext();
@@ -22,10 +22,15 @@ public sealed class SeasonsTests(DatabaseFixture database)
         var rows = await db.Seasons.AsNoTracking().OrderBy(s => s.Number).ToListAsync(Cancel);
         var calendar = new SeasonCalendar(rows.Select(s => new Season(s.Number, s.Name, s.StartsAt))); // проверяет полночь по Минску
 
+        // Сезон 0 — с 15.10, а не с 16.11 (plan-deviations, №15: «всё должно работать сразу»); С1 и С2 — по плану.
         Assert.Equal(
-            [new DateOnly(2026, 11, 16), new DateOnly(2026, 11, 30), new DateOnly(2026, 12, 14)],
+            [new DateOnly(2026, 10, 15), new DateOnly(2026, 11, 30), new DateOnly(2026, 12, 14)],
             calendar.Seasons.Select(s => GameClock.GameDayOf(s.StartsAt)));
         Assert.All(calendar.Seasons, s => Assert.Equal(SeasonCalendar.MinskMidnight(GameClock.GameDayOf(s.StartsAt)), s.StartsAt));
+        // Без чистой карты, смена отмечена выполненной в момент начала: задача смены на живой базе ничего не тронет.
+        var zero = rows[0];
+        Assert.Equal((false, (DateTimeOffset?)zero.StartsAt), (zero.CleanStart, zero.ResetAt));
+        Assert.All(rows.Skip(1), s => Assert.False(s.CleanStart));
     }
 
     [Fact]
@@ -53,7 +58,7 @@ public sealed class SeasonsTests(DatabaseFixture database)
         api.Time.SetUtcNow(SeasonCalendar.MinskMidnight(new DateOnly(2026, 11, 30)));
         var first = await client.GetFromJsonAsync<SeasonsResponse>("/seasons", Json, Cancel);
 
-        Assert.Null(before!.Current); // предсезонье — полевые тесты
+        Assert.Equal(0, before!.Current); // 01.11 — уже Сезон 0: он идёт с 15.10
         Assert.Equal(3, before.Seasons.Count);
         Assert.Equal(before.Seasons[1].StartsAtMs, before.Seasons[0].EndsAtMs);
         Assert.Null(before.Seasons[2].EndsAtMs);

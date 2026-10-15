@@ -1,6 +1,5 @@
 using System.Threading.Channels;
 using Gorodki.Api.Features.Fog;
-using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
@@ -59,8 +58,8 @@ public sealed class CaptureWorker(
 
     /// <summary>
     /// Раз в час: стирается журнал захватов старше недели и сырые точки старше 14 дней, закрываются забытые забеги,
-    /// стираются аккаунты, удаление которых запрошено, раз в игровые сутки — срез рейтингов. Истёкшие токены входа стирает
-    /// уже Hangfire (<c>ScheduledJobs</c>) — образец переноса остальных чисток (ADR 0005).
+    /// стираются аккаунты, удаление которых запрошено. Истёкшие токены входа стирает и рейтинги переснимает уже Hangfire
+    /// (<c>ScheduledJobs</c>) — образец переноса остальных чисток (ADR 0005).
     /// </summary>
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
 
@@ -89,7 +88,6 @@ public sealed class CaptureWorker(
         await StageAsync("забытые забеги", () => InScopeAsync<RunRetention>(r => r.CloseForgottenAsync(cancellationToken)), logger, cancellationToken);
         await StageAsync("сырые точки", () => InScopeAsync<RunRetention>(r => r.PurgeRawPointsAsync(cancellationToken)), logger, cancellationToken);
         await StageAsync("удаление аккаунтов", () => InScopeAsync<AccountDeletion>(d => d.ProcessRequestedAsync(cancellationToken)), logger, cancellationToken);
-        await StageAsync("срез рейтингов", () => InScopeAsync<LeaderboardSnapshots>(s => s.TakeIfDueAsync(cancellationToken)), logger, cancellationToken);
     }
 
     /// <summary>Один проход обработчика (тесты зовут напрямую): стадии по порядку, каждая отдельно.</summary>

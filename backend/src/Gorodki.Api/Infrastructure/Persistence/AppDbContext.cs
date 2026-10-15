@@ -349,10 +349,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 t.HasCheckConstraint("ck_seasons_minsk_midnight", "(starts_at AT TIME ZONE 'Europe/Minsk')::time = '00:00'");
             });
 
-            // Даты — из плана (PLAN.md, §3.4): С0 16–29.11 (бета), С1 30.11–13.12, С2 14.12 → показ. Полночь по Минску.
-            // Сезон 0 стартует с чистой карты (§3.4; #30, п. 3): земля полевых тестов стирается.
+            // Даты — из плана (PLAN.md, §3.4): С1 30.11–13.12, С2 14.12 → показ. Полночь по Минску. Сезон 0 — не с 16.11, а
+            // с 15.10, без чистой карты и без сброса земли (docs/plan-deviations.md, №15: Никита 15.10 — «всё должно работать
+            // сразу, без ожидания сезонов»): земля полевых тестов переходит в него как есть. Смена на него отмечена
+            // выполненной в момент начала (ResetAt = StartsAt) — задача season-rollover на живой базе ничего не тронет.
+            var seasonZero = new DateTimeOffset(2026, 10, 14, 21, 0, 0, TimeSpan.Zero);
             season.HasData(
-                new SeasonEntity { Number = 0, Name = "Сезон 0 (бета)", StartsAt = new DateTimeOffset(2026, 11, 15, 21, 0, 0, TimeSpan.Zero), CleanStart = true },
+                new SeasonEntity { Number = 0, Name = "Сезон 0 (бета)", StartsAt = seasonZero, CleanStart = false, ResetAt = seasonZero },
                 new SeasonEntity { Number = 1, Name = "Сезон 1", StartsAt = new DateTimeOffset(2026, 11, 29, 21, 0, 0, TimeSpan.Zero) },
                 new SeasonEntity { Number = 2, Name = "Сезон 2", StartsAt = new DateTimeOffset(2026, 12, 13, 21, 0, 0, TimeSpan.Zero) });
         });
