@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Scoring;
