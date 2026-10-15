@@ -3,6 +3,7 @@ using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
+using Gorodki.Api.Features.Segments;
 using Gorodki.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -36,7 +37,7 @@ public sealed class CaptureSignal
 }
 
 /// <summary>
-/// Фоновый обработчик захватов, визитов, тумана и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
+/// Фоновый обработчик захватов, визитов, тумана, проходов отрезков и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
 /// Два экземпляра сервера во время деплоя не мешают друг другу: заявки берутся в аренду.
 /// </summary>
 /// <remarks>
@@ -127,6 +128,19 @@ public sealed class CaptureWorker(
                 await InScopeAsync<FogProcessor, List<Guid>>(f => f.RunsReadyAsync(20, cancellationToken)),
                 id => InScopeAsync<FogProcessor>(f => f.StampRunAsync(id, cancellationToken)),
                 id => InScopeAsync<FogProcessor>(f => f.PostponeAsync(id, cancellationToken)),
+                logger,
+                cancellationToken),
+            logger,
+            cancellationToken);
+
+        // Проходы отрезков «Королей участков» (§3.13) — как туман: один раз, когда забег завершён и все точки на месте.
+        await StageAsync(
+            "отрезки",
+            async () => await EachRunAsync(
+                "отрезки",
+                await InScopeAsync<SegmentEffortProcessor, List<Guid>>(s => s.RunsReadyAsync(20, cancellationToken)),
+                id => InScopeAsync<SegmentEffortProcessor>(s => s.ProcessRunAsync(id, cancellationToken)),
+                id => InScopeAsync<SegmentEffortProcessor>(s => s.PostponeAsync(id, cancellationToken)),
                 logger,
                 cancellationToken),
             logger,

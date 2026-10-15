@@ -149,6 +149,38 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
             await db.SaveChangesAsync(Cancel);
         }
 
+        // «Короли участков»: у Анны проход отрезка, а Вера своим проходом свергла её с трона (событие для «Входящих»).
+        await using (var db = database.CreateContext())
+        {
+            var segmentId = Gorodki.Api.Features.Segments.SegmentSeed.Entries[0].Id;
+            var veraRun = await db.Runs.Where(r => r.UserId == veraId).Select(r => r.Id).FirstAsync(Cancel);
+            SegmentEffortEntity Effort(Guid userId, Guid runId, long elapsedMs) => new()
+            {
+                SegmentId = segmentId,
+                UserId = userId,
+                RunId = runId,
+                League = Gorodki.Domain.Leagues.League.Run,
+                ElapsedMs = elapsedMs,
+                StartedAt = api.Time.GetUtcNow().AddHours(-1),
+                VisibleAt = api.Time.GetUtcNow(),
+            };
+            var annaEffort = Effort(annaId, walk.Id, 300_000);
+            var veraEffort = Effort(veraId, veraRun, 200_000);
+            db.SegmentEfforts.AddRange(annaEffort, veraEffort);
+            await db.SaveChangesAsync(Cancel);
+            db.SegmentDethronements.Add(new SegmentDethronementEntity
+            {
+                Id = Guid.NewGuid(),
+                UserId = annaId,
+                SegmentId = segmentId,
+                League = Gorodki.Domain.Leagues.League.Run,
+                EffortId = veraEffort.Id,
+                AllTime = true,
+                VisibleAt = api.Time.GetUtcNow(),
+            });
+            await db.SaveChangesAsync(Cancel);
+        }
+
         var versionBefore = await TileVersionAsync(tile);
         long hallRow;
         await using (var db = database.CreateContext())
