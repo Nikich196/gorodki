@@ -139,7 +139,8 @@ final class ShellModel {
         return ShellModel(
             profile: profile, run: .live(profile: profile), map: .live(profile: profile, home: home), home: home,
             social: SocialScreens(
-                backend: AppDependencies.shared.api.map { APISocialSource(api: $0) }, inboxEnabled: false))
+                backend: AppDependencies.shared.api.map { APISocialSource(api: $0) },
+                game: AppDependencies.shared.api.map { APIGameSource(api: $0) }, inboxEnabled: false))
     }
 
     /// История исследований очищена: карта перезапрашивает туман, профиль — сводку.

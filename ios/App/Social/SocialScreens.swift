@@ -29,6 +29,8 @@ final class SocialScreens {
     let friends: FriendsModel
     let feed: FeedModel
     let inbox: InboxModel
+    /// Игровые разделы: серия, рюкзак, коллекция, карточка недели, Зал славы, «Короли», дуэли (`App/Game`).
+    let game: GameModel
     /// Есть ли «Входящие» у этого источника. Сервер их пока не отдаёт (#139 отложена после показа, адрес отвечает 500) —
     /// у живого источника колокольчика и строки в «Профиле» нет, у образцов (демо, снимки) — есть.
     let inboxEnabled: Bool
@@ -44,8 +46,10 @@ final class SocialScreens {
     ///   - backend: `nil` — нет адреса сервера: экраны скажут «нет связи».
     ///   - inboxEnabled: показывать ли «Входящие» — см. одноимённое свойство.
     init(
-        backend: (any SocialBackend)?, inboxEnabled: Bool = true, now: @escaping @Sendable () -> Date = { .now }
+        backend: (any SocialBackend)?, game: (any GameBackend)? = nil, inboxEnabled: Bool = true,
+        now: @escaping @Sendable () -> Date = { .now }
     ) {
+        self.game = GameModel(source: game)
         self.inboxEnabled = inboxEnabled
         leaderboards = LeaderboardsModel(source: backend)
         clan = ClanModel(source: backend, now: now)

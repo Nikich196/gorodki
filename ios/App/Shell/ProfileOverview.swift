@@ -24,7 +24,9 @@ struct ProfileOverview: View {
                 seasonCard
                 tiles
             }
-            soon
+            if model.signedIn {
+                GameHubSection()
+            }
         }
         .animation(Motion.numericRoll.unlessReduceMotion(reduceMotion), value: model.exploredSquareMeters)
     }
@@ -102,8 +104,7 @@ struct ProfileOverview: View {
 
     // MARK: - Сезон
 
-    /// Сезон: день и полоса дней, открыто за сезон, место в «Кто открыл больше». Очки сезона и места в Арене —
-    /// «скоро»: в ответах сервера их пока нет.
+    /// Сезон: день и полоса дней, открыто за сезон, место в «Кто открыл больше»; очки и места — в «Рейтингах».
     private var seasonCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -150,7 +151,7 @@ struct ProfileOverview: View {
                     }
                 }
             }
-            Text("Очки сезона и места в Арене — скоро")
+            Text("Очки и места сезона — во вкладке «Рейтинги», пересчёт каждые 5 минут")
                 .font(.caption)
                 .foregroundStyle(Palette.uiInk3.color)
         }
@@ -201,65 +202,6 @@ struct ProfileOverview: View {
             api: api, summary: model.exploration,
             failure: api == nil && model.exploration == nil ? .notConfigured : nil)
     }
-
-    // MARK: - Скоро
-
-    /// Короны, коллекция, дуэли, рюкзак, карточка недели — экраны следующей волны (контракты C15 для задач Егора).
-    private var soon: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Скоро в профиле")
-                .font(.headline)
-                .foregroundStyle(Palette.uiInk.color)
-            VStack(spacing: 0) {
-                ForEach(Self.upcoming, id: \.title) { item in
-                    HStack(spacing: 14) {
-                        Image(systemName: item.symbolName)
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Palette.uiInk3.color)
-                            .frame(width: 36, height: 36)
-                            .background(Palette.uiCell2.color, in: .circle)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title)
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(Palette.uiInk.color)
-                            Text(item.detail)
-                                .font(.footnote)
-                                .foregroundStyle(Palette.uiInk2.color)
-                        }
-                        Spacer(minLength: 8)
-                        Text("скоро")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Palette.uiInk2.color)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Palette.uiCell2.color, in: .capsule)
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 60)
-                    .accessibilityElement(children: .combine)
-                    if item.title != Self.upcoming.last?.title {
-                        Divider().padding(.leading, 64)
-                    }
-                }
-            }
-            .brandCard()
-        }
-    }
-
-    private struct Upcoming {
-        let title: String
-        let detail: String
-        let symbolName: String
-    }
-
-    private static let upcoming = [
-        Upcoming(title: "Короли участков", detail: "Короны за быстрые отрезки", symbolName: "crown"),
-        Upcoming(title: "Коллекция", detail: "Тайники и значки по редкостям", symbolName: "rosette"),
-        Upcoming(title: "Дуэли", detail: "Вызов 1×1 и живой счёт", symbolName: "person.2"),
-        Upcoming(title: "Рюкзак", detail: "Фишки: «Радар», щиты", symbolName: "backpack"),
-        Upcoming(title: "Карточка недели", detail: "Итог недели картинкой", symbolName: "photo.on.rectangle"),
-    ]
 
     private func area(_ squareMeters: Double?) -> String {
         squareMeters.map { NumberText.hectares(fromSquareMeters: $0, fractionDigits: 2) } ?? "—"

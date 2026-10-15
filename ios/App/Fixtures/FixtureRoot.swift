@@ -55,6 +55,26 @@ struct FixtureRoot: View {
             .notifications,
             .assignment:
             SheetFixtureScreen(screen: screen)
+        case .kings, .segment, .duels, .backpack, .collection, .weekly, .hallOfFame:
+            NavigationStack {
+                gameScreen
+            }
+            .environment(shell.social)
+        }
+    }
+
+    @ViewBuilder
+    private var gameScreen: some View {
+        switch screen {
+        case .segment:
+            SegmentScreen(
+                segmentId: "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170", league: .run, title: "Набережная Мухавца")
+        case .duels: DuelsScreen()
+        case .backpack: BackpackScreen()
+        case .collection: CollectionScreen()
+        case .weekly: WeeklyCardScreen()
+        case .hallOfFame: HallOfFameScreen()
+        default: KingsScreen()
         }
     }
 }
@@ -121,7 +141,7 @@ enum Fixtures {
     static func social(_ screen: FixtureScreen, fixture: String?) -> SocialScreens {
         let source = SampleSocialSource(
             inClan: ![.clanJoin, .clanCreate].contains(screen), stub: fixture == "server-stub")
-        let social = SocialScreens(backend: source, now: SampleSocialSource.now)
+        let social = SocialScreens(backend: source, game: SampleGameSource(), now: SampleSocialSource.now)
         switch screen {
         case .leaderboardsExploration: social.leaderboards.kind = .exploration
         case .friends, .friendAdd: social.clanSection = .friends

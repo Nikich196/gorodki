@@ -65,11 +65,7 @@ struct LeaderboardsTab: View {
     @ViewBuilder
     private var content: some View {
         if model.kind == .kings {
-            TabPlaceholder(
-                systemImage: "crown",
-                title: "Короли участков — скоро",
-                text: "Короткие отрезки города: кто быстрее всех в сезоне, тот и король. Экран — в следующей версии."
-            )
+            KingsList()
         } else if let failure = model.failure, model.rows.isEmpty {
             SocialFailureView(failure: failure) { await model.load() }
         } else if !model.loaded && model.rows.isEmpty {

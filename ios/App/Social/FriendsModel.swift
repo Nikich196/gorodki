@@ -55,7 +55,7 @@ final class FriendsModel {
         busy = true
         defer { busy = false }
         do {
-            upsert(try await source.addFriend(code: InviteCode.normalized(addCode)))
+            upsert(try await source.addFriend(code: FriendCode.normalized(addCode)))
             addCode = ""
             actionError = nil
             return true
@@ -97,5 +97,15 @@ final class FriendsModel {
         } else {
             friends.append(friend)
         }
+    }
+}
+
+/// Код дружбы `XXXX-XXXX` (сервер #143): набранный без дефиса — дефис подставляется, иначе сервер код не найдёт.
+enum FriendCode {
+    static func normalized(_ typed: String) -> String {
+        let upper = InviteCode.normalized(typed)
+        let plain = upper.filter { $0.isLetter || $0.isNumber }
+        guard plain.count == 8, !upper.contains("-") else { return upper }
+        return String(plain.prefix(4)) + "-" + String(plain.suffix(4))
     }
 }
