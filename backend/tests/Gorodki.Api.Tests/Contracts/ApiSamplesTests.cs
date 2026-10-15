@@ -255,14 +255,14 @@ public sealed class ApiSamplesTests
         yield return ("duels", new DuelsResponse(
         [
             new DuelResponse(
-                Guid.Parse("2b1a0918-7e6d-4c5b-a493-82716f5e4d3c"), DuelStatus.Active, League.Run, DuelMetric.Distance, null, 3,
+                Guid.Parse("2b1a0918-7e6d-4c5b-a493-82716f5e4d3c"), DuelStatus.Active, Incoming: false, League.Run, DuelMetric.Distance, null, 3,
                 new DuelSide(Player, "Бегун-1234", 7, 8_420.5, Staked: true),
                 new DuelSide(Third, "Муха", 11, 9_010, Staked: true),
                 Start,
                 Start + (3 * 86_400_000L),
                 WinnerId: null),
             new DuelResponse(
-                Guid.Parse("1a09187e-6d5c-4b4a-9382-716f5e4d3c2b"), DuelStatus.Pending, League.Run, DuelMetric.SegmentTime, Segment, 1,
+                Guid.Parse("1a09187e-6d5c-4b4a-9382-716f5e4d3c2b"), DuelStatus.Pending, Incoming: true, League.Run, DuelMetric.SegmentTime, Segment, 1,
                 new DuelSide(Player, "Бегун-1234", 7, null, Staked: false),
                 new DuelSide(Other, LeaderboardEndpoints.Pseudonym(Other), 2, null, Staked: false),
                 StartsAtMs: null,

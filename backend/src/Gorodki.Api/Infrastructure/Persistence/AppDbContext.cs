@@ -81,6 +81,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<FriendLinkEntity> FriendLinks => Set<FriendLinkEntity>();
 
+    public DbSet<DuelEntity> Duels => Set<DuelEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -413,6 +415,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         ConfigureClans(model);
         ConfigureFeed(model);
+        ConfigureDuels(model);
 
         model.Entity<JobRunEntity>(run =>
         {
@@ -523,6 +526,41 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             link.HasOne<UserEntity>().WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.Cascade);
             link.HasOne<UserEntity>().WithMany().HasForeignKey(f => f.FriendId).OnDelete(DeleteBehavior.Cascade);
             link.ToTable(t => t.HasCheckConstraint("ck_friend_links_not_self", "user_id <> friend_id"));
+        });
+    }
+
+    /// <summary>
+    /// Дуэли 1×1 (PLAN.md, §3.14; задача #147). Стороны — игроки с <c>ON DELETE SET NULL</c>: законченная дуэль переживает
+    /// удаление аккаунта соперника (исход и счёт остаются у второго), а ждущие и идущие дуэли удаляемого аккаунта снимает
+    /// <c>AccountDeletion</c> до стирания — поэтому у них обе стороны есть всегда (проверка базы). Перечисления — числами
+    /// (<c>smallint</c>), значения у них заданы явно.
+    /// </summary>
+    private static void ConfigureDuels(ModelBuilder model)
+    {
+        model.Entity<DuelEntity>(duel =>
+        {
+            duel.HasKey(d => d.Id);
+            duel.Property(d => d.Metric).HasConversion<short>();
+            duel.Property(d => d.Status).HasConversion<short>();
+            duel.Property(d => d.Outcome).HasConversion<short?>();
+            duel.Property(d => d.Leader).HasConversion<short?>();
+            // Свои дуэли — по любой из сторон; задача итогов — по статусу (ждущие — по времени вызова, идущие — по концу).
+            duel.HasIndex(d => d.ChallengerId);
+            duel.HasIndex(d => d.OpponentId);
+            duel.HasIndex(d => new { d.Status, d.EndsAt });
+            duel.HasOne<UserEntity>().WithMany().HasForeignKey(d => d.ChallengerId).OnDelete(DeleteBehavior.SetNull);
+            duel.HasOne<UserEntity>().WithMany().HasForeignKey(d => d.OpponentId).OnDelete(DeleteBehavior.SetNull);
+            duel.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_duels_not_self", "challenger_id <> opponent_id");
+                t.HasCheckConstraint("ck_duels_days", "days IN (1, 3, 7)");
+                t.HasCheckConstraint("ck_duels_enums", "metric BETWEEN 0 AND 3 AND status BETWEEN 0 AND 3 AND (outcome IS NULL OR outcome BETWEEN 0 AND 3) AND (leader IS NULL OR leader BETWEEN 1 AND 2)");
+                t.HasCheckConstraint("ck_duels_segment", "(metric = 3) = (segment_id IS NOT NULL)");
+                // Ждёт ответа или идёт — обе стороны на месте; идёт или закончилась — есть начало и конец; закончилась — есть исход.
+                t.HasCheckConstraint("ck_duels_sides", "status NOT IN (0, 1) OR (challenger_id IS NOT NULL AND opponent_id IS NOT NULL)");
+                t.HasCheckConstraint("ck_duels_started", "status NOT IN (1, 2) OR (starts_at IS NOT NULL AND ends_at IS NOT NULL)");
+                t.HasCheckConstraint("ck_duels_finished", "(status = 2) = (outcome IS NOT NULL)");
+            });
         });
     }
 

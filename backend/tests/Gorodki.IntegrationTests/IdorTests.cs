@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Clans;
+using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Social;
@@ -46,7 +47,8 @@ public sealed class IdorTests(DatabaseFixture database)
 
         // Заготовки задач Егора (C15). Карточка клана публична, как карточка игрока (участники — по номерам, ники — с согласия);
         // код-приглашение Борису не виден. Остальное — «нет такого»: Анна не в клане Бориса, фишки, заявки в друзья (заявку
-        // Карла Анне не принять, дружбу Анны не разорвать), посты (ещё до границы публичности) и дуэли Анны — не его; отрезок —
+        // Карла Анне не принять, дружбу Анны не разорвать), посты (ещё до границы публичности) и дуэли Анны (вызов Дине Борису
+        // не принять и не отклонить) — не его; отрезок —
         // несуществующий номер. Блокировка — право Бориса: 204, данные Анны не меняются. Бан — только администратору.
         ["GET /clans/{id:guid}"] = HttpStatusCode.OK,
         ["DELETE /clans/mine/members/{userId:guid}"] = HttpStatusCode.NotFound,
@@ -76,9 +78,6 @@ public sealed class IdorTests(DatabaseFixture database)
         ["POST /me/inventory/{id:guid}/activate"] = "ЗАДАЧА #140",
         ["GET /segments/{id:guid}"] = "ЗАДАЧА #146",
         ["GET /segments/{id:guid}/leaderboard"] = "ЗАДАЧА #146",
-        ["GET /duels/{id:guid}"] = "ЗАДАЧА #147",
-        ["POST /duels/{id:guid}/accept"] = "ЗАДАЧА #147",
-        ["POST /duels/{id:guid}/decline"] = "ЗАДАЧА #147",
         ["POST /admin/users/{userId:guid}/ban"] = "ЗАДАЧА #142",
     };
 
@@ -161,6 +160,15 @@ public sealed class IdorTests(DatabaseFixture database)
             Assert.Equal(HttpStatusCode.OK, added.StatusCode);
         }
 
+        // Дуэль Анны: она вызвала Дину. Борис её не видит, не примет и не отклонит.
+        var duel = await anna.PostAsJsonAsync(
+            "/duels",
+            new CreateDuelRequest { OpponentId = await IdOfAsync(dina), League = Gorodki.Domain.Leagues.League.Run, Metric = DuelMetric.Distance, Days = 3 },
+            Json,
+            Cancel);
+        Assert.Equal(HttpStatusCode.Created, duel.StatusCode);
+        var duelId = (await duel.Content.ReadFromJsonAsync<DuelResponse>(Json, Cancel))!.Id;
+
         var before = await SnapshotAsync(claim.RunId, annaId);
 
         var now = api.Time.GetUtcNow().ToUnixTimeMilliseconds();
@@ -190,6 +198,9 @@ public sealed class IdorTests(DatabaseFixture database)
             ["POST /feed/{id:guid}/report"] = await boris.PostAsJsonAsync($"/feed/{postId}/report", new ReportPostRequest("чужое"), Json, Cancel),
             ["PUT /me/blocks/{id:guid}"] = await boris.PutAsync($"/me/blocks/{annaId}", null, Cancel),
             ["DELETE /me/blocks/{id:guid}"] = await boris.DeleteAsync($"/me/blocks/{annaId}", Cancel),
+            ["GET /duels/{id:guid}"] = await boris.GetAsync($"/duels/{duelId}", Cancel),
+            ["POST /duels/{id:guid}/accept"] = await boris.PostAsJsonAsync($"/duels/{duelId}/accept", new AcceptDuelRequest(), Json, Cancel),
+            ["POST /duels/{id:guid}/decline"] = await boris.PostAsync($"/duels/{duelId}/decline", null, Cancel),
         };
 
         // Здесь нужен запрос Бориса к каждому адресу, кроме ждущих задачи Егора (AwaitingTasks).
@@ -216,6 +227,9 @@ public sealed class IdorTests(DatabaseFixture database)
         Assert.Contains(zones!, z => z.Id == zoneId);
     }
 
+    private async Task<Guid> IdOfAsync(HttpClient client) =>
+        (await client.GetFromJsonAsync<MeResponse>("/me", Json, Cancel))!.Id;
+
     private async Task<string> DisplayNameAsync(Guid userId)
     {
         await using var db = database.CreateContext();
@@ -223,7 +237,7 @@ public sealed class IdorTests(DatabaseFixture database)
     }
 
     /// <summary>
-    /// Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката, клан и роль в нём, лента, друзья.
+    /// Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката, клан и роль в нём, лента, друзья, дуэли.
     /// </summary>
     private async Task<string> SnapshotAsync(Guid runId, Guid annaId)
     {
@@ -239,7 +253,11 @@ public sealed class IdorTests(DatabaseFixture database)
         var friends = await db.FriendLinks.Where(f => f.UserId == annaId || f.FriendId == annaId)
             .OrderBy(f => f.UserId).ThenBy(f => f.FriendId).Select(f => $"{f.UserId}>{f.FriendId}").ToListAsync(Cancel);
         Assert.Equal(3, friends.Count); // заявка Карла и дружба с Диной (две строки) на месте
+        var duels = await db.Duels.Where(d => d.ChallengerId == annaId || d.OpponentId == annaId)
+            .Select(d => new { d.Id, d.Status, d.OpponentId, d.StartsAt, d.OpponentStakeItemId })
+            .ToListAsync(Cancel);
+        Assert.Single(duels); // вызов Дине ждёт ответа
         return $"{run.UserId} {run.Status} {run.EndedAt} {chunks} [{string.Join(",", captures)}] {rollbacks} {clan} "
-            + $"{string.Join(",", feed)} {string.Join(",", friends)}";
+            + $"{string.Join(",", feed)} {string.Join(",", friends)} {string.Join(",", duels)}";
     }
 }

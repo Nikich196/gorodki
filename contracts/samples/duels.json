@@ -3,6 +3,7 @@
     {
       "id": "2b1a0918-7e6d-4c5b-a493-82716f5e4d3c",
       "status": "active",
+      "incoming": false,
       "league": "run",
       "metric": "distance",
       "segmentId": null,
@@ -28,6 +29,7 @@
     {
       "id": "1a09187e-6d5c-4b4a-9382-716f5e4d3c2b",
       "status": "pending",
+      "incoming": true,
       "league": "run",
       "metric": "segmentTime",
       "segmentId": "5e4d3c2b-1a09-4f8e-b7d6-c5b4a3928170",

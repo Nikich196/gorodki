@@ -585,6 +585,115 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DuelEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ChallengerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("challenger_id");
+
+                    b.Property<double?>("ChallengerScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("challenger_score");
+
+                    b.Property<Guid?>("ChallengerStakeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("challenger_stake_item_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<short>("Days")
+                        .HasColumnType("smallint")
+                        .HasColumnName("days");
+
+                    b.Property<DateTimeOffset?>("EndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ends_at");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<short?>("Leader")
+                        .HasColumnType("smallint")
+                        .HasColumnName("leader");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<short>("Metric")
+                        .HasColumnType("smallint")
+                        .HasColumnName("metric");
+
+                    b.Property<Guid?>("OpponentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opponent_id");
+
+                    b.Property<double?>("OpponentScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("opponent_score");
+
+                    b.Property<Guid?>("OpponentStakeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opponent_stake_item_id");
+
+                    b.Property<short?>("Outcome")
+                        .HasColumnType("smallint")
+                        .HasColumnName("outcome");
+
+                    b.Property<Guid?>("SegmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("segment_id");
+
+                    b.Property<DateTimeOffset?>("StartsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starts_at");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint")
+                        .HasColumnName("status");
+
+                    b.Property<short?>("WinnerStreak")
+                        .HasColumnType("smallint")
+                        .HasColumnName("winner_streak");
+
+                    b.HasKey("Id")
+                        .HasName("pk_duels");
+
+                    b.HasIndex("ChallengerId")
+                        .HasDatabaseName("ix_duels_challenger_id");
+
+                    b.HasIndex("OpponentId")
+                        .HasDatabaseName("ix_duels_opponent_id");
+
+                    b.HasIndex("Status", "EndsAt")
+                        .HasDatabaseName("ix_duels_status_ends_at");
+
+                    b.ToTable("duels", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_duels_days", "days IN (1, 3, 7)");
+
+                            t.HasCheckConstraint("ck_duels_enums", "metric BETWEEN 0 AND 3 AND status BETWEEN 0 AND 3 AND (outcome IS NULL OR outcome BETWEEN 0 AND 3) AND (leader IS NULL OR leader BETWEEN 1 AND 2)");
+
+                            t.HasCheckConstraint("ck_duels_finished", "(status = 2) = (outcome IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_not_self", "challenger_id <> opponent_id");
+
+                            t.HasCheckConstraint("ck_duels_segment", "(metric = 3) = (segment_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_sides", "status NOT IN (0, 1) OR (challenger_id IS NOT NULL AND opponent_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_started", "status NOT IN (1, 2) OR (starts_at IS NOT NULL AND ends_at IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1883,6 +1992,21 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_district_tiles_districts_district_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DuelEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ChallengerId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_duels_users_challenger_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("OpponentId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_duels_users_opponent_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", b =>
