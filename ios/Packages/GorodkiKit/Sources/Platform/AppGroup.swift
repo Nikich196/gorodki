@@ -19,6 +19,19 @@ public enum AppGroup {
 /// Названия виджетов: по ним приложение просит WidgetKit обновить нужный виджет.
 public enum WidgetKind {
     public static let installCheck = "InstallCheck"
+    /// «Моя земля» — экран «Домой» и экран блокировки (`TerritorySnapshot`).
+    public static let territory = "Territory"
+    /// «Старт забега» в Пункте управления.
+    public static let startRun = "StartRun"
+}
+
+/// Ссылки внутрь приложения (`gorodki://…`, `CFBundleURLTypes` в Info.plist): ими пользуются виджеты и Пункт управления.
+public enum AppLink {
+    public static let scheme = "gorodki"
+    /// Открыть «Карту» и лист «Новый забег».
+    public static let start = URL(string: "gorodki://start")!
+    /// Открыть «Карту».
+    public static let map = URL(string: "gorodki://map")!
 }
 
 /// Отметка «приложение запускалось»: приложение пишет её в App Group, виджет читает.
