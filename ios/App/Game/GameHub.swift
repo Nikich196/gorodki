@@ -63,6 +63,8 @@ struct StreakCard: View {
 /// Раздел «Игра» в профиле: серия карточкой, дальше — «Короли», дуэли, «Рюкзак», «Коллекция», карточка недели,
 /// Зал славы. Раньше здесь был список «скоро» (решение Никиты 15.10: «всё открыто и работает сразу»).
 struct GameHubSection: View {
+    /// Профиль — числа для «Достижений» (забеги, километры, туман).
+    let profile: ProfileModel
     @Environment(SocialScreens.self) private var social
 
     var body: some View {
@@ -76,6 +78,10 @@ struct GameHubSection: View {
                 .foregroundStyle(Palette.uiInk.color)
                 .padding(.top, 4)
             VStack(spacing: 0) {
+                row("Достижения", "Значки за путь, туман, короны и тайники", "medal.fill", Brand.ember.day.color) {
+                    AchievementsScreen(profile: profile)
+                }
+                divider
                 row("Короли участков", "Короны за быстрые отрезки", "crown.fill", Brand.amber.day.color) {
                     KingsScreen()
                 }

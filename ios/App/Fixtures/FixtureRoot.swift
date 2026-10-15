@@ -55,7 +55,7 @@ struct FixtureRoot: View {
             .notifications,
             .assignment:
             SheetFixtureScreen(screen: screen)
-        case .kings, .segment, .duels, .backpack, .collection, .weekly, .hallOfFame:
+        case .kings, .segment, .duels, .backpack, .collection, .weekly, .hallOfFame, .achievements:
             NavigationStack {
                 gameScreen
             }
@@ -74,6 +74,7 @@ struct FixtureRoot: View {
         case .collection: CollectionScreen()
         case .weekly: WeeklyCardScreen()
         case .hallOfFame: HallOfFameScreen()
+        case .achievements: AchievementsScreen(profile: shell.profile)
         default: KingsScreen()
         }
     }

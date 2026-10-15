@@ -25,7 +25,7 @@ struct ProfileOverview: View {
                 tiles
             }
             if model.signedIn {
-                GameHubSection()
+                GameHubSection(profile: model)
             }
         }
         .animation(Motion.numericRoll.unlessReduceMotion(reduceMotion), value: model.exploredSquareMeters)
