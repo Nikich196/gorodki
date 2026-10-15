@@ -36,6 +36,41 @@
         }
       }
     },
+    "%lld дней" : {
+      "comment" : "Серия и дуэли: «1 день», «3 дня», «5 дней».",
+      "localizations" : {
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld дня"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld дней"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld день"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld дня"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld забегов" : {
       "comment" : "Забеги, которые ещё не дошли до сервера: «1 забег», «2 забега», «5 забегов».",
       "localizations" : {
@@ -204,6 +239,41 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld петли"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld проходов" : {
+      "comment" : "Местная легенда отрезка: «1 проход», «3 прохода», «14 проходов».",
+      "localizations" : {
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld прохода"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld проходов"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld проход"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld прохода"
                 }
               }
             }
@@ -414,6 +484,41 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld участника"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld фишек" : {
+      "comment" : "Рюкзак: «1 фишка», «2 фишки», «5 фишек».",
+      "localizations" : {
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld фишки"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld фишек"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld фишка"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld фишки"
                 }
               }
             }

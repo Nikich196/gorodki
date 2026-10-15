@@ -239,6 +239,7 @@ final class TourTests: XCTestCase {
         }
         watch(3, "w10-home-widget")
         dumpTree(springboard, "w10-tree")
+        signOut(app)
     }
 
     /// gorodki://start (виджет «Моя земля», «Старт забега» в Пункте управления) — «Карта» и лист «Новый забег».
@@ -259,9 +260,26 @@ final class TourTests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts["Новый забег"].waitForExistence(timeout: Self.timeout), "Ссылка не открыла «Новый забег»")
         watch(2, "l01-start-sheet")
+        app.swipeDown()
+        signOut(app)
     }
 
     // MARK: - Помощники
+
+    /// Выйти из аккаунта (Профиль → Настройки → «Выйти» дважды): следующая экскурсия начнётся с интро.
+    @MainActor
+    private func signOut(_ app: XCUIApplication) {
+        app.activate()
+        guard app.tabBars.buttons["Профиль"].waitForExistence(timeout: Self.timeout) else { return }
+        tab(app, "Профиль")
+        let settings = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Настройки'")).firstMatch
+        if !settings.exists { app.swipeUp() }
+        tap(settings, "Настройки")
+        for _ in 0..<3 { app.swipeUp() }
+        tap(app.buttons.matching(NSPredicate(format: "label == 'Выйти'")).firstMatch, "Выйти")
+        tap(app.buttons.matching(NSPredicate(format: "label == 'Выйти'")).firstMatch, "Выйти — подтверждение")
+        _ = app.buttons["intro.demo"].waitForExistence(timeout: Self.timeout)
+    }
 
     @MainActor
     private func dumpTree(_ app: XCUIApplication, _ name: String) {

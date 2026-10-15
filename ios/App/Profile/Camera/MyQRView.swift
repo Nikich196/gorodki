@@ -34,6 +34,8 @@ struct MyQRView: View {
     @State private var content = Content.player
     @State private var glint = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Код дружбы вошедшего игрока (`GET /friends`) — в QR вместо номера: друг сканирует и сразу отправляет заявку.
+    @Environment(SocialScreens.self) private var social: SocialScreens?
 
     init(playerId: String?, playerName: String?, player: PlayerColor, inviteCode: String? = nil) {
         self.playerId = playerId
@@ -45,7 +47,9 @@ struct MyQRView: View {
 
     private var link: FriendLink? {
         switch content {
-        case .player: playerId.map { FriendLink.player(id: $0, name: playerName) }
+        case .player:
+            social?.friends.myCode.map { FriendLink.friend(code: $0, name: playerName) }
+                ?? playerId.map { FriendLink.player(id: $0, name: playerName) }
         case .invite: inviteCode.map { FriendLink.invite(code: $0) }
         }
     }
@@ -79,6 +83,9 @@ struct MyQRView: View {
         }
         .atmosphereBackground()
         .navigationTitle("Мой QR")
+        .task {
+            if let social, social.friends.myCode == nil { await social.friends.load() }
+        }
         .onAppear {
             guard !reduceMotion else { return }
             // Блик — как металлический блик значка (docs/design/tokens.md, §7), один раз.

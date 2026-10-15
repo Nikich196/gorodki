@@ -56,6 +56,21 @@ enum CountText {
         String(localized: "\(count) участников", locale: NumberText.locale)
     }
 
+    /// Серия и срок дуэли: «1 день», «3 дня», «5 дней».
+    static func days(_ count: Int) -> String {
+        String(localized: "\(count) дней", locale: NumberText.locale)
+    }
+
+    /// Местная легенда отрезка: «14 проходов».
+    static func efforts(_ count: Int) -> String {
+        String(localized: "\(count) проходов", locale: NumberText.locale)
+    }
+
+    /// Рюкзак: «2 фишки».
+    static func items(_ count: Int) -> String {
+        String(localized: "\(count) фишек", locale: NumberText.locale)
+    }
+
     /// Респекты поста в ленте: «1 респект», «3 респекта».
     static func respects(_ count: Int) -> String {
         String(localized: "\(count) респектов", locale: NumberText.locale)

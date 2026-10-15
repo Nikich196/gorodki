@@ -91,6 +91,10 @@ struct FriendLinkTests {
         #expect(link.url.hasPrefix("gorodki://friend?id=0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b&name="))
         #expect(FriendLink.parse(link.url) == link)
         #expect(FriendLink.parse(FriendLink.player(id: "abc", name: nil).url) == .player(id: "abc", name: nil))
+        let friend = FriendLink.friend(code: "R4T8-KD2M", name: "Бегун-1234")
+        #expect(friend.url.hasPrefix("gorodki://friend?code=R4T8-KD2M"))
+        #expect(FriendLink.parse(friend.url) == friend)
+        #expect(FriendLink.parse("gorodki://friend?code=r4t8-kd2m") == .friend(code: "R4T8-KD2M", name: nil))
     }
 
     @Test("Приглашение: код приводится к заглавным, неверный код — не наш QR")

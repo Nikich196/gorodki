@@ -118,10 +118,11 @@ enum SocialFailure: Error, Equatable, Sendable {
         case "clan_not_member": "Ты уже не в клане."
         case "friend_code_invalid": "Такого кода нет — проверь его у друга."
         case "friend_self": "Это твой собственный код."
+        case "friend_blocked": "Ты заблокировал этого игрока — сначала сними блокировку."
         case "friend_not_found", "friend_request_not_found": "Заявки уже нет — список обновлён."
         case "post_not_found": "Поста уже нет или он тебе не виден."
         case "block_self": "Себя заблокировать нельзя."
-        default: "Сервер отказал. Попробуй ещё раз."
+        default: gameText(code: code) ?? "Сервер отказал. Попробуй ещё раз."
         }
     }
 }

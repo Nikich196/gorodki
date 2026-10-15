@@ -4,7 +4,7 @@ import GorodkiAPI
 import Observation
 
 /// Какой рейтинг открыт (PLAN.md, §5, экран 20): «Захват» — очки сезона, «Исследование» — открытый туман, «Короли» —
-/// отрезки (экран «Короли участков» — следующая волна, здесь только «скоро»).
+/// отрезки (`KingsList`, App/Game — грузит сам).
 enum LeaderboardKind: String, CaseIterable, Identifiable, Sendable {
     case territory, exploration, kings
 
@@ -77,7 +77,7 @@ final class LeaderboardsModel {
     private(set) var rows: [LeaderboardRow] = []
     /// Своё место, если его нет среди первых (сервер отдаёт до 50): закреплено снизу.
     private(set) var mine: LeaderboardRow?
-    /// «Сезон 0 · срез 20.11» — над списком.
+    /// «Сезон 0 · каждые 5 мин» — над списком; у закрытого сезона — «срез 29.11».
     private(set) var caption: String?
     /// Итог закрытого сезона (`final`): пометка «итог», иначе «предварительно». У «Исследования» пометки нет.
     private(set) var isFinal: Bool?
@@ -111,7 +111,7 @@ final class LeaderboardsModel {
         return rows.first { $0.me }
     }
 
-    /// Загрузить выбранный вид и лигу. «Короли» — только заглушка «скоро»: запросов нет.
+    /// Загрузить выбранный вид и лигу. «Короли» грузит свой экран (`GameModel.loadSegments`).
     func load() async {
         guard kind != .kings else {
             apply(rows: [], mine: nil, caption: nil, isFinal: nil)
@@ -159,8 +159,11 @@ final class LeaderboardsModel {
         if let season = board.season {
             parts.append("Сезон \(season)")
         }
-        if let day = board.day.flatMap(Self.dayText) {
+        // Идущий сезон пересчитывается каждые 5 минут (plan-deviations, №15); у закрытого — дата итогового среза.
+        if board.final, let day = board.day.flatMap(Self.dayText) {
             parts.append("срез " + day)
+        } else {
+            parts.append(Self.liveText)
         }
         apply(
             rows: board.entries.map(row), mine: board.mine.map(row), caption: parts.joined(separator: " · "),
@@ -174,14 +177,14 @@ final class LeaderboardsModel {
                 value: NumberText.decimal(entry.hectares, fractionDigits: 2) + NumberText.unitSeparator + "га",
                 number: entry.hectares, me: entry.me)
         }
-        var parts = [board.season.map { "Сезон \($0)" } ?? "За всё время"]
-        if let day = board.day.flatMap(Self.dayText) {
-            parts.append("срез " + day)
-        }
+        let parts = [board.season.map { "Сезон \($0)" } ?? "За всё время", Self.liveText]
         apply(
             rows: board.entries.map(row), mine: board.mine.map(row), caption: parts.joined(separator: " · "),
             isFinal: nil)
     }
+
+    /// Рейтинги пересчитываются каждые 5 минут (сервер, задачи territory-snapshot и exploration-snapshot).
+    static let liveText = "каждые 5 мин"
 
     private func apply(rows: [LeaderboardRow], mine: LeaderboardRow?, caption: String?, isFinal: Bool?) {
         self.rows = Self.uniqueIDs(rows)

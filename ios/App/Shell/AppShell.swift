@@ -1,4 +1,5 @@
 import DesignSystem
+import GameCore
 import Platform
 import SwiftUI
 
@@ -59,6 +60,19 @@ struct AppShell: View {
         // лист «Новый забег» с лигой карты.
         .onOpenURL { url in
             guard url.scheme == AppLink.scheme else { return }
+            // QR друга из системной камеры: gorodki://friend?code=… — «Друзья» с открытым «Добавить» и кодом.
+            if let link = FriendLink.parse(url.absoluteString) {
+                guard case .invite = link else {
+                    model.tab = .clan
+                    social.clanSection = .friends
+                    if case .friend(let code, _) = link {
+                        social.friends.addCode = code
+                        social.addFriendShown = true
+                    }
+                    return
+                }
+                return
+            }
             model.tab = .map
             if url.host() == "start" {
                 run.startTapped(league: model.map.league)
@@ -139,7 +153,8 @@ final class ShellModel {
         return ShellModel(
             profile: profile, run: .live(profile: profile), map: .live(profile: profile, home: home), home: home,
             social: SocialScreens(
-                backend: AppDependencies.shared.api.map { APISocialSource(api: $0) }, inboxEnabled: false))
+                backend: AppDependencies.shared.api.map { APISocialSource(api: $0) },
+                game: AppDependencies.shared.api.map { APIGameSource(api: $0) }, inboxEnabled: false))
     }
 
     /// История исследований очищена: карта перезапрашивает туман, профиль — сводку.

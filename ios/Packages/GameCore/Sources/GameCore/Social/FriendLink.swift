@@ -1,11 +1,13 @@
 import Foundation
 
 /// Что зашито в QR-код игры (пункт 13 листика; PLAN.md, §5: друзья — по QR и ссылке, поиска нет). Свой QR показывает
-/// «Мой QR», сканер камеры читает чужой. Ссылка — схемы `gorodki://`: её читает сканер игры; открывать её из системной
-/// камеры приложение пока не умеет (схема не зарегистрирована).
+/// «Мой QR», сканер камеры читает чужой. Ссылка — схемы `gorodki://`: её читает сканер игры, а с 15.10 и системная
+/// камера — схема зарегистрирована (`CFBundleURLTypes`), приложение открывает «Друзей» с кодом.
 public enum FriendLink: Hashable, Sendable {
     /// Игрок: номер с сервера (`GET /me`, `id`) и ник — сканер сразу показывает, кого нашёл.
     case player(id: String, name: String?)
+    /// Код дружбы (`XXXX-XXXX`, сервер #143) и ник: по нему сканер сразу отправляет заявку в друзья.
+    case friend(code: String, name: String?)
     /// Код приглашения закрытой регистрации (`XXXX-XXXX`, выдаёт админ): друг введёт его на онбординге.
     case invite(code: String)
 
@@ -20,6 +22,11 @@ public enum FriendLink: Hashable, Sendable {
             components.host = "friend"
             components.queryItems =
                 [URLQueryItem(name: "id", value: id)] + (name.map { [URLQueryItem(name: "name", value: $0)] } ?? [])
+        case .friend(let code, let name):
+            components.host = "friend"
+            components.queryItems =
+                [URLQueryItem(name: "code", value: code)]
+                + (name.map { [URLQueryItem(name: "name", value: $0)] } ?? [])
         case .invite(let code):
             components.host = "invite"
             components.queryItems = [URLQueryItem(name: "code", value: code)]
@@ -37,6 +44,9 @@ public enum FriendLink: Hashable, Sendable {
         }
         switch components.host?.lowercased() {
         case "friend":
+            if let code = value("code").map(InviteText.normalizedCode), InviteText.isWellFormed(code) {
+                return .friend(code: code, name: value("name"))
+            }
             guard let id = value("id") else { return nil }
             return .player(id: id, name: value("name"))
         case "invite":

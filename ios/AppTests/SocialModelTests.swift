@@ -22,7 +22,7 @@ struct SocialModelTests {
         #expect(model.pinnedRow(mineRowVisible: true)?.me == true)
         #expect(model.isFinal == false)
         #expect(model.statusText == "предварительно")
-        #expect(model.caption == "Сезон 0 · срез 20.11")
+        #expect(model.caption == "Сезон 0 · каждые 5 мин")
     }
 
     @Test("Итог сезона (final) — пометка «итог»")
