@@ -83,6 +83,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<DuelEntity> Duels => Set<DuelEntity>();
 
+    public DbSet<HallOfFameEntity> HallOfFame => Set<HallOfFameEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -416,6 +418,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         ConfigureClans(model);
         ConfigureFeed(model);
         ConfigureDuels(model);
+        ConfigureHallOfFame(model);
 
         model.Entity<JobRunEntity>(run =>
         {
@@ -465,6 +468,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             member.ToTable(t => t.HasCheckConstraint("ck_clan_members_role", "role BETWEEN 0 AND 2"));
         });
     }
+
+    /// <summary>
+    /// Зал славы (PLAN.md, §3.4): удалили игрока — строка обезличивается (<c>user_id</c> → <c>null</c>), а не удаляется;
+    /// распался клан — <c>clan_id</c> → <c>null</c>, остаётся название на момент снимка.
+    /// </summary>
+    private static void ConfigureHallOfFame(ModelBuilder model) =>
+        model.Entity<HallOfFameEntity>(hall =>
+        {
+            hall.HasKey(h => h.Id);
+            hall.Property(h => h.Id).UseIdentityAlwaysColumn();
+            hall.Property(h => h.Kind).HasConversion<short>();
+            hall.Property(h => h.ClanName).HasMaxLength(Gorodki.Domain.Clans.ClanRules.NameMaxLength);
+            hall.HasIndex(h => h.Season);
+            hall.HasIndex(h => h.UserId);
+            hall.HasIndex(h => h.ClanId);
+            hall.HasOne<UserEntity>().WithMany().HasForeignKey(h => h.UserId).OnDelete(DeleteBehavior.SetNull);
+            hall.HasOne<ClanEntity>().WithMany().HasForeignKey(h => h.ClanId).OnDelete(DeleteBehavior.SetNull);
+            hall.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_hall_of_fame_place", "place BETWEEN 1 AND 3 AND value >= 0");
+                t.HasCheckConstraint(
+                    "ck_hall_of_fame_kind",
+                    "(kind = 0 AND clan_id IS NULL AND clan_name IS NULL) OR (kind = 1 AND user_id IS NULL AND place = 1 AND clan_name IS NOT NULL)");
+            });
+        });
 
     /// <summary>
     /// Лента и друзья (PLAN.md, §3.8): посты, респекты, жалобы, блокировки, друзья. Всё с номером игрока уходит каскадом

@@ -49,6 +49,32 @@ public sealed class FogTileBits
         return total;
     }
 
+    /// <summary>
+    /// Сколько клеток открыто здесь, лежит в <paramref name="within"/> и не открыто ни в <paramref name="before"/>, ни в
+    /// <paramref name="other"/>: popcount(this &amp; within &amp; ~before &amp; ~other). <c>null</c> — пустая карта.
+    /// </summary>
+    public int CountNewWithin(FogTileBits within, FogTileBits? before, FogTileBits? other)
+    {
+        var total = 0;
+        for (var i = 0; i < WordCount; i++)
+        {
+            var word = _words[i] & within._words[i];
+            if (before is not null)
+            {
+                word &= ~before._words[i];
+            }
+
+            if (other is not null)
+            {
+                word &= ~other._words[i];
+            }
+
+            total += BitOperations.PopCount(word);
+        }
+
+        return total;
+    }
+
     public void UnionWith(FogTileBits other)
     {
         for (var i = 0; i < WordCount; i++)

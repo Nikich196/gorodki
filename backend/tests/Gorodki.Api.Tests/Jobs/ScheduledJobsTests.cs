@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Duels;
+using Gorodki.Api.Features.HallOfFame;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Jobs;
@@ -84,6 +85,20 @@ public sealed class ScheduledJobsTests
         Assert.Equal(typeof(DuelReferee), job.Type);
         Assert.Equal(nameof(DuelReferee.RunAsync), job.Method.Name);
         Assert.Equal("*/15 * * * *", cron); // вызовы истекают, лидер сменяется, итог — через 4 ч после конца срока
+        Assert.Equal("Europe/Minsk", options.TimeZone.Id);
+    }
+
+    [Fact]
+    public void Hall_of_fame_is_checked_every_hour_by_Minsk_time_so_it_runs_at_the_seasons_close()
+    {
+        var jobs = new RecordedSchedule();
+
+        ScheduledJobs.Register(jobs);
+
+        var (_, job, cron, options) = Assert.Single(jobs.Added, j => j.Id == ScheduledJobs.HallOfFameJob);
+        Assert.Equal(typeof(HallOfFameSnapshots), job.Type);
+        Assert.Equal(nameof(HallOfFameSnapshots.RunIfDueAsync), job.Method.Name);
+        Assert.Equal("0 * * * *", cron); // 04:00 первого дня сезона — итог прошлого закрыт
         Assert.Equal("Europe/Minsk", options.TimeZone.Id);
     }
 

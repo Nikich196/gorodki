@@ -53,6 +53,25 @@ public sealed class GameConfigStore(AppDbContext db, GameConfigCache cache, Time
         return cache.GetOrAdd(current);
     }
 
+    /// <summary>
+    /// Версия, действовавшая в момент <paramref name="moment"/> (самая новая из начавших действовать к нему); момент не в
+    /// прошлом — действующая сейчас. Например, какой набор OSM действовал в начале недели (карточка недели, §3.15).
+    /// </summary>
+    public async Task<GameConfigVersion> GetAtAsync(DateTimeOffset moment, CancellationToken cancellationToken)
+    {
+        var current = await GetCurrentAsync(cancellationToken); // новая база получит версию 1
+        if (moment >= time.GetUtcNow())
+        {
+            return current;
+        }
+
+        var entity = await db.GameConfigs.AsNoTracking()
+            .Where(c => c.ActiveFrom <= moment)
+            .OrderByDescending(c => c.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+        return entity is null ? current : cache.GetOrAdd(entity);
+    }
+
     /// <summary>Конкретная версия — ею проверяется забег, начатый с ней. <c>null</c>, если такой нет.</summary>
     public async Task<GameConfigVersion?> GetAsync(int version, CancellationToken cancellationToken)
     {

@@ -59,10 +59,15 @@ public sealed class FogHistory(
         }
 
         // Забеги, которые туман ещё не открывали (идёт, ждёт последних кусков или суток после конца), помечаются открывшими
-        // ничего: иначе путь до очистки вернул бы стёртое. «+N га» у них — ноль.
+        // ничего: иначе путь до очистки вернул бы стёртое. «+N га» у них — ноль (и в карточке недели тоже).
         var runs = await db.Runs
             .Where(r => r.UserId == userId && r.FogStampedAt == null)
-            .ExecuteUpdateAsync(set => set.SetProperty(r => r.FogStampedAt, now).SetProperty(r => r.FogNewCells, 0), cancellationToken);
+            .ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(r => r.FogStampedAt, now)
+                    .SetProperty(r => r.FogNewCells, 0)
+                    .SetProperty(r => r.FogNewSquareMeters, 0),
+                cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         if (tiles > 0)

@@ -45,9 +45,9 @@ public sealed class SchemaTests(DatabaseFixture database)
             [
                 "capture_journal", "capture_journal_pieces", "capture_rollbacks", "captures", "clan_members", "clans", "contested_zones",
                 "district_tiles", "districts", "duels", "ef_migrations_history", "feed_posts", "feed_reports", "feed_respects", "fog_tiles",
-                "friend_links", "game_configs", "invites", "job_runs", "land_zones", "leaderboard_snapshots", "masks", "osm_sets",
-                "parcels", "player_blocks", "privacy_zones", "reachable_tiles", "refresh_tokens", "run_chunks", "runs", "score_events",
-                "seasons", "tile_versions", "users",
+                "friend_links", "game_configs", "hall_of_fame", "invites", "job_runs", "land_zones", "leaderboard_snapshots", "masks",
+                "osm_sets", "parcels", "player_blocks", "privacy_zones", "reachable_tiles", "refresh_tokens", "run_chunks", "runs",
+                "score_events", "seasons", "tile_versions", "users",
             ],
             tables.Order(StringComparer.Ordinal));
     }

@@ -77,6 +77,16 @@ public sealed class ReachableArea
 
         return ShareOf(union);
     }
+
+    /// <summary>
+    /// Сколько «достижимых» клеток тайла <paramref name="key"/> забег открывает впервые для «Всего»: клетки слоя забега
+    /// <paramref name="added"/>, которых не было ни в этом слое за всё время (<paramref name="before"/>), ни в другом
+    /// (<paramref name="otherLayer"/>). Сумма по забегам — прирост числителя пожизненного «% Бреста» «Всего»
+    /// (<see cref="ShareOfUnion"/>), пока набор не сменился и история не очищалась: на этом стоит прирост в карточке недели
+    /// (PLAN.md, §3.15).
+    /// </summary>
+    public int NewCells(FogTileKey key, FogTileBits added, FogTileBits? before, FogTileBits? otherLayer) =>
+        _tiles.TryGetValue(key, out var reachable) ? added.CountNewWithin(reachable, before, otherLayer) : 0;
 }
 
 /// <summary>Сколько «достижимых» клеток открыто из скольких.</summary>

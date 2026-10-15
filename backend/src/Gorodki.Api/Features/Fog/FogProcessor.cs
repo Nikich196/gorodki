@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Osm;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
@@ -16,9 +17,11 @@ namespace Gorodki.Api.Features.Fog;
 /// короткой транзакцией под блокировкой игрока; новые клетки считаются ровно один раз.
 /// Слоя два: за всё время и сезонный — сезон забега определяется по времени его начала (по часам сервера), а не по моменту
 /// обработки: забег, начатый в 23:50 последнего дня сезона, весь относится к нему. Забеги до первого сезона — только «за всё время».
+/// Для карточки недели (§3.15) забег запоминает площадь новых клеток и сколько «достижимых» клеток действующего набора OSM он
+/// открыл впервые для «Всего» (оба слоя): сумма по забегам недели — прирост пожизненного «% Бреста».
 /// </summary>
 public sealed class FogProcessor(
-    AppDbContext db, RunJudgements judgements, SeasonStore seasons, RealtimeHints hints, TimeProvider time)
+    AppDbContext db, RunJudgements judgements, SeasonStore seasons, ReachableStore reachable, RealtimeHints hints, TimeProvider time)
 {
     /// <summary>Закрытый сервером забег, который телефон так и не завершил, открывает туман через сутки — тем, что успело прийти.</summary>
     public static readonly TimeSpan ClosedRunGrace = TimeSpan.FromDays(1);
@@ -83,6 +86,10 @@ public sealed class FogProcessor(
         var now = time.GetUtcNow();
         var calendar = await seasons.CalendarAsync(cancellationToken);
         var season = calendar.At(run.StartedAt.AddMilliseconds(-run.ClockSkewMs))?.Number;
+        // «Достижимое» действующего набора — из кэша (набор не меняется); набора нет — прирост процента не считается.
+        var reach = await reachable.CurrentSetVersionAsync(cancellationToken) is { } set
+            ? await reachable.LoadAsync(set, cancellationToken)
+            : null;
 
         db.ChangeTracker.Clear();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -104,12 +111,44 @@ public sealed class FogProcessor(
                 .ToListAsync(cancellationToken);
         }
 
+        // Другой слой за всё время — только тайлы забега в «достижимом»: клетка, открытая там, для «Всего» не новая.
+        var otherLayer = new Dictionary<FogTileKey, FogTileBits>();
+        var reachableKeys = reach is null ? [] : keys.Where(k => reach.City.Tiles.ContainsKey(k)).ToList();
+        if (reachableKeys.Count > 0)
+        {
+            var other = layer == FogLayerKind.Foot ? FogLayerKind.Bike : FogLayerKind.Foot;
+            var xs = reachableKeys.Select(k => k.X).ToArray();
+            var ys = reachableKeys.Select(k => k.Y).ToArray();
+            var rows = await db.FogTiles
+                .FromSql($"SELECT * FROM app.fog_tiles WHERE (tile_x, tile_y) IN (SELECT * FROM unnest({xs}, {ys}))")
+                .AsNoTracking()
+                .Where(f => f.UserId == run.UserId && f.Layer == other && f.Season == SeasonCalendar.AllTime)
+                .Select(f => new { f.TileX, f.TileY, f.Bits })
+                .ToListAsync(cancellationToken);
+            foreach (var row in rows)
+            {
+                otherLayer[new FogTileKey(row.TileX, row.TileY)] = FogTileCodec.Decompress(row.Bits);
+            }
+        }
+
+        var newArea = 0.0;
+        var newReachable = 0;
+
         int Merge(int seasonNumber)
         {
+            var allTime = seasonNumber == SeasonCalendar.AllTime;
             var added = 0;
             foreach (var (key, bits) in stamp.Tiles)
             {
                 var entity = stored.SingleOrDefault(f => f.Season == seasonNumber && f.TileX == key.X && f.TileY == key.Y);
+                var old = entity is null ? null : FogTileCodec.Decompress(entity.Bits);
+                var fresh = old is null ? bits.Count : bits.NewCount(old);
+                if (allTime && fresh > 0)
+                {
+                    newArea += fresh * FogTileCodec.CellAreaSquareMeters(key);
+                    newReachable += reach?.City.NewCells(key, bits, old, otherLayer.GetValueOrDefault(key)) ?? 0;
+                }
+
                 if (entity is null)
                 {
                     added += bits.Count;
@@ -128,15 +167,13 @@ public sealed class FogProcessor(
                     continue;
                 }
 
-                var old = FogTileCodec.Decompress(entity.Bits);
-                var fresh = bits.NewCount(old);
                 if (fresh == 0)
                 {
                     continue; // тайл не изменился — версию не трогаем, приложение его не перекачает
                 }
 
                 added += fresh;
-                old.UnionWith(bits);
+                old!.UnionWith(bits);
                 entity.Bits = FogTileCodec.Compress(old);
                 entity.CellCount = old.Count;
                 entity.Version = NextVersion(entity.Version, now);
@@ -150,11 +187,19 @@ public sealed class FogProcessor(
         var newCells = Merge(SeasonCalendar.AllTime);
         var seasonCells = season is { } seasonNumber ? Merge(seasonNumber) : 0;
 
+        int? reachableCells = reach is null ? null : newReachable;
+        int? osmSet = reach?.SetVersion;
+
         await db.SaveChangesAsync(cancellationToken);
         var marked = await db.Runs
             .Where(r => r.Id == runId && r.FogStampedAt == null)
             .ExecuteUpdateAsync(
-                set => set.SetProperty(r => r.FogStampedAt, now).SetProperty(r => r.FogNewCells, newCells),
+                set => set
+                    .SetProperty(r => r.FogStampedAt, now)
+                    .SetProperty(r => r.FogNewCells, newCells)
+                    .SetProperty(r => r.FogNewSquareMeters, Math.Round(newArea, 1))
+                    .SetProperty(r => r.FogNewReachableCells, reachableCells)
+                    .SetProperty(r => r.FogOsmSet, osmSet),
                 cancellationToken);
         if (marked == 0)
         {

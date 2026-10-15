@@ -4,6 +4,7 @@ using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.Fog;
+using Gorodki.Api.Features.HallOfFame;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Social;
 using Gorodki.Api.Features.Territory;
@@ -149,10 +150,25 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         }
 
         var versionBefore = await TileVersionAsync(tile);
+        long hallRow;
         await using (var db = database.CreateContext())
         {
             // У Анны есть и очки за захват (score_events): проверка полноты ниже видит и эту таблицу.
             Assert.True(await db.ScoreEvents.AnyAsync(e => e.UserId == annaId, Cancel));
+            // И место в Зале славы (снимок закрытого сезона): после удаления строка остаётся, но без Анны (§3.4).
+            var hall = new HallOfFameEntity
+            {
+                Season = 99,
+                League = Gorodki.Domain.Leagues.League.Run,
+                Kind = HallOfFameKind.Player,
+                Place = 1,
+                UserId = annaId,
+                Value = 1,
+                CreatedAt = api.Time.GetUtcNow(),
+            };
+            db.HallOfFame.Add(hall);
+            await db.SaveChangesAsync(Cancel);
+            hallRow = hall.Id;
         }
 
         Assert.True(await DeleteRequestedAsync(api) >= 1);
@@ -161,6 +177,11 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         Assert.Equal(["capture_journal_pieces.owner_id"], await TablesMentioningAsync(annaId));
         Assert.InRange(await LandAreaAsync(borisId), 9_700, 10_300); // земля Бориса не тронута
         Assert.Empty((await boris.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.Friends); // и дружбы с Анной нет
+        await using (var db = database.CreateContext())
+        {
+            var hall = await db.HallOfFame.AsNoTracking().SingleAsync(h => h.Id == hallRow, Cancel);
+            Assert.Equal((null, 1, 1), (hall.UserId, hall.Place, hall.Value)); // обезличена, а не удалена
+        }
         var clanAfter = (await vera.GetFromJsonAsync<ClanResponse>($"/clans/{clanBody.Id}", Json, Cancel))!;
         Assert.Equal(ClanRole.Leader, Assert.Single(clanAfter.Members).Role); // лидерство перешло, а не пропало
         Assert.True(await TileVersionAsync(tile) > versionBefore); // у соседей карта обновится
