@@ -8,6 +8,11 @@ struct IntroCard: Identifiable {
     let title: String
     let text: String
 
+    /// Метка над заголовком: тема и номер карточки.
+    var tag: String {
+        ["ЗАХВАТ · 1 ИЗ 3", "ИССЛЕДОВАНИЕ · 2 ИЗ 3", "СОПЕРНИКИ · 3 ИЗ 3"][min(id, 2)]
+    }
+
     static let all = [
         IntroCard(
             id: 0, title: "Обеги — и участок твой",

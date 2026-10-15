@@ -68,18 +68,16 @@ final class RealtimeRelay {
                     Task { await AppDependencies.shared.syncScheduler()?.trigger(.hint) }
                     if event == .connected {
                         // Подсказки «туман изменился» за время разрыва потеряны.
-                        await AppDependencies.shared.fog?.invalidate()
+                        await AppDependencies.shared.invalidateFog()
                     }
                 case .fogChanged:
                     // Сервер открыл туман по доставленному забегу: тайлы перезапросятся с версиями, когда карта их покажет,
                     // а «+N га» забега — в итог (docs/architecture/run-hud.md, «Итог забега»).
-                    await AppDependencies.shared.fog?.invalidate()
+                    await AppDependencies.shared.invalidateFog()
                     await AppDependencies.shared.syncEngine()?.refreshFog()
                 case .tilesChanged(let league, let tiles):
                     // Пометить тайлы: карта (этап 2) перезапросит их с известными версиями, когда покажет.
-                    if league == .run {
-                        await AppDependencies.shared.territory?.markChanged(tiles)
-                    }
+                    await AppDependencies.shared.territory(for: league)?.markChanged(tiles)
                 }
             }
         }
@@ -109,8 +107,7 @@ final class SessionRelay {
                 await AppSession.shared.update(current)
                 await dependencies.realtime?.stop()
                 // Видимые версии у каждого игрока свои (скрытые чужие захваты) — кэш земли прежнего входа не годится.
-                await dependencies.territory?.reset()
-                await dependencies.fog?.reset()  // туман — свой у каждого игрока
+                await dependencies.resetTiles()  // туман — свой у каждого игрока
                 guard case .signedIn = event else { continue }
                 if await MainActor.run(body: { UIApplication.shared.applicationState == .active }) {
                     await dependencies.realtime?.start()

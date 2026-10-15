@@ -23,11 +23,21 @@ final class TourTests: XCTestCase {
         watch(8, "t02-intro-fog")
         next.tap()
         watch(5, "t03-intro-rivals")
+        // «Назад» на интро (Никита 15.10: «нету кнопки назад») — и снова вперёд.
+        tap(app.buttons["Назад"], "Назад")
+        watch(3, "t03b-intro-back")
+        next.tap()
+        watch(2, nil)
 
         let demo = app.buttons["intro.demo"]
         XCTAssertTrue(demo.waitForExistence(timeout: Self.timeout), "Нет «Посмотреть демо»")
         demo.tap()
         watch(4, "t04-demo-map")
+        // «Вело» открыта: своя земля и свой туман, человечек «Бега» бежит на месте.
+        tap(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Вело'")).firstMatch, "Лига «Вело»")
+        watch(3, "t04b-demo-bike")
+        tap(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Лига «Бег»'")).firstMatch, "Лига «Бег»")
+        watch(2, nil)
 
         tap(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Старт'")).firstMatch, "Старт")
         tap(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Начать'")).firstMatch, "Начать")
@@ -94,11 +104,16 @@ final class TourTests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS 'Дальше' AND enabled == true")), "Согласие: Дальше"
         )
         watch(1.5, "t24-sign-in")
+        XCTAssertTrue(app.buttons["onboarding.guest"].exists, "На входе нет «Войти позже — играть гостем»")
         tapHittable(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Войти через Google'")), "Войти")
 
         XCTAssertTrue(app.tabBars.buttons["Профиль"].waitForExistence(timeout: Self.timeout), "Не открылись вкладки")
         allowSystemAlerts()
         watch(4, "t25-live-map")
+        tap(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Вело'")).firstMatch, "Лига «Вело»")
+        watch(4, "t25b-live-bike")
+        tap(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Лига «Бег»'")).firstMatch, "Лига «Бег»")
+        watch(2, nil)
         tab(app, "Рейтинги")
         watch(3, "t26-live-leaderboards")
         tab(app, "Клан")
@@ -129,6 +144,30 @@ final class TourTests: XCTestCase {
         tap(app.buttons.matching(NSPredicate(format: "label == 'Выйти'")).firstMatch, "Выйти — подтверждение")
         XCTAssertTrue(app.buttons["intro.demo"].waitForExistence(timeout: Self.timeout), "После выхода нет интро")
         watch(2, "t31-signed-out")
+    }
+
+    /// Без кода приглашения — гостем (Никита 15.10: «играть без кода приглашения», «участник в демо-режиме без входа»).
+    @MainActor
+    func testGuestTour() throws {
+        try requireTour()
+        let app = launch()
+        for _ in 0..<2 {
+            tap(app.buttons["Дальше"].firstMatch, "Дальше")
+            watch(1, nil)
+        }
+        tap(app.buttons["Начать"].firstMatch, "Начать")
+        watch(2, "t40-invite-guest")
+        tap(app.buttons["onboarding.guest"], "Играть без кода — гостем")
+        let badge = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS 'Гость'")).firstMatch
+        XCTAssertTrue(badge.waitForExistence(timeout: Self.timeout), "Нет плашки «Гость»")
+        watch(3, "t41-guest-map")
+        tap(app.buttons["demo.exit"], "Войти")
+        let back =
+            app.buttons["onboarding.guest"].waitForExistence(timeout: Self.timeout)
+            || app.buttons["intro.demo"].waitForExistence(timeout: 2)
+        XCTAssertTrue(back, "«Войти» из гостя не вернул к регистрации")
+        watch(2, "t42-guest-exit")
     }
 
     // MARK: - Помощники

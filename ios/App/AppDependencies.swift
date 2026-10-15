@@ -33,6 +33,10 @@ final class AppDependencies: Sendable {
     /// Свой туман «Пешком» за всё время (docs/architecture/fog.md): карта (этап 2) берёт тайлы отсюда. `nil`, пока адрес
     /// сервера не задан.
     let fog: FogCache?
+    /// Земля и свой туман «Вело» — те же кэши со своей лигой и своим слоем (Никита 15.10: «чтобы велосипед тоже работал»,
+    /// лига открыта до Сезона 1 — docs/plan-deviations.md, №13). `nil`, пока адрес сервера не задан.
+    let bikeTerritory: TerritoryCache?
+    let bikeFog: FogCache?
     /// Где земля и туман лежат на диске (`Caches/gorodki-tiles`); `nil` — тайлы только в памяти.
     let tileLocation: TileCacheLocation?
     /// Зоны приватности, удаление аккаунта, «мои данные»; `nil`, пока адрес сервера не задан.
@@ -82,6 +86,8 @@ final class AppDependencies: Sendable {
         self.tileLocation = tileLocation
         self.territory = api.map { TerritoryCache(api: $0, league: .run, disk: disk) }
         self.fog = api.map { FogCache(api: $0, layer: .foot, disk: disk) }
+        self.bikeTerritory = api.map { TerritoryCache(api: $0, league: .bike, disk: disk) }
+        self.bikeFog = api.map { FogCache(api: $0, layer: .bike, disk: disk) }
         self.history = history
         self.exports = exports
         self.demoRecordingURL = demoRecordingURL
@@ -186,8 +192,7 @@ final class AppDependencies: Sendable {
         await scheduler?.stop()
         var failures: [any Error] = []
         do { try await syncStore.removeAll() } catch { failures.append(error) }
-        await territory?.reset()
-        await fog?.reset()
+        await resetTiles()
         tileLocation?.removeAll()  // и без адреса сервера: файлы могли остаться от сборки, где он был
         do { try home.remove() } catch { failures.append(error) }
         do { try await rules.removeLocal() } catch { failures.append(error) }
@@ -200,11 +205,29 @@ final class AppDependencies: Sendable {
         if let first = failures.first { throw first }
     }
 
+    /// Земля и туман обеих лиг — забыть (выход, смена игрока, очистка кэша).
+    func resetTiles() async {
+        await territory?.reset()
+        await fog?.reset()
+        await bikeTerritory?.reset()
+        await bikeFog?.reset()
+    }
+
+    /// Свой туман изменился (забег доставлен, история стёрта, разрыв связи): тайлы обоих слоёв перезапросятся.
+    func invalidateFog() async {
+        await fog?.invalidate()
+        await bikeFog?.invalidate()
+    }
+
+    /// Кэш земли лиги.
+    func territory(for league: Components.Schemas.League) -> TerritoryCache? {
+        league == .bike ? bikeTerritory : territory
+    }
+
     /// Очистить кэш («Хранилище», пункт 5 листика): тайлы земли и тумана на диске и в памяти и собранные видео-повторы.
     /// Очередь неотправленных забегов, историю, правила и выгрузки не трогает — это не кэш.
     func clearCaches() async {
-        await territory?.reset()
-        await fog?.reset()
+        await resetTiles()
         tileLocation?.removeAll()
         ReplayStore.removeAll()
     }

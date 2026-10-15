@@ -217,10 +217,13 @@ final class MapModel {
     /// «Дом»: его круг открыт в тумане «Исследования» — только на экране, сервер о нём не знает (PLAN.md, §3.10).
     var home: HomeModel
     // Кнопки карты (PLAN.md, §5; tokens.md, §8): «Где я» и лига «Бег | Вело».
-    /// Лига карты: «Вело» — с Сезона 1 (D16), до него выбрать нельзя — только пояснение.
+    /// Лига карты: у «Бега» и «Вело» своя земля и свой туман (Никита 15.10: «чтобы велосипед тоже работал» — лига
+    /// открыта до Сезона 1, docs/plan-deviations.md, №13).
     private(set) var league = League.run
-    /// Пояснение «Вело — с Сезона 1» на карте.
+    /// Пояснение «Вело: своя земля и свой туман» после переключения — уходит само.
     var bikeHintShown = false
+    /// Лига сменилась — подписка реального времени на её подсказки (`MapModel.live`).
+    @ObservationIgnored var leagueChanged: @MainActor (League) -> Void = { _ in }
     /// Растёт при «Где я» с разрешённой геопозицией — карта центрируется на игроке.
     private(set) var locateRequest = 0
     /// Подсказка перед системным запросом геопозиции (PLAN.md, §6.6: одна кнопка «Продолжить»).
@@ -234,6 +237,10 @@ final class MapModel {
     }
 
     @ObservationIgnored private let data: (any MapDataSource)?
+    @ObservationIgnored private let bikeData: (any MapDataSource)?
+    /// Земля и туман другой лиги — переключатель возвращает их сразу, без пустой карты (и в фикстурах, где их не
+    /// перезапросить).
+    @ObservationIgnored private var parked: [League: (land: LandMap, fog: [FogTileKey: FogTileBits])] = [:]
     @ObservationIgnored private let names: (any PlayerNames)?
     @ObservationIgnored private let clock: @Sendable () -> Date
     @ObservationIgnored private var window: MapWindow?
@@ -245,13 +252,14 @@ final class MapModel {
     static let brest = MapWindow(center: brestCenter, latitudeDelta: 0.06, longitudeDelta: 0.06)
 
     init(
-        profile: ProfileModel, data: (any MapDataSource)? = nil, names: (any PlayerNames)? = nil,
-        initialWindow: MapWindow = MapModel.brest,
+        profile: ProfileModel, data: (any MapDataSource)? = nil, bikeData: (any MapDataSource)? = nil,
+        names: (any PlayerNames)? = nil, initialWindow: MapWindow = MapModel.brest,
         clock: @escaping @Sendable () -> Date = { Date() }, home: HomeModel? = nil
     ) {
         self.profile = profile
         self.home = home ?? HomeModel()
         self.data = data
+        self.bikeData = bikeData
         self.names = names
         self.initialWindow = initialWindow
         self.clock = clock
@@ -317,8 +325,13 @@ final class MapModel {
         scheduleLoad()
     }
 
+    /// Земля и туман выбранной лиги.
+    private var source: (any MapDataSource)? {
+        league == .bike ? bikeData : data
+    }
+
     private func scheduleLoad() {
-        guard data != nil, window != nil else { return }
+        guard source != nil, window != nil else { return }
         loading?.cancel()
         loading = Task { await load() }
     }
@@ -327,7 +340,7 @@ final class MapModel {
     /// не показываются: на карте остаётся то, что уже есть (с диска или прошлого ответа), следующий сдвиг или минута
     /// спросят снова.
     func load() async {
-        guard let data, let window else { return }
+        guard let data = source, let window else { return }
         if window.landTileCount <= Self.maxLandTiles {
             let visible = Set(window.landTiles)
             if let tiles = try? await data.land(visible: visible, known: Set(land.tiles.keys)), !tiles.isEmpty,
@@ -385,12 +398,21 @@ final class MapModel {
         }
     }
 
-    /// «Бег | Вело»: «Бег» — уже выбран, «Вело» — только пояснение до Сезона 1.
+    /// «Бег | Вело»: у лиги своя земля и свой туман — прежние откладываются, свои возвращаются и догружаются.
     func select(_ league: League) {
-        switch league {
-        case .run: bikeHintShown = false
-        case .bike: bikeHintShown = true
-        }
+        bikeHintShown = league == .bike
+        guard league != self.league else { return }
+        loading?.cancel()
+        parked[self.league] = (land, fog)
+        self.league = league
+        selection = nil
+        let restored = parked.removeValue(forKey: league)
+        land = restored?.land ?? LandMap()
+        fog = restored?.fog ?? [:]
+        landRevision += 1
+        fogRevision += 1
+        leagueChanged(league)
+        scheduleLoad()
     }
 
     // MARK: - Касание

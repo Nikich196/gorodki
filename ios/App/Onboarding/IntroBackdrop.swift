@@ -2,6 +2,7 @@ import DesignSystem
 import GameCore
 import MapKit
 import SwiftUI
+import UIKit
 
 /// Фон интро (Никита 15.10: «вход сделать индивидуальным, чтобы отличался от других»): настоящая карта Бреста у БрГТУ —
 /// Арена — и на ней живая сцена каждой карточки теми же токенами, что игровая карта: петля обегает квартал и заливается
@@ -47,16 +48,21 @@ struct IntroBackdrop: View {
                 }
                 .overlay {
                     TimelineView(.animation(paused: reduceMotion)) { timeline in
+                        let elapsed = reduceMotion ? nil : timeline.date.timeIntervalSince(startedAt)
+                        let beat = IntroScene.beat(page: page, elapsed: elapsed)
                         IntroSceneView(
                             page: page,
-                            elapsed: reduceMotion ? nil : timeline.date.timeIntervalSince(startedAt),
+                            elapsed: elapsed,
+                            beat: beat,
                             theme: Theme(colorScheme),
                             project: { coordinate in
                                 proxy.convert(
                                     CLLocationCoordinate2D(
                                         latitude: coordinate.latitude, longitude: coordinate.longitude),
                                     to: .local)
-                            })
+                            }
+                        )
+                        .onChange(of: beat) { _, value in feel(beat: value) }
                     }
                     .id(cameraTick)
                     .allowsHitTesting(false)
@@ -81,6 +87,25 @@ struct IntroBackdrop: View {
     }
 
     @State private var size = CGSize.zero
+
+    /// Вибрация (и звук) в такт сцене: петля замкнулась — волна и, в первый раз, колокол захвата; туман дочищен —
+    /// мягкий толчок; кварталы соперников появляются — по толчку на каждый.
+    private func feel(beat: Int) {
+        guard beat > 0 else { return }
+        switch page {
+        case 0:
+            if beat == 1 {
+                SoundBoard.shared.play(.capture)
+                Haptics.shared.capture()
+            } else {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }
+        case 1:
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        default:
+            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.4 + Double(beat) * 0.12)
+        }
+    }
 
     /// Сдвигает камеру так, чтобы середина сцены стояла посередине между надписью и панелью (и после смены их размеров). Сдвиг считается по тому, где сцена
     /// оказалась на экране: отступ снизу (подпись «Карты» над панелью) MapKit учитывает в начальной камере по-своему.
@@ -119,6 +144,17 @@ enum IntroScene {
 
     /// Середина сцен: её камера ставит посередине между надписью и панелью.
     static let sceneCenter = point(45, 90)
+
+    /// Такт сцены — растёт, когда в ней что-то случается: петля замкнулась (раз в цикл), туман дочищен, появился
+    /// очередной квартал соперника. По нему — искры и вибрация.
+    static func beat(page: Int, elapsed: TimeInterval?) -> Int {
+        guard let elapsed else { return 0 }
+        switch page {
+        case 0: return elapsed < 3.3 ? 0 : Int((elapsed - 3.3) / 7.6) + 1
+        case 1: return elapsed < 6.5 ? 0 : Int((elapsed - 6.5) / 10) + 1
+        default: return elapsed < 0.2 ? 0 : min(parcels.count, Int((elapsed - 0.2) / 0.2) + 1)
+        }
+    }
 
     /// Камера над сценой (в пределах ~1 км), а не над всем миром.
     static func isNear(_ coordinate: CLLocationCoordinate2D) -> Bool {
@@ -179,6 +215,8 @@ struct IntroParcel {
 private struct IntroSceneView: View {
     let page: Int
     let elapsed: TimeInterval?
+    /// Такт сцены (`IntroScene.beat`) — запускает искры.
+    let beat: Int
     let theme: Theme
     let project: (Coordinate) -> CGPoint?
 
@@ -215,6 +253,11 @@ private struct IntroSceneView: View {
                 runner(at: drawn.currentPoint, color: color)
             }
             if let middle = center(of: IntroScene.loop) {
+                // Петля замкнулась — искры во все стороны (вибрация — в `IntroBackdrop.feel`).
+                ConfettiBurst(
+                    trigger: beat,
+                    colors: [color.edge[theme].color, Brand.amber[theme].color, Brand.ember[theme].color, .white],
+                    origin: middle, style: .sparks)
                 IntroChip(text: "+1,25 га", systemImage: "checkmark.seal.fill")
                     .scaleEffect(0.85 + 0.15 * chip)
                     .opacity(chip * fade)

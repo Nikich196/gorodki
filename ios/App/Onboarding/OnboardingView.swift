@@ -32,11 +32,11 @@ struct OnboardingView: View {
     private func stepView(_ step: OnboardingStep) -> some View {
         switch step {
         case .intro: IntroStep(model: model, showDemo: showDemo)
-        case .invite: InviteStep(model: model)
+        case .invite: InviteStep(model: model, playAsGuest: showDemo)
         case .age: AgeStep(model: model)
         case .terms: TermsStep(model: model)
         case .consent: ConsentStep(model: model)
-        case .signIn: SignInStep(model: model, browseWithoutSignIn: browseWithoutSignIn)
+        case .signIn: SignInStep(model: model, browseWithoutSignIn: browseWithoutSignIn, playAsGuest: showDemo)
         }
     }
 
@@ -46,9 +46,14 @@ struct OnboardingView: View {
     private var debugToolbar: some ToolbarContent {
         if DebugAccess.buildAllows {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Отладка", systemImage: "ladybug") {
+                Button {
                     debugMenuShown = true
+                } label: {
+                    Image(systemName: "ladybug.fill")
+                        .symbolRenderingMode(.multicolor)
+                        .symbolEffect(.wiggle, options: .repeat(.periodic(delay: 6)))
                 }
+                .accessibilityLabel("Отладка")
             }
         }
     }
@@ -64,10 +69,14 @@ private struct IntroStep: View {
     @State private var headerHeight: CGFloat = 120
     @State private var panelHeight: CGFloat = 340
     @Environment(\.brandSound) private var sound
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
             IntroBackdrop(page: model.introPage, topInset: headerHeight, bottomInset: panelHeight)
+                .ignoresSafeArea()
+            // Значки, которые пересыпаются от наклона телефона.
+            TiltChips(top: headerHeight + 8, bottom: panelHeight)
                 .ignoresSafeArea()
             VStack(spacing: 0) {
                 IntroWordmark()
@@ -95,6 +104,10 @@ private struct IntroStep: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Text(IntroCard.all[model.introPage].tag)
+                .font(.system(size: 12, weight: .heavy).width(.expanded))
+                .foregroundStyle(accent)
+                .contentTransition(.opacity)
             TabView(selection: $model.introPage) {
                 ForEach(IntroCard.all) { card in
                     IntroCardView(card: card)
@@ -105,14 +118,30 @@ private struct IntroStep: View {
             .frame(height: 132)
             IntroPageDots(current: model.introPage)
             VStack(spacing: 4) {
-                Button(model.introPage < IntroCard.all.count - 1 ? "Дальше" : "Начать") {
-                    if model.introPage < IntroCard.all.count - 1 {
-                        withAnimation { model.introPage += 1 }
-                    } else {
-                        model.advance(from: .intro)
+                HStack(spacing: 10) {
+                    if model.introPage > 0 {
+                        Button {
+                            withAnimation { model.introPage -= 1 }
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(Palette.uiInk.color)
+                                .frame(width: Metrics.controlHeight, height: Metrics.controlHeight)
+                                .glassEffect(.regular.interactive(), in: .circle)
+                        }
+                        .accessibilityLabel("Назад")
+                        .transition(.scale.combined(with: .opacity))
                     }
+                    Button(model.introPage < IntroCard.all.count - 1 ? "Дальше" : "Начать") {
+                        if model.introPage < IntroCard.all.count - 1 {
+                            withAnimation { model.introPage += 1 }
+                        } else {
+                            model.advance(from: .intro)
+                        }
+                    }
+                    .buttonStyle(.neutral)
                 }
-                .buttonStyle(.neutral)
+                .animation(.spring(duration: 0.4, bounce: 0.3), value: model.introPage > 0)
                 HStack {
                     Button("Уже играю — войти") {
                         model.startReturning()
@@ -132,14 +161,49 @@ private struct IntroStep: View {
             }
         }
         .padding(20)
+        .background {
+            // Панель в цвете карточки: снизу вверх — от прозрачного к оттенку (своя земля, туман, соперник).
+            LinearGradient(colors: [accent.opacity(0.30), accent.opacity(0.04)], startPoint: .top, endPoint: .bottom)
+                .clipShape(.rect(cornerRadius: Radius.panel))
+                .animation(.smooth(duration: 0.5), value: model.introPage)
+        }
         .panelGlass()
+        .overlay { ShimmerRim(color: accent, cornerRadius: Radius.panel) }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    private var accent: Color {
+        IntroCard.all[model.introPage].accent(Theme(colorScheme))
+    }
+}
+
+/// Кромка панели переливается: светлый блик медленно обходит её по кругу.
+private struct ShimmerRim: View {
+    let color: Color
+    let cornerRadius: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+            let angle =
+                reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 6) * 60
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .strokeBorder(
+                    AngularGradient(
+                        colors: [color, .white.opacity(0.9), color.opacity(0.25), color.opacity(0.6), color],
+                        center: .center, angle: .degrees(angle)),
+                    lineWidth: 1.6)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
 private struct InviteStep: View {
     @Bindable var model: OnboardingModel
+    /// Играть без кода — гостем, на данных-примерах (`DemoMode`); вернуться к коду — «Войти» на плашке гостя.
+    var playAsGuest: (@MainActor @Sendable () -> Void)? = nil
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -167,6 +231,9 @@ private struct InviteStep: View {
             Button("Дальше") { model.advance(from: .invite) }
                 .buttonStyle(.neutral)
                 .disabled(!model.inviteReady)
+            if let playAsGuest {
+                GuestButton(title: "Играть без кода — гостем", action: playAsGuest)
+            }
         }
     }
 }
@@ -260,6 +327,8 @@ private struct ConsentStep: View {
 private struct SignInStep: View {
     @Bindable var model: OnboardingModel
     var browseWithoutSignIn: (@MainActor @Sendable () -> Void)?
+    /// Войти позже — играть гостем на данных-примерах.
+    var playAsGuest: (@MainActor @Sendable () -> Void)? = nil
 
     var body: some View {
         StepScaffold(
@@ -275,6 +344,13 @@ private struct SignInStep: View {
                     .foregroundStyle(Palette.uiInk2.color)
                     .contentCard()
             }
+            Label(
+                "Вход через Apple — в сборке для App Store (нужен платный аккаунт разработчика)",
+                systemImage: "apple.logo"
+            )
+            .font(.footnote)
+            .foregroundStyle(Palette.uiInk2.color)
+            .contentCard()
         } footer: {
             Button {
                 Task { await model.signInWithGoogle() }
@@ -288,6 +364,9 @@ private struct SignInStep: View {
             }
             .buttonStyle(.neutral)
             .disabled(!model.signInAvailable || model.isSigningIn)
+            if let playAsGuest {
+                GuestButton(title: "Войти позже — играть гостем", action: playAsGuest)
+            }
             if let browseWithoutSignIn {
                 Button("Посмотреть без входа", action: browseWithoutSignIn)
                     .font(.subheadline.weight(.semibold))
@@ -295,6 +374,24 @@ private struct SignInStep: View {
                     .frame(minHeight: 44)
             }
         }
+    }
+}
+
+/// «Играть гостем»: стеклянная капсула со значком — вторая по важности кнопка шага.
+private struct GuestButton: View {
+    let title: String
+    let action: @MainActor @Sendable () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: "gamecontroller.fill")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Palette.uiInk.color)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("onboarding.guest")
     }
 }
 
@@ -332,7 +429,7 @@ private struct StepScaffold<Content: View, Footer: View>: View {
             .padding(.vertical, 12)
             .background(.ultraThinMaterial)
         }
-        .atmosphereBackground()
+        .liveGradientBackground()
         .navigationBarTitleDisplayMode(.inline)
     }
 }

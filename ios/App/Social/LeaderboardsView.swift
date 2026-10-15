@@ -3,7 +3,7 @@ import GameCore
 import SwiftUI
 
 /// Вкладка «Рейтинги» (PLAN.md, §5, экран 20; решено 26.09 по делегированию — ios-app.md): «Захват | Исследование |
-/// Короли» в панели навигации, лига «Бег» («Вело» — с Сезона 1), свой ряд закреплён снизу, если его не видно;
+/// Короли» в панели навигации, лига «Бег | Вело», свой ряд закреплён снизу, если его не видно;
 /// «итог» или «предварительно» — у рейтинга сезона. Строки переезжают при смене мест (стабильные `id`), числа
 /// перекатываются (`numericText`).
 struct LeaderboardsTab: View {
@@ -83,7 +83,7 @@ struct LeaderboardsTab: View {
         }
     }
 
-    /// Лига (меню, «Вело» — с замком) и подпись среза: сезон, «итог / предварительно», день.
+    /// Лига (меню «Бег | Вело») и подпись среза: сезон, «итог / предварительно», день.
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Menu {
@@ -91,13 +91,8 @@ struct LeaderboardsTab: View {
                     Button {
                         model.league = league
                     } label: {
-                        if league.locked {
-                            Label(league.title + " — с Сезона 1", systemImage: "lock")
-                        } else {
-                            Label(league.title, systemImage: model.league == league ? "checkmark" : "figure.run")
-                        }
+                        Label(league.title, systemImage: model.league == league ? "checkmark" : league.systemImage)
                     }
-                    .disabled(league.locked)
                 }
             } label: {
                 Label(model.league.title, systemImage: "chevron.down")

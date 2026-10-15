@@ -43,10 +43,11 @@ private struct DemoBadgeInset: ViewModifier {
 private struct DemoBadge: View {
     var body: some View {
         HStack(spacing: 10) {
-            Label("Демо: данные-примеры", systemImage: "sparkles")
+            Label("Гость · данные-примеры", systemImage: "gamecontroller.fill")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Palette.uiInk.color)
-            Button("Выйти") {
+            Button("Войти") {
+                // Обратно в онбординг — туда, откуда пришёл гость (интро, код, вход).
                 AppSession.shared.demo = false
             }
             .font(.footnote.weight(.semibold))

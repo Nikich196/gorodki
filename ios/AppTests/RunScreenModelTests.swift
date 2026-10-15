@@ -158,6 +158,19 @@ struct RunScreenModelTests {
         #expect(run.hudPresented && run.coverShown)
     }
 
+    @Test("«Старт» при «Вело» на карте — лист с «Вело», забег в лиге «Вело»")
+    func startBike() async {
+        let driver = Driver()
+        let access = Access()
+        access.undetermined = []
+        let run = model(driver: driver, access: access)
+
+        run.startTapped(league: .bike)
+        #expect(run.startSheetShown && run.league == .bike)
+        await run.begin()
+        #expect(driver.started == [.bike])
+    }
+
     @Test("Геопозиция запрещена — шаг «Настройки»; без входа — текст, забег не начат")
     func startProblems() async {
         let access = Access()

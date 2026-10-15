@@ -31,7 +31,7 @@ struct LiveSettingsAccount: SettingsAccount {
         try await account.clearExplorationHistory()
         // Подсказка `FogChanged` придёт и сама, но карта должна перезапросить туман сразу: свои тайлы — со своей версией,
         // сервер отдаст их пустыми.
-        await AppDependencies.shared.fog?.invalidate()
+        await AppDependencies.shared.invalidateFog()
     }
 
     func deleteAccount() async throws -> Int64? {

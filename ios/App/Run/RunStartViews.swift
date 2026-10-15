@@ -13,14 +13,16 @@ extension EnvironmentValues {
 /// Одна точка подключения экранов забега к карте: вкладка просто ставит эту кнопку.
 struct RunStartButton: View {
     let player: PlayerColor
+    /// Лига карты: лист «Старт» открывается с ней, на кнопке — её значок.
+    var league: League = .run
     @Environment(\.runScreens) private var run
     @Environment(\.runTransition) private var transition
 
     var body: some View {
         StartButton(player: player) {
-            run?.startTapped()
+            run?.startTapped(league: league)
         } label: {
-            Label(run?.isRunning == true ? "Забег" : "Старт", systemImage: "figure.run")
+            Label(run?.isRunning == true ? "Забег" : "Старт", systemImage: league == .bike ? "bicycle" : "figure.run")
         }
         .frame(width: 200)
         .background {
@@ -53,7 +55,7 @@ struct TransitionSource: ViewModifier {
     }
 }
 
-/// Лист «Старт»: лига («Бег»; «Вело» — с Сезона 1), подсказки к разрешениям (PLAN.md, §6.6: одна кнопка
+/// Лист «Старт»: лига («Бег» или «Вело»), подсказки к разрешениям (PLAN.md, §6.6: одна кнопка
 /// «Продолжить»), «Начать». Контентный слой — без стекла; «Начать» — цветом игрока, как «Старт».
 struct RunStartSheet: View {
     @Bindable var model: RunScreenModel
@@ -99,8 +101,11 @@ struct RunStartSheet: View {
                 model.league = .run
             }
             LeagueOption(
-                title: "Вело", detail: "Своя лига и своя карта — с Сезона 1", systemImage: "bicycle",
-                selected: false, locked: true, action: {})
+                title: "Вело", detail: "Своя земля, свой туман «Вело» и свой рейтинг", systemImage: "bicycle",
+                selected: model.league == .bike, locked: false
+            ) {
+                model.league = .bike
+            }
         }
         if let error = model.startError {
             Label(error, systemImage: "exclamationmark.circle")

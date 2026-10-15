@@ -23,7 +23,7 @@ struct MapScreen: View {
             .safeAreaInset(edge: .bottom) {
                 // «Старт» — экраны забега: лист «Новый забег» с подсказками к разрешениям, HUD (`RunStartButton`).
                 // Справа — колокольчик «Входящих» (App/Social).
-                RunStartButton(player: model.player)
+                RunStartButton(player: model.player, league: model.league)
                     .frame(maxWidth: .infinity)
                     .overlay(alignment: .trailing) {
                         InboxBell().padding(.trailing, Metrics.panelInset + 6)
@@ -99,7 +99,7 @@ private struct MapControls: View {
                     MapGlassButton("Где я", systemImage: "location.fill") { model.locateTapped() }
                 }
                 if model.bikeHintShown {
-                    Label("«Вело» — с Сезона 1: своя лига, своя земля и свой туман", systemImage: "lock.fill")
+                    Label("«Вело»: своя земля, свой туман и свой рейтинг", systemImage: "bicycle")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Palette.uiInk.color)
                         .padding(.horizontal, 16)
@@ -120,45 +120,67 @@ private struct MapControls: View {
     }
 }
 
-/// Лига карты «Бег | Вело» на стекле (tokens.md, §8, `LeaguePicker`): «Вело» — с замком до Сезона 1, нажатие —
-/// пояснение. Выбранное — нейтральное, как выбранный сегмент (tokens.md, §6, п. 3).
+/// Лига карты «Бег | Вело» на стекле (tokens.md, §8, `LeaguePicker`): выбранная — в капсуле, её значок живой
+/// (Никита 15.10: «чтобы человечек на месте бежал», «чтобы велосипед тоже работал»).
 private struct LeaguePicker: View {
     let model: MapModel
 
     var body: some View {
         HStack(spacing: 2) {
-            Button {
-                model.select(.run)
-            } label: {
-                Image(systemName: "figure.run")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 44, height: 38)
-                    .background(Palette.uiCell.color.opacity(0.7), in: .capsule)
-            }
-            .accessibilityLabel(Text("Лига «Бег»"))
-            .accessibilityValue(Text("выбрано"))
-            Button {
-                model.select(.bike)
-            } label: {
-                Image(systemName: "bicycle")
-                    .font(.body.weight(.semibold))
-                    .opacity(0.42)
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 9, weight: .bold))
-                            .offset(x: 6, y: 2)
-                    }
-                    .frame(width: 44, height: 38)
-            }
-            .accessibilityLabel(Text("Лига «Вело»"))
-            .accessibilityValue(Text("недоступно до Сезона 1"))
+            option(.run, title: "Бег")
+            option(.bike, title: "Вело")
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Palette.uiInk.color)
         .padding(4)
         .frame(height: Metrics.segmentHeight)
         .capsuleGlass(interactive: true)
-        .sensoryFeedback(.selection, trigger: model.bikeHintShown)
+        .sensoryFeedback(.selection, trigger: model.league)
+        .animation(.spring(duration: 0.3), value: model.league)
+    }
+
+    private func option(_ league: League, title: String) -> some View {
+        let selected = model.league == league
+        return Button {
+            model.select(league)
+        } label: {
+            LeagueGlyph(league: league, moving: selected)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(selected ? Brand.ember.color : Palette.uiInk.color)
+                .frame(width: 44, height: 38)
+                .background {
+                    if selected {
+                        Capsule().fill(Palette.uiCell.color.opacity(0.7))
+                    }
+                }
+        }
+        .accessibilityLabel(Text("Лига «\(title)»"))
+        .accessibilityValue(selected ? Text("выбрано") : Text(""))
+    }
+}
+
+/// Значок лиги. Выбранный движется: человечек бежит на месте — подпрыгивает в такт шагам с наклоном вперёд, велосипед
+/// катит по кочкам. «Уменьшить движение» — стоят.
+private struct LeagueGlyph: View {
+    let league: League
+    let moving: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let still = reduceMotion || !moving
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: still)) { timeline in
+            let t = still ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            switch league {
+            case .run:
+                let step = sin(t * 7.5)
+                Image(systemName: "figure.run")
+                    .offset(y: -abs(step) * 2.6)
+                    .rotationEffect(.degrees(still ? 0 : 4 + step * 3), anchor: .bottom)
+            case .bike:
+                Image(systemName: "bicycle")
+                    .offset(x: sin(t * 2.2) * 1.5, y: -abs(sin(t * 9)) * 1.2)
+                    .rotationEffect(.degrees(sin(t * 4.4) * 2), anchor: .bottom)
+            }
+        }
     }
 }
 

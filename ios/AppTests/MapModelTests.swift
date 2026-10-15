@@ -242,6 +242,21 @@ struct MapModelTests {
         #expect(await far.fogCalls == 0)
     }
 
+    @Test("«Вело»: земля из своего источника, «Бег» его не трогает")
+    func bikeSource() async {
+        let run = Source()
+        let bike = Source()
+        let model = MapModel(profile: Self.profile(), data: run, bikeData: bike)
+        let window = MapWindow(center: Self.point(500, 500), latitudeDelta: 0.01, longitudeDelta: 0.015)
+        model.show(window)
+        await model.load()
+        #expect(await bike.landCalls.isEmpty)
+        model.select(.bike)
+        await model.load()
+        #expect(await bike.landCalls.contains { $0.known.isEmpty }, "у «Вело» земля с чистого листа")
+        #expect(Set(model.land.tiles.keys) == Set(window.landTiles))
+    }
+
     // MARK: - Фикстура
 
     @Test("Фикстура карты: образец и земля вокруг, кромки без сторон по краю тайла, истёкшая зона скрыта, лист")

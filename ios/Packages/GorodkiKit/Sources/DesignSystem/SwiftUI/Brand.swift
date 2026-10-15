@@ -106,10 +106,55 @@ public struct AtmosphereBackground: View {
     }
 }
 
+/// Живой градиент — переливается (Никита 15.10: «обои переливающиеся, не статичные»): сетка 3×3 мягких цветов
+/// бренда, внутренние точки медленно плавают. Регистрация и документы. «Уменьшить движение» — неподвижный.
+public struct LiveGradientBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init() {}
+
+    public var body: some View {
+        let night = colorScheme == .dark
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+            let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate * 0.32
+            MeshGradient(
+                width: 3, height: 3,
+                points: [
+                    [0, 0], [Float(0.5 + 0.12 * sin(t * 0.7)), 0], [1, 0],
+                    [0, Float(0.5 + 0.12 * sin(t))],
+                    [Float(0.5 + 0.16 * sin(t * 0.9)), Float(0.5 + 0.14 * cos(t * 1.1))],
+                    [1, Float(0.5 + 0.12 * cos(t * 0.8))],
+                    [0, 1], [Float(0.5 + 0.12 * cos(t * 0.6)), 1], [1, 1],
+                ],
+                colors: night ? Self.nightColors : Self.dayColors)
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+
+    private static let dayColors: [Color] = [
+        Color(hex: 0xFFE2CC), Color(hex: 0xFFF3EA), Color(hex: 0xE4DEFF),
+        Color(hex: 0xFFD6CF), Color(hex: 0xFFF8F2), Color(hex: 0xD9EEFF),
+        Color(hex: 0xE9E3FF), Color(hex: 0xDDF6F1), Color(hex: 0xFFE9D6),
+    ]
+
+    private static let nightColors: [Color] = [
+        Color(hex: 0x1A1240), Color(hex: 0x0B0E24), Color(hex: 0x2B1450),
+        Color(hex: 0x07202A), Color(hex: 0x080A18), Color(hex: 0x3A1530),
+        Color(hex: 0x0B0E24), Color(hex: 0x1C1050), Color(hex: 0x04242A),
+    ]
+}
+
 extension View {
     /// Живой фон бренда за экраном (`AtmosphereBackground`) вместо плоского `Palette.uiBackground`.
     public func atmosphereBackground(tint: Color? = nil) -> some View {
         background { AtmosphereBackground(tint: tint) }
+    }
+
+    /// Переливающийся градиент за экраном (`LiveGradientBackground`) — регистрация и документы.
+    public func liveGradientBackground() -> some View {
+        background { LiveGradientBackground() }
     }
 
     /// Стеклянная карточка бренда: Liquid Glass и тонкая светлая кромка, ярче сверху — как блик на стекле.
@@ -473,43 +518,69 @@ public struct BrandRing: View {
     }
 }
 
-/// Конфетти: вспышка частиц цвета игрока, золота и белого, когда меняется `trigger` (церемония захвата, место в рейтинге).
+/// Вспышка частиц, когда меняется `trigger`: конфетти (церемония захвата) или искры (петля на интро замкнулась) —
+/// цвета игрока, золото и белое. `origin` — откуда летят (точка в своём кадре); по умолчанию — чуть выше середины.
 public struct ConfettiBurst<Trigger: Equatable>: View {
+    public enum Style: Sendable {
+        /// Бумажки: крупные, кружатся, падают.
+        case confetti
+        /// Искры: мелкие, быстрые, со свечением, гаснут быстрее.
+        case sparks
+    }
+
     public var trigger: Trigger
     public var colors: [Color]
+    public var origin: CGPoint?
+    public var style: Style
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var startedAt: Date?
 
-    public init(trigger: Trigger, colors: [Color]) {
+    public init(trigger: Trigger, colors: [Color], origin: CGPoint? = nil, style: Style = .confetti) {
         self.trigger = trigger
         self.colors = colors
+        self.origin = origin
+        self.style = style
     }
 
     public var body: some View {
+        let sparks = style == .sparks
+        let lifetime = sparks ? 1.1 : 2.2
         TimelineView(.animation(paused: startedAt == nil || reduceMotion)) { timeline in
             Canvas { context, size in
                 guard let startedAt, !colors.isEmpty else { return }
                 let t = timeline.date.timeIntervalSince(startedAt)
-                guard t < 2.2 else { return }
-                let origin = CGPoint(x: size.width / 2, y: size.height * 0.42)
-                for index in 0..<64 {
+                guard t < lifetime else { return }
+                let from = origin ?? CGPoint(x: size.width / 2, y: size.height * 0.42)
+                if sparks {
+                    context.addFilter(.shadow(color: .white.opacity(0.9), radius: 3))
+                }
+                for index in 0..<(sparks ? 48 : 64) {
                     let seed = Double(index)
                     let angle = (seed * 137.508).truncatingRemainder(dividingBy: 360) * .pi / 180
-                    let speed = 260 + (seed * 53).truncatingRemainder(dividingBy: 220)
-                    let x = origin.x + cos(angle) * speed * t
-                    let y = origin.y + sin(angle) * speed * t * 0.8 + 420 * t * t
-                    let spin = Angle.degrees(seed * 47 + t * (200 + seed * 3))
-                    let fade = max(0, 1 - t / 2.2)
+                    let speed = (sparks ? 180 : 260) + (seed * 53).truncatingRemainder(dividingBy: sparks ? 160 : 220)
+                    let x = from.x + cos(angle) * speed * t
+                    let y = from.y + sin(angle) * speed * t * 0.8 + (sparks ? 120 : 420) * t * t
+                    let fade = max(0, 1 - t / lifetime)
                     var piece = context
                     piece.translateBy(x: x, y: y)
-                    piece.rotate(by: spin)
                     piece.opacity = fade
-                    let rect =
-                        index % 3 == 0
-                        ? CGRect(x: -3, y: -3, width: 6, height: 6) : CGRect(x: -2, y: -5, width: 4, height: 10)
-                    piece.fill(
-                        index % 3 == 0 ? Path(ellipseIn: rect) : Path(roundedRect: rect, cornerRadius: 1),
-                        with: .color(colors[index % colors.count]))
+                    if sparks {
+                        // Искра — короткий штрих вдоль полёта.
+                        piece.rotate(by: .radians(angle))
+                        piece.fill(
+                            Path(
+                                roundedRect: CGRect(x: -6 * fade - 1, y: -1, width: 8 * fade + 2, height: 2),
+                                cornerRadius: 1),
+                            with: .color(colors[index % colors.count]))
+                    } else {
+                        piece.rotate(by: .degrees(seed * 47 + t * (200 + seed * 3)))
+                        let rect =
+                            index % 3 == 0
+                            ? CGRect(x: -3, y: -3, width: 6, height: 6) : CGRect(x: -2, y: -5, width: 4, height: 10)
+                        piece.fill(
+                            index % 3 == 0 ? Path(ellipseIn: rect) : Path(roundedRect: rect, cornerRadius: 1),
+                            with: .color(colors[index % colors.count]))
+                    }
                 }
             }
         }
