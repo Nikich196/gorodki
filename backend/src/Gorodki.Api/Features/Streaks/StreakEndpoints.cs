@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Inventory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Streaks;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -69,21 +70,15 @@ public static class StreakEndpoints
     }
 
     /// <summary>
-    /// Когда игрок активировал «Заморозки серии» — единственное место, откуда серия их берёт. Заморозки выдаёт Рюкзак
-    /// (§3.11), его ещё нет (задача #140): пока заморозок нет ни у кого, <c>freezeActive</c> — всегда <c>false</c>, а серия
-    /// работает без них.
+    /// Когда игрок активировал «Заморозки серии» (Рюкзак, §3.11; #140) — единственное место, откуда серия их берёт. Тратит
+    /// их <see cref="StreakRules"/>: первую по порядку активации — на первый пропуск при живой серии; потраченные —
+    /// <see cref="StreakState.FrozenDays"/>. Активированная заморозка ждёт пропуска: 7 дней срока Рюкзака идут до активации
+    /// (решено 15.10, можно пересмотреть).
     /// </summary>
-    private static Task<IReadOnlyList<DateTimeOffset>> FreezesActivatedAtAsync(
-        AppDbContext db, Guid userId, CancellationToken cancellationToken)
-    {
-        // ЗАДАЧА #140: моменты активации своих фишек ItemKind.StreakFreeze из inventory_items — одним запросом, например
-        // db.InventoryItems.Where(i => i.UserId == userId && i.Kind == ItemKind.StreakFreeze && i.ActivatedAt != null)
-        //     .Select(i => i.ActivatedAt!.Value).ToListAsync(cancellationToken).
-        // Тратит их StreakRules: первую по порядку активации — на первый пропуск при живой серии; потраченные —
-        // StreakState.FrozenDays (их число — сколько первых активаций израсходовано). Активированная заморозка ждёт
-        // пропуска: 7 дней срока Рюкзака идут до активации (решено 15.10, можно пересмотреть). Тесты — StreakRulesTests
-        // (без Docker) и StreakTests: добавить «заморозка спасает пропуск» через настоящую активацию.
-        _ = (db, userId, cancellationToken);
-        return Task.FromResult<IReadOnlyList<DateTimeOffset>>([]);
-    }
+    private static async Task<IReadOnlyList<DateTimeOffset>> FreezesActivatedAtAsync(
+        AppDbContext db, Guid userId, CancellationToken cancellationToken) =>
+        await db.InventoryItems.AsNoTracking()
+            .Where(i => i.UserId == userId && i.Kind == ItemKind.StreakFreeze && i.ActivatedAt != null)
+            .Select(i => i.ActivatedAt!.Value)
+            .ToListAsync(cancellationToken);
 }

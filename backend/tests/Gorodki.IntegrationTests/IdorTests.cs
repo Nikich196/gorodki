@@ -75,7 +75,6 @@ public sealed class IdorTests(DatabaseFixture database)
     private static readonly Dictionary<string, string> AwaitingTasks = new()
     {
         ["DELETE /admin/invites/{code}"] = "ЗАДАЧА #114",
-        ["POST /me/inventory/{id:guid}/activate"] = "ЗАДАЧА #140",
         ["POST /admin/users/{userId:guid}/ban"] = "ЗАДАЧА #142",
     };
 
@@ -149,6 +148,24 @@ public sealed class IdorTests(DatabaseFixture database)
             await db.SaveChangesAsync(Cancel);
         }
 
+        // Фишка в Рюкзаке Анны (#140): Борис её не активирует.
+        var itemId = Guid.NewGuid();
+        await using (var db = database.CreateContext())
+        {
+            var day = Gorodki.Domain.Time.GameClock.GameDayOf(api.Time.GetUtcNow());
+            db.InventoryItems.Add(new InventoryItemEntity
+            {
+                Id = itemId,
+                UserId = annaId,
+                Kind = Gorodki.Api.Features.Inventory.ItemKind.Radar,
+                ReceivedAt = api.Time.GetUtcNow(),
+                ExpiresAt = api.Time.GetUtcNow().AddDays(7),
+                RemainingMeters = 3_000,
+                GameDay = day,
+            });
+            await db.SaveChangesAsync(Cancel);
+        }
+
         // Друзья Анны: Карл прислал ей заявку, с Диной они друзья. Борис не примет заявку Карла и не разорвёт дружбу Анны.
         var annaCode = (await anna.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
         var dinaCode = (await dina.GetFromJsonAsync<FriendsResponse>("/friends", Json, Cancel))!.MyCode;
@@ -202,6 +219,7 @@ public sealed class IdorTests(DatabaseFixture database)
             // Отрезки общие, своих у Анны нет: номер её забега вместо номера отрезка — «нет такого».
             ["GET /segments/{id:guid}"] = await boris.GetAsync($"/segments/{claim.RunId}", Cancel),
             ["GET /segments/{id:guid}/leaderboard"] = await boris.GetAsync($"/segments/{claim.RunId}/leaderboard", Cancel),
+            ["POST /me/inventory/{id:guid}/activate"] = await boris.PostAsync($"/me/inventory/{itemId}/activate", null, Cancel),
         };
 
         // Здесь нужен запрос Бориса к каждому адресу, кроме ждущих задачи Егора (AwaitingTasks).
@@ -238,7 +256,7 @@ public sealed class IdorTests(DatabaseFixture database)
     }
 
     /// <summary>
-    /// Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката, клан и роль в нём, лента, друзья, дуэли.
+    /// Всё, что Борис мог бы испортить у Анны: забег, куски, заявки, задания отката, клан и роль в нём, лента, друзья, дуэли, Рюкзак.
     /// </summary>
     private async Task<string> SnapshotAsync(Guid runId, Guid annaId)
     {
@@ -258,7 +276,9 @@ public sealed class IdorTests(DatabaseFixture database)
             .Select(d => new { d.Id, d.Status, d.OpponentId, d.StartsAt, d.OpponentStakeItemId })
             .ToListAsync(Cancel);
         Assert.Single(duels); // вызов Дине ждёт ответа
+        var items = await db.InventoryItems.Where(i => i.UserId == annaId)
+            .Select(i => new { i.Id, i.ActivatedAt, i.RemainingMeters }).ToListAsync(Cancel);
         return $"{run.UserId} {run.Status} {run.EndedAt} {chunks} [{string.Join(",", captures)}] {rollbacks} {clan} "
-            + $"{string.Join(",", feed)} {string.Join(",", friends)} {string.Join(",", duels)}";
+            + $"{string.Join(",", feed)} {string.Join(",", friends)} {string.Join(",", duels)} {string.Join(",", items)}";
     }
 }

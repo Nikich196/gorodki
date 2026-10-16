@@ -1,5 +1,7 @@
 using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.HallOfFame;
+using Gorodki.Api.Features.Collection;
+using Gorodki.Api.Features.Inventory;
 using Gorodki.Api.Features.Social;
 using Gorodki.Domain.Clans;
 using Gorodki.Domain.Duels;
@@ -278,6 +280,15 @@ public sealed class RunEntity
 
     /// <summary>Проходы отрезков забега, которые не посчитались, не пробуются раньше этого момента.</summary>
     public DateTimeOffset? SegmentsRetryAt { get; set; }
+
+    /// <summary>Когда забег проверен на находки тайников (один раз за забег, как туман); null — ещё не проверялся.</summary>
+    public DateTimeOffset? CachesProcessedAt { get; set; }
+
+    /// <summary>Сколько раз подряд проверка тайников забега не удалась из-за ошибки.</summary>
+    public int CachesFailures { get; set; }
+
+    /// <summary>Тайники забега, проверка которых не удалась, не пробуются раньше этого момента.</summary>
+    public DateTimeOffset? CachesRetryAt { get; set; }
 }
 
 /// <summary>Слой «Исследования»: у пешком и на велосипеде — своя карта тумана (PLAN.md, §3.10).</summary>
@@ -1261,4 +1272,106 @@ public sealed class SegmentDethronementEntity
 
     /// <summary>С какого момента событие можно показать — не раньше, чем другие увидят сам проход.</summary>
     public DateTimeOffset VisibleAt { get; set; }
+}
+
+// ── Тайники и «Коллекция» (PLAN.md, §3.12; задача #145, C12) ──
+
+/// <summary>
+/// Тайник — значок «Коллекции» и его место. Координаты не уходят на телефон никогда (только подсказка); находку засчитывает
+/// сервер (<c>CacheProcessor</c>). Начальный набор — миграция <c>CachesAndInventory</c> (места из OSM, предложение на
+/// утверждение Никиты: <see cref="Proposal"/>; список — docs/architecture/caches.md).
+/// </summary>
+public sealed class CacheEntity
+{
+    public Guid Id { get; set; }
+
+    /// <summary>Номер в списке на утверждение (docs/architecture/caches.md) и порядок в «Коллекции» внутри редкости.</summary>
+    public short Number { get; set; }
+
+    /// <summary>Название значка — игрок видит его, только когда нашёл.</summary>
+    public required string Name { get; set; }
+
+    public BadgeRarity Rarity { get; set; }
+
+    /// <summary>Подсказка-загадка о месте — её видят все.</summary>
+    public required string Hint { get; set; }
+
+    public double Latitude { get; set; }
+
+    public double Longitude { get; set; }
+
+    /// <summary>
+    /// Версия набора мест, в которой тайник стоит здесь (1 — первый набор). «Каждый сезон часть тайников перемещается»
+    /// (§3.12): перемещение — новое место и подсказка с новой версией, значок (номер) тот же, находки остаются.
+    /// </summary>
+    public int SetVersion { get; set; }
+
+    /// <summary>Место — ещё предложение (ждёт утверждения Никиты), как Арена и кварталы в наборе OSM.</summary>
+    public bool Proposal { get; set; }
+
+    /// <summary>Объект OSM, рядом с которым тайник (<c>node/123</c>, <c>way/456</c>), — для проверки места.</summary>
+    public string? OsmRef { get; set; }
+}
+
+/// <summary>
+/// Находка тайника игроком: одна на (тайник, игрок). Удаляется вместе с игроком (каскад). Где и когда игрок был у тайника —
+/// личные данные: другим находка видна (номер «№ N нашедших», золотая рамка) только с <see cref="VisibleAt"/>, а время и
+/// место — никогда.
+/// </summary>
+public sealed class CacheFindEntity
+{
+    /// <summary>Случайный номер (<c>Guid.NewGuid()</c>): в UUIDv7 было бы зашито время находки.</summary>
+    public Guid Id { get; set; }
+
+    public Guid CacheId { get; set; }
+
+    public Guid UserId { get; set; }
+
+    /// <summary>Забег, в котором найден.</summary>
+    public Guid RunId { get; set; }
+
+    /// <summary>Когда игрок прошёл у тайника (по часам сервера) — «найден» в его «Коллекции».</summary>
+    public DateTimeOffset FoundAt { get; set; }
+
+    /// <summary>
+    /// С какого момента находку учитывают другие (номер нашедших): граница публичности момента записи
+    /// (<c>TerritoryReader.VisibleAtAsync</c>), у демо-аккаунта — сразу. Сам игрок видит свою находку сразу.
+    /// </summary>
+    public DateTimeOffset VisibleAt { get; set; }
+
+    /// <summary>Версия набора мест тайника на момент находки (<see cref="CacheEntity.SetVersion"/>).</summary>
+    public int SetVersion { get; set; }
+}
+
+// ── Рюкзак (PLAN.md, §3.11; задача #140) ──
+
+/// <summary>
+/// Фишка в Рюкзаке. Выдаётся «Припасами» вместе с визитами забега (<c>Supplies</c>), живёт 7 дней до активации;
+/// активированный «Радар» действует <see cref="RemainingMeters"/>, «Заморозка серии» ждёт пропуска (её тратит серия).
+/// Удаляется вместе с игроком (каскад).
+/// </summary>
+public sealed class InventoryItemEntity
+{
+    /// <summary>Случайный номер (<c>Guid.NewGuid()</c>).</summary>
+    public Guid Id { get; set; }
+
+    public Guid UserId { get; set; }
+
+    public ItemKind Kind { get; set; }
+
+    public DateTimeOffset ReceivedAt { get; set; }
+
+    /// <summary>До какого момента фишку можно активировать.</summary>
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    public DateTimeOffset? ActivatedAt { get; set; }
+
+    /// <summary>У «Радара» — сколько метров засчитанного пути ещё действует; у остальных — null.</summary>
+    public double? RemainingMeters { get; set; }
+
+    /// <summary>Забег, за который выдана.</summary>
+    public Guid? SourceRunId { get; set; }
+
+    /// <summary>Игровые сутки выдачи (по началу забега-источника) — для предела «4 в сутки».</summary>
+    public DateOnly GameDay { get; set; }
 }

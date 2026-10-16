@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Config;
 using Gorodki.Api.Features.Fog;
+using Gorodki.Api.Features.Inventory;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Scoring;
@@ -255,6 +256,10 @@ public sealed class VisitProcessor(
                 VisibleAt = now,
             });
         }
+
+        // «Припасы» (§3.11, #140): фишки за засчитанный путь — в этой же транзакции, под блокировкой игрока; путь забега
+        // считается ровно один раз (отметка visits_processed_at ниже), поэтому повтор фишек не даст.
+        await Backpack.GrantAsync(db, run, acceptedMeters, startedAt, now, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
         foreach (var tile in changedTiles)

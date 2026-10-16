@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Features.Osm;
+using Gorodki.Api.Features.Inventory;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Runs;
 using Gorodki.Api.Features.Seasons;
@@ -81,11 +82,17 @@ public sealed class FogProcessor(
         }
 
         var (rules, judgement) = await judgements.JudgeAsync(run, cancellationToken);
-        var stamp = FogStamp.Of(judgement.Points, judgement.Verdicts, run.League, rules.Exploration);
+        var startedAt = run.StartedAt.AddMilliseconds(-run.ClockSkewMs); // по часам сервера
+
+        // «Радар» (Рюкзак, §3.11; #140): радиус ×radarMultiplier на первые метры пути — сколько осталось у «Радаров»,
+        // активированных до начала забега. Израсходованное списывается ниже, в транзакции тумана.
+        var radarMeters = await Backpack.ActiveRadars(db, run.UserId, startedAt).AsNoTracking()
+            .SumAsync(i => i.RemainingMeters ?? 0, cancellationToken);
+        var (stamp, radarUsed) = FogStamp.WithRadar(judgement.Points, judgement.Verdicts, run.League, rules.Exploration, radarMeters);
         var layer = run.League == League.Bike ? FogLayerKind.Bike : FogLayerKind.Foot;
         var now = time.GetUtcNow();
         var calendar = await seasons.CalendarAsync(cancellationToken);
-        var season = calendar.At(run.StartedAt.AddMilliseconds(-run.ClockSkewMs))?.Number;
+        var season = calendar.At(startedAt)?.Number;
         // «Достижимое» действующего набора — из кэша (набор не меняется); набора нет — прирост процента не считается.
         var reach = await reachable.CurrentSetVersionAsync(cancellationToken) is { } set
             ? await reachable.LoadAsync(set, cancellationToken)
@@ -96,6 +103,10 @@ public sealed class FogProcessor(
         await db.Database.ExecuteSqlRawAsync("SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '15s'", cancellationToken);
         var userKey = run.UserId.ToString();
         await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(2, hashtext({userKey}))", cancellationToken);
+        if (radarUsed > 0)
+        {
+            Backpack.ConsumeRadar(await Backpack.ActiveRadars(db, run.UserId, startedAt).ToListAsync(cancellationToken), radarUsed);
+        }
 
         var keys = stamp.Tiles.Keys.ToList();
         var stored = new List<FogTileEntity>();

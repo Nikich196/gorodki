@@ -43,11 +43,12 @@ public sealed class SchemaTests(DatabaseFixture database)
         // Порядок — побайтный, а не по правилам сортировки базы: у «district_tiles» и «districts» он от них зависит.
         Assert.Equal(
             [
-                "capture_journal", "capture_journal_pieces", "capture_rollbacks", "captures", "clan_members", "clans", "contested_zones",
-                "district_tiles", "districts", "duels", "ef_migrations_history", "feed_posts", "feed_reports", "feed_respects", "fog_tiles",
-                "friend_links", "game_configs", "hall_of_fame", "invites", "job_runs", "land_zones", "leaderboard_snapshots", "masks",
-                "osm_sets", "parcels", "player_blocks", "privacy_zones", "reachable_tiles", "refresh_tokens", "run_chunks", "runs",
-                "score_events", "seasons", "segment_dethronements", "segment_efforts", "segments", "tile_versions", "users",
+                "cache_finds", "caches", "capture_journal", "capture_journal_pieces", "capture_rollbacks", "captures", "clan_members",
+                "clans", "contested_zones", "district_tiles", "districts", "duels", "ef_migrations_history", "feed_posts",
+                "feed_reports", "feed_respects", "fog_tiles", "friend_links", "game_configs", "hall_of_fame", "inventory_items",
+                "invites", "job_runs", "land_zones", "leaderboard_snapshots", "masks", "osm_sets", "parcels", "player_blocks",
+                "privacy_zones", "reachable_tiles", "refresh_tokens", "run_chunks", "runs", "score_events", "seasons",
+                "segment_dethronements", "segment_efforts", "segments", "tile_versions", "users",
             ],
             tables.Order(StringComparer.Ordinal));
     }

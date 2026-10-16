@@ -181,6 +181,33 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
             await db.SaveChangesAsync(Cancel);
         }
 
+        // Тайник и Рюкзак (#145, #140): Анна нашла тайник и получила фишку за забег — обе строки с её номером.
+        await using (var db = database.CreateContext())
+        {
+            db.CacheFinds.Add(new CacheFindEntity
+            {
+                Id = Guid.NewGuid(),
+                CacheId = Gorodki.Api.Features.Collection.CacheSeed.All[0].Id,
+                UserId = annaId,
+                RunId = walk.Id,
+                FoundAt = api.Time.GetUtcNow(),
+                VisibleAt = api.Time.GetUtcNow(),
+                SetVersion = 1,
+            });
+            db.InventoryItems.Add(new InventoryItemEntity
+            {
+                Id = Guid.NewGuid(),
+                UserId = annaId,
+                Kind = Gorodki.Api.Features.Inventory.ItemKind.Radar,
+                ReceivedAt = api.Time.GetUtcNow(),
+                ExpiresAt = api.Time.GetUtcNow().AddDays(7),
+                RemainingMeters = 3_000,
+                SourceRunId = walk.Id,
+                GameDay = Gorodki.Domain.Time.GameClock.GameDayOf(api.Time.GetUtcNow()),
+            });
+            await db.SaveChangesAsync(Cancel);
+        }
+
         var versionBefore = await TileVersionAsync(tile);
         long hallRow;
         await using (var db = database.CreateContext())
