@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -75,6 +76,15 @@ public static class ScheduledJobs
     /// </summary>
     public const string EveryFiveMinutes = "*/5 * * * *";
 
+    /// <summary>
+    /// Судья дуэлей (PLAN.md, §3.14, #147): раз в 15 минут — истёкшие вызовы, смена лидера, итог дуэлей через 4 ч после
+    /// конца срока (<see cref="DuelReferee"/>). Чаще смысла нет: захваты раскрываются шагами по 5 минут, а итогу некуда спешить.
+    /// </summary>
+    public const string DuelsJob = "duels-referee";
+
+    /// <summary>Расписание судьи дуэлей — каждые 15 минут.</summary>
+    public const string DuelsCron = "*/15 * * * *";
+
     public static bool IsEnabled(IConfiguration configuration) => configuration.GetValue(EnabledSetting, defaultValue: true);
 
     public static IServiceCollection AddScheduledJobs(this IServiceCollection services, string connectionString)
@@ -143,6 +153,7 @@ public static class ScheduledJobs
         jobs.AddOrUpdate<SeasonRollover>(SeasonRolloverJob, r => r.RunIfDueAsync(CancellationToken.None), Cron.Hourly(), minsk);
         jobs.AddOrUpdate<TerritorySnapshots>(TerritorySnapshotJob, t => t.RunIfDueAsync(CancellationToken.None), EveryFiveMinutes, minsk);
         jobs.AddOrUpdate<LeaderboardSnapshots>(ExplorationSnapshotJob, s => s.RefreshAsync(CancellationToken.None), EveryFiveMinutes, minsk);
+        jobs.AddOrUpdate<DuelReferee>(DuelsJob, d => d.RunAsync(CancellationToken.None), DuelsCron, minsk);
     }
 
     /// <summary>Строка подключения Hangfire: та же база, свой пул на <see cref="MaxPoolSize"/> и своё имя в <c>pg_stat_activity</c>.</summary>

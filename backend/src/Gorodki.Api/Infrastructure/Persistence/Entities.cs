@@ -1,5 +1,7 @@
+using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.Social;
 using Gorodki.Domain.Clans;
+using Gorodki.Domain.Duels;
 using Gorodki.Domain.Leagues;
 using Gorodki.Domain.Osm;
 using NetTopologySuite.Geometries;
@@ -1032,4 +1034,75 @@ public sealed class FriendLinkEntity
 
     /// <summary>Когда добавил (или принял заявку).</summary>
     public DateTimeOffset CreatedAt { get; set; }
+}
+
+// ── Дуэли (PLAN.md, §3.14; задача #147, E17) ──
+
+/// <summary>
+/// Дуэль 1×1: вызов, ответ, срок, итог. Пока дуэль ждёт ответа или идёт, у неё обе стороны; законченная (и отклонённая)
+/// переживает удаление аккаунта одной из сторон — номер удалённого стирается (<c>ON DELETE SET NULL</c>), исход и счёт
+/// остаются у второго: его серия побед и значки не должны зависеть от чужого удаления. Ждущие и идущие дуэли удаляемого
+/// аккаунта снимает <c>AccountDeletion</c> до стирания (<c>DuelReferee.ForgetPlayerAsync</c>).
+/// </summary>
+public sealed class DuelEntity
+{
+    /// <summary>Случайный номер (<c>Guid.NewGuid()</c>): в UUIDv7 было бы зашито время вызова.</summary>
+    public Guid Id { get; set; }
+
+    /// <summary>Кто вызвал; <c>null</c> — аккаунт удалён (только у законченной или отклонённой).</summary>
+    public Guid? ChallengerId { get; set; }
+
+    /// <summary>Кого вызвали; <c>null</c> — аккаунт удалён (только у законченной или отклонённой).</summary>
+    public Guid? OpponentId { get; set; }
+
+    public League League { get; set; }
+
+    public DuelMetric Metric { get; set; }
+
+    /// <summary>Отрезок — только у <see cref="DuelMetric.SegmentTime"/>.</summary>
+    public Guid? SegmentId { get; set; }
+
+    /// <summary>Срок: 1, 3 или 7 дней.</summary>
+    public short Days { get; set; }
+
+    public DuelStatus Status { get; set; }
+
+    /// <summary>Когда вызвали: ответа ждут <see cref="DuelRules.PendingLifetime"/>.</summary>
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Начало — когда вызов приняли (§3.14: отсчёт срока с принятия).</summary>
+    public DateTimeOffset? StartsAt { get; set; }
+
+    /// <summary>Конец: начало + срок. Итог подводится позже — когда до конца дойдут поздние данные (<c>DuelReferee.SettleDelay</c>).</summary>
+    public DateTimeOffset? EndsAt { get; set; }
+
+    /// <summary>Когда дуэль закончилась: подведён итог, вызов отклонён или истёк. По нему — «законченные за 30 дней».</summary>
+    public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>Фишка вызвавшего на кону (Рюкзак, #140); <c>null</c> — без ставки.</summary>
+    public Guid? ChallengerStakeItemId { get; set; }
+
+    /// <summary>Фишка вызванного на кону; <c>null</c> — без ставки.</summary>
+    public Guid? OpponentStakeItemId { get; set; }
+
+    /// <summary>Окончательный счёт вызвавшего — у законченной (после итога счёт больше не пересчитывается).</summary>
+    public double? ChallengerScore { get; set; }
+
+    /// <summary>Окончательный счёт вызванного.</summary>
+    public double? OpponentScore { get; set; }
+
+    /// <summary>Исход — у законченной.</summary>
+    public DuelOutcome? Outcome { get; set; }
+
+    /// <summary>
+    /// Серия побед победителя вместе с этой победой — по ней редкость дуэльного значка за эту дуэль
+    /// (<see cref="DuelRules.BadgeFor"/>); у ничьей и снятой — <c>null</c>.
+    /// </summary>
+    public short? WinnerStreak { get; set; }
+
+    /// <summary>
+    /// Кто впереди по счёту, который видят оба (граница публичности), — для уведомления «смена лидера» (§3.14);
+    /// <c>null</c> — поровну. Обновляет задача <c>DuelReferee</c>.
+    /// </summary>
+    public DuelSideKind? Leader { get; set; }
 }

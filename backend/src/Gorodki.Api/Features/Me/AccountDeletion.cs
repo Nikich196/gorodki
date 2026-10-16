@@ -1,5 +1,6 @@
 using Gorodki.Api.Features.Clans;
 using Gorodki.Api.Features.Config;
+using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.Realtime;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -19,7 +20,13 @@ namespace Gorodki.Api.Features.Me;
 /// не сотрётся — через 7 дней, раньше срока закона; откат и публичная проекция такую землю возвращают ничьей.
 /// </remarks>
 public sealed class AccountDeletion(
-    AppDbContext db, GameConfigStore configs, RealtimeHints hints, TimeProvider time, ILogger<AccountDeletion> logger)
+    AppDbContext db,
+    GameConfigStore configs,
+    RealtimeHints hints,
+    IDuelStakes duelStakes,
+    IDuelNotifier duelNotifier,
+    TimeProvider time,
+    ILogger<AccountDeletion> logger)
 {
     /// <summary>Срок по закону; фактически аккаунт стирается при ближайшем часовом проходе.</summary>
     public static readonly TimeSpan Deadline = TimeSpan.FromDays(15);
@@ -115,6 +122,10 @@ public sealed class AccountDeletion(
             await ClanEndpoints.LockClanAsync(db, clanId, cancellationToken);
             await ClanEndpoints.RemoveMemberAsync(db, clanId, userId, joinAfter: null, cancellationToken);
         }
+
+        // Дуэли (§3.14): ждущие вызовы — прочь, идущие — сняты без победителя, ставки — назад; законченные остаются у
+        // соперника, номер Анны в них база сотрёт сама вместе со строкой игрока (ON DELETE SET NULL).
+        await DuelReferee.ForgetPlayerAsync(db, duelStakes, duelNotifier, userId, time.GetUtcNow(), cancellationToken);
 
         // Захваты не удаляются вместе с забегом (история), поэтому — явно; журнал уходит с ними каскадом. Остальное
         // (забеги с точками, туман, токены, задания отката, лента, друзья и заявки в обе стороны вместе с кодом дружбы)

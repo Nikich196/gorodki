@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Auth;
+using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Jobs;
@@ -69,6 +70,20 @@ public sealed class ScheduledJobsTests
         Assert.Equal(typeof(LeaderboardSnapshots), job.Type);
         Assert.Equal(nameof(LeaderboardSnapshots.RefreshAsync), job.Method.Name);
         Assert.Equal("*/5 * * * *", cron);
+        Assert.Equal("Europe/Minsk", options.TimeZone.Id);
+    }
+
+    [Fact]
+    public void Duel_referee_runs_every_quarter_of_an_hour()
+    {
+        var jobs = new RecordedSchedule();
+
+        ScheduledJobs.Register(jobs);
+
+        var (_, job, cron, options) = Assert.Single(jobs.Added, j => j.Id == ScheduledJobs.DuelsJob);
+        Assert.Equal(typeof(DuelReferee), job.Type);
+        Assert.Equal(nameof(DuelReferee.RunAsync), job.Method.Name);
+        Assert.Equal("*/15 * * * *", cron); // вызовы истекают, лидер сменяется, итог — через 4 ч после конца срока
         Assert.Equal("Europe/Minsk", options.TimeZone.Id);
     }
 

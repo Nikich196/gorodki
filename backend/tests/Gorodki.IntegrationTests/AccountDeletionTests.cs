@@ -2,12 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Clans;
+using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Social;
 using Gorodki.Api.Features.Territory;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Clans;
+using Gorodki.Domain.Duels;
 using Gorodki.Domain.Geo;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -61,6 +63,50 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         {
             var added = await client.PostAsJsonAsync("/friends", new AddFriendRequest { Code = code }, Json, Cancel);
             Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+        }
+
+        // Дуэли (#147): Анна вызвала Бориса, и дуэль идёт; раньше она у него выиграла; вызов от Веры ждёт ответа Анны (строкой
+        // в базе: Вера с Анной не друзья). Идущая будет снята, ждущий вызов — стёрт, законченная останется у Бориса без номера Анны.
+        var live = await anna.PostAsJsonAsync(
+            "/duels", new CreateDuelRequest { OpponentId = borisId, League = Gorodki.Domain.Leagues.League.Run, Metric = DuelMetric.Distance, Days = 7 }, Json, Cancel);
+        Assert.Equal(HttpStatusCode.Created, live.StatusCode);
+        var liveId = (await live.Content.ReadFromJsonAsync<DuelResponse>(Json, Cancel))!.Id;
+        Assert.Equal(HttpStatusCode.OK, (await boris.PostAsJsonAsync($"/duels/{liveId}/accept", new AcceptDuelRequest(), Json, Cancel)).StatusCode);
+        var wonId = Guid.NewGuid();
+        var veraDuelId = Guid.NewGuid();
+        await using (var db = database.CreateContext())
+        {
+            var past = api.Time.GetUtcNow().AddDays(-20);
+            db.Duels.Add(new DuelEntity
+            {
+                Id = wonId,
+                ChallengerId = borisId,
+                OpponentId = annaId,
+                League = Gorodki.Domain.Leagues.League.Run,
+                Metric = DuelMetric.Distance,
+                Days = 1,
+                Status = DuelStatus.Finished,
+                CreatedAt = past,
+                StartsAt = past,
+                EndsAt = past.AddDays(1),
+                FinishedAt = past.AddDays(1).AddHours(4),
+                ChallengerScore = 1_000,
+                OpponentScore = 5_000,
+                Outcome = DuelOutcome.OpponentWon,
+                WinnerStreak = 1,
+            });
+            db.Duels.Add(new DuelEntity
+            {
+                Id = veraDuelId,
+                ChallengerId = await IdOfAsync(vera),
+                OpponentId = annaId,
+                League = Gorodki.Domain.Leagues.League.Run,
+                Metric = DuelMetric.CapturedArea,
+                Days = 3,
+                Status = DuelStatus.Pending,
+                CreatedAt = api.Time.GetUtcNow(),
+            });
+            await db.SaveChangesAsync(Cancel);
         }
 
         // Запрос: принят, повтор не сдвигает срок, вход в удаляемый аккаунт закрыт.
@@ -118,6 +164,15 @@ public sealed class AccountDeletionTests(DatabaseFixture database)
         var clanAfter = (await vera.GetFromJsonAsync<ClanResponse>($"/clans/{clanBody.Id}", Json, Cancel))!;
         Assert.Equal(ClanRole.Leader, Assert.Single(clanAfter.Members).Role); // лидерство перешло, а не пропало
         Assert.True(await TileVersionAsync(tile) > versionBefore); // у соседей карта обновится
+
+        // Дуэли: идущая снята без победителя, ждущий вызов стёрт, победа Анны осталась у Бориса — «Игрок удалён».
+        var borisDuels = (await boris.GetFromJsonAsync<DuelsResponse>("/duels", Json, Cancel))!.Duels;
+        var cancelled = Assert.Single(borisDuels, d => d.Id == liveId);
+        Assert.Equal((DuelStatus.Finished, (Guid?)null), (cancelled.Status, cancelled.WinnerId));
+        Assert.Equal((Guid.Empty, DuelEndpoints.DeletedName), (cancelled.Opponent.PlayerId, cancelled.Opponent.Name));
+        var lost = Assert.Single(borisDuels, d => d.Id == wonId);
+        Assert.Equal((Guid.Empty, (Guid?)Guid.Empty, 5_000.0), (lost.Opponent.PlayerId, lost.WinnerId, lost.Opponent.Score));
+        Assert.Empty((await vera.GetFromJsonAsync<DuelsResponse>("/duels", Json, Cancel))!.Duels);
 
         // Захват Бориса ещё скрыт задержкой (20 минут): проекция вернула бы Вере землю Анны — но удалённый на карте
         // не появляется.

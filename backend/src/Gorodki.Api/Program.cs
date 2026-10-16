@@ -123,6 +123,14 @@ if (withDatabase)
     builder.Services.AddScoped<FogHistory>();
     builder.Services.AddScoped<TerritoryReader>();
 
+    // Дуэли (PLAN.md, §3.14; #147): счёт, судья (задача Hangfire) и три точки подключения — ставка (Рюкзак, #140), отрезки
+    // (#146) и «Входящие» (#139). Пока тех задач нет, работают заглушки: ставка и вызов на отрезок — честный отказ.
+    builder.Services.AddScoped<DuelScores>();
+    builder.Services.AddScoped<DuelReferee>();
+    builder.Services.AddScoped<IDuelStakes, NoDuelStakes>();
+    builder.Services.AddScoped<IDuelSegments, NoDuelSegments>();
+    builder.Services.AddScoped<IDuelNotifier, NoDuelNotifier>();
+
     // Набор конвейера OSM (docs/architecture/osm-pipeline.md): маски для шага A захвата и «достижимое» для «% Бреста».
     // Наборы не меняются после загрузки — кэши живут весь процесс.
     builder.Services.AddSingleton<MaskCache>();

@@ -35,10 +35,10 @@
 > | 7 | ~~Пингер сервера и базы на cron-job.org~~ — делает Claude вместе с деплоем (15.10) | [#39](https://github.com/Nikich196/gorodki/issues/39) |
 >
 > Сделал Claude (07.10): кланы и кланы в движке земли (#135), рейтинг территории и суточный срез (#136), «% Бреста» и
-> районов (#138), лента с респектами, жалобами и блокировками (#144); 15.10 — своя статистика (#116) и серия с
-> «Заморозкой» (#148, заморозки подключатся с Рюкзаком). Отложено после показа (метка «после-показа»): Зал славы,
-> Входящие, Рюкзак, карточка недели, доверие и бан, Коллекция, «Короли», дуэли, Sentry. Карточки этих задач ниже
-> оставлены для истории — делать их сейчас не нужно.
+> районов (#138), лента с респектами, жалобами и блокировками (#144); 15.10 — своя статистика (#116), серия с
+> «Заморозкой» (#148, заморозки подключатся с Рюкзаком) и дуэли (#147). Отложено после показа (метка «после-показа»): Зал
+> славы, Входящие, Рюкзак, карточка недели, доверие и бан, Коллекция, «Короли», Sentry. Карточки этих задач ниже оставлены
+> для истории — делать их сейчас не нужно.
 
 - **Что ты делаешь:** новые адреса и таблицы по готовым образцам, данные для экранов (только чтение), админку, задачи по
   расписанию и чистые функции правил. Землю, журнал захватов и границу публичности трогает только Claude.
@@ -408,7 +408,7 @@ dotnet build Gorodki.slnx                 # собирается?
 | 3 | E15 | «Коллекция» и админка тайников | 30.11 | C12 (тайники) | [#145](https://github.com/Nikich196/gorodki/issues/145) — заготовка готова — *после показа* |
 | 3 | E8 | Зал славы | 30.11 | E7 | [#137](https://github.com/Nikich196/gorodki/issues/137) — заготовка готова — *после показа* |
 | 3 | E23 | Бот-симулятор (20 ботов × 30 дней, CSV) | 30.11 | — | после заготовки — *после показа* |
-| 4 | E17 | Дуэли | 08.12 | C5 | [#147](https://github.com/Nikich196/gorodki/issues/147) — заготовка готова — *после показа* |
+| 4 | E17 | Дуэли | 08.12 | C5 | [#147](https://github.com/Nikich196/gorodki/issues/147) — заготовка готова — **сделано Claude 15.10** |
 | 4 | E16 | «Короли участков» | 08.12 | C16 (отрезки) | [#146](https://github.com/Nikich196/gorodki/issues/146) — заготовка готова — *после показа* |
 | 4 | E18 | Нагрузка k6 и отчёт | 08.12 | деплой | после заготовки — *после показа* |
 | 4 | E21 | `GET /admin/preflight` | 08.12 | — | после заготовки — *после показа* |
@@ -667,7 +667,7 @@ flowchart LR
 | E14b лента [#144](https://github.com/Nikich196/gorodki/issues/144) | `GET /feed?scope=friends\|all&cursor=`, `POST /feed/{id}/respect`, `POST /feed/{id}/report`, `GET /me/blocks`, `PUT/DELETE /me/blocks/{id}` | `Social/FeedEndpoints.cs` | `feed`, `player` | `FeedTests` (3) |
 | E15 «Коллекция» [#145](https://github.com/Nikich196/gorodki/issues/145) | `GET /collection` | `Collection/CollectionEndpoints.cs` | `collection` | `CollectionTests` (1) |
 | E16 «Короли участков» [#146](https://github.com/Nikich196/gorodki/issues/146) | `GET /segments?league=`, `GET /segments/{id}`, `GET /segments/{id}/leaderboard?league=&season=` | `Segments/SegmentEndpoints.cs` | `segments`, `segment`, `segment-leaderboard` | `SegmentsTests` (2) |
-| E17 дуэли [#147](https://github.com/Nikich196/gorodki/issues/147) | `GET /duels`, `POST /duels`, `GET /duels/{id}`, `POST /duels/{id}/accept`, `POST /duels/{id}/decline` | `Duels/DuelEndpoints.cs` | `duels` | `DuelsTests` (4) |
+| E17 дуэли [#147](https://github.com/Nikich196/gorodki/issues/147) — **сделано Claude 15.10** | `GET /duels`, `POST /duels`, `GET /duels/{id}`, `POST /duels/{id}/accept`, `POST /duels/{id}/decline` | `Duels/DuelEndpoints.cs` | `duels` | `DuelsTests` (13) |
 | E22 серия [#148](https://github.com/Nikich196/gorodki/issues/148) | `GET /me/streak` | `Streaks/StreakEndpoints.cs` | `streak` | `StreakTests` (2) |
 
 **Граница публичности в заготовках** (раздел 4) — самое важное, что проверяют тесты: пост ленты, событие «Входящих», счёт
@@ -832,7 +832,12 @@ b — посты из захватов и забегов (только числ�
 
 **E17 — дуэли** (PLAN §3.14). Волна 4, 08.12, после C5. Лимиты: аккаунт старше 48 ч, не больше 2 активных, пара — раз в
 неделю; итог — задача Hangfire; ставки — одной транзакцией. **Заготовка готова:
-[#147](https://github.com/Nikich196/gorodki/issues/147)** (живой счёт — по границе публичности).
+[#147](https://github.com/Nikich196/gorodki/issues/147)** (живой счёт — по границе публичности). **Сделано Claude 15.10**:
+таблица `duels`, правила — `Gorodki.Domain/Duels/DuelRules.cs`, счёт — `DuelScores` (свой — сразу, соперника — по границе
+публичности), судья — задача Hangfire `duels-referee` (истёкшие вызовы, смена лидера, итог через 4 ч после конца),
+«одно устройство — один аккаунт» по `runs.device_id`, блокировка игроков — пространство 9; в ответе новое поле
+`incoming`. Ставка (Рюкзак, #140), отрезки (#146) и «Входящие» (#139) подключаются через `IDuelStakes`, `IDuelSegments`,
+`IDuelNotifier` — сейчас честные заглушки. Разбор — [дуэли](../architecture/duels.md).
 
 **E16 — «Короли участков»** (PLAN §3.13). Волна 4, 08.12, после C16. `SegmentEffortDetector` (чистая функция): ворота 25 м,
 коридор 30 м, порядок ворот, время — интерполяцией, бег быстрее 30 км/ч не засчитывается; короны, «Местная легенда»,
