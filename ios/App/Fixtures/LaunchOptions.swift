@@ -77,7 +77,7 @@ enum FixtureScreen: String, CaseIterable, Sendable {
     case gallery, replay, storage, backup, files, calendar, inviteFriend = "invite-friend"
     case myQR = "my-qr", scanner, notifications, assignment
     // Игровые разделы (App/Game, дизайн-проход 15.10).
-    case kings, segment, duels, backpack, collection, weekly, hallOfFame = "hall-of-fame"
+    case kings, segment, duels, backpack, collection, weekly, hallOfFame = "hall-of-fame", achievements
 }
 
 extension FixtureScreen {

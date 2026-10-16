@@ -74,4 +74,24 @@ struct GameModelTests {
         #expect(FriendCode.normalized("R4T8-KD2M") == "R4T8-KD2M")
         #expect(FriendCode.normalized("abc") == "ABC")
     }
+
+    @Test("Достижения: прогресс из чисел профиля и разделов, неизвестное — закрыто без ложного прогресса")
+    func achievements() {
+        let unknown = Achievements.evaluate(AchievementInputs())
+        #expect(unknown.allSatisfy { !$0.unlocked })
+        #expect(unknown.first { $0.id == "ten-km" }?.progressText == "—")
+        let some = Achievements.evaluate(
+            AchievementInputs(
+                runs: 12, distanceMeters: 3_200, exploredSquareMeters: 42_600, brestPercent: 1.4, arenaPercent: 18.9,
+                streakDays: 5, crowns: 0, cachesFound: 1, duelWins: 0, inClan: true))
+        let byId = Dictionary(uniqueKeysWithValues: some.map { ($0.id, $0) })
+        #expect(byId["first-run"]?.unlocked == true)
+        #expect(byId["ten-km"]?.progressText == "3,2 из 10\u{00A0}км")
+        #expect(byId["hectare"]?.unlocked == true)
+        #expect(byId["brest-1"]?.unlocked == true)
+        #expect(byId["arena-100"]?.unlocked == false)
+        #expect(byId["streak-7"]?.progressText == "5 из 7")
+        #expect(byId["cache"]?.unlocked == true && byId["king"]?.unlocked == false)
+        #expect(byId["clan"]?.unlocked == true)
+    }
 }
