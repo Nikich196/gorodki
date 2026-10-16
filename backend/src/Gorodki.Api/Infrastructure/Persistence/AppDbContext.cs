@@ -85,6 +85,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<HallOfFameEntity> HallOfFame => Set<HallOfFameEntity>();
 
+    public DbSet<SegmentEntity> Segments => Set<SegmentEntity>();
+
+    public DbSet<SegmentEffortEntity> SegmentEfforts => Set<SegmentEffortEntity>();
+
+    public DbSet<SegmentDethronementEntity> SegmentDethronements => Set<SegmentDethronementEntity>();
+
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
     /// Геометрия из базы читается на той же сетке 0,1 м, что и в движке участков (<see cref="GeoOps.Grid"/>).
@@ -419,6 +425,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         ConfigureFeed(model);
         ConfigureDuels(model);
         ConfigureHallOfFame(model);
+        ConfigureSegments(model);
 
         model.Entity<JobRunEntity>(run =>
         {
@@ -588,6 +595,67 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 t.HasCheckConstraint("ck_duels_sides", "status NOT IN (0, 1) OR (challenger_id IS NOT NULL AND opponent_id IS NOT NULL)");
                 t.HasCheckConstraint("ck_duels_started", "status NOT IN (1, 2) OR (starts_at IS NOT NULL AND ends_at IS NOT NULL)");
                 t.HasCheckConstraint("ck_duels_finished", "(status = 2) = (outcome IS NOT NULL)");
+            });
+        });
+    }
+
+    /// <summary>
+    /// «Короли участков» (PLAN.md, §3.13): отрезки — начальными данными (<c>SegmentSeed</c>, предложение на утверждение Никиты),
+    /// проходы и события «тебя свергли с трона». Всё с номером игрока уходит каскадом вместе с аккаунтом; проход — и вместе
+    /// со своим забегом, событие — вместе с проходом, который отнял корону.
+    /// </summary>
+    private static void ConfigureSegments(ModelBuilder model)
+    {
+        model.Entity<SegmentEntity>(segment =>
+        {
+            segment.HasKey(s => s.Id);
+            segment.Property(s => s.Id).ValueGeneratedNever();
+            segment.Property(s => s.Name).HasMaxLength(100);
+            segment.Property(s => s.Line).HasColumnType($"geometry(LineString, {Utm34.Srid})");
+            segment.HasIndex(s => s.Name).IsUnique();
+            segment.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_segments_league", "league IS NULL OR league BETWEEN 1 AND 2");
+                // PLAN.md, §3.13: «отрезки по 200–800 м».
+                t.HasCheckConstraint("ck_segments_length", "length_meters BETWEEN 200 AND 800");
+                t.HasCheckConstraint("ck_segments_line_valid", "extensions.st_isvalid(line)");
+            });
+            segment.HasData(Features.Segments.SegmentSeed.Entities());
+        });
+
+        model.Entity<SegmentEffortEntity>(effort =>
+        {
+            effort.HasKey(e => e.Id);
+            effort.Property(e => e.Id).UseIdentityAlwaysColumn();
+            effort.HasOne<SegmentEntity>().WithMany().HasForeignKey(e => e.SegmentId).OnDelete(DeleteBehavior.Cascade);
+            effort.HasOne<UserEntity>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            effort.HasOne<RunEntity>().WithMany().HasForeignKey(e => e.RunId).OnDelete(DeleteBehavior.Cascade);
+            // Повтор обработки забега тот же проход второй раз не запишет — это гарантирует база.
+            effort.HasIndex(e => new { e.RunId, e.SegmentId, e.StartedAt }).IsUnique();
+            // Короны и таблица — лучшие времена отрезка в лиге (и сезоне).
+            effort.HasIndex(e => new { e.SegmentId, e.League, e.ElapsedMs });
+            effort.HasIndex(e => e.UserId);
+            effort.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_segment_efforts_league", "league BETWEEN 1 AND 2");
+                t.HasCheckConstraint("ck_segment_efforts_elapsed", "elapsed_ms > 0");
+            });
+        });
+
+        model.Entity<SegmentDethronementEntity>(dethroned =>
+        {
+            dethroned.HasKey(d => d.Id);
+            dethroned.Property(d => d.Id).ValueGeneratedNever();
+            dethroned.HasOne<UserEntity>().WithMany().HasForeignKey(d => d.UserId).OnDelete(DeleteBehavior.Cascade);
+            dethroned.HasOne<SegmentEntity>().WithMany().HasForeignKey(d => d.SegmentId).OnDelete(DeleteBehavior.Cascade);
+            dethroned.HasOne<SegmentEffortEntity>().WithMany().HasForeignKey(d => d.EffortId).OnDelete(DeleteBehavior.Cascade);
+            dethroned.HasIndex(d => new { d.EffortId, d.UserId }).IsUnique();
+            // «Входящие» читают свои события по границе: (игрок, visible_at).
+            dethroned.HasIndex(d => new { d.UserId, d.VisibleAt });
+            dethroned.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_segment_dethronements_league", "league BETWEEN 1 AND 2");
+                t.HasCheckConstraint("ck_segment_dethronements_crown", "season IS NOT NULL OR all_time");
             });
         });
     }

@@ -76,8 +76,6 @@ public sealed class IdorTests(DatabaseFixture database)
     {
         ["DELETE /admin/invites/{code}"] = "ЗАДАЧА #114",
         ["POST /me/inventory/{id:guid}/activate"] = "ЗАДАЧА #140",
-        ["GET /segments/{id:guid}"] = "ЗАДАЧА #146",
-        ["GET /segments/{id:guid}/leaderboard"] = "ЗАДАЧА #146",
         ["POST /admin/users/{userId:guid}/ban"] = "ЗАДАЧА #142",
     };
 
@@ -201,6 +199,9 @@ public sealed class IdorTests(DatabaseFixture database)
             ["GET /duels/{id:guid}"] = await boris.GetAsync($"/duels/{duelId}", Cancel),
             ["POST /duels/{id:guid}/accept"] = await boris.PostAsJsonAsync($"/duels/{duelId}/accept", new AcceptDuelRequest(), Json, Cancel),
             ["POST /duels/{id:guid}/decline"] = await boris.PostAsync($"/duels/{duelId}/decline", null, Cancel),
+            // Отрезки общие, своих у Анны нет: номер её забега вместо номера отрезка — «нет такого».
+            ["GET /segments/{id:guid}"] = await boris.GetAsync($"/segments/{claim.RunId}", Cancel),
+            ["GET /segments/{id:guid}/leaderboard"] = await boris.GetAsync($"/segments/{claim.RunId}/leaderboard", Cancel),
         };
 
         // Здесь нужен запрос Бориса к каждому адресу, кроме ждущих задачи Егора (AwaitingTasks).

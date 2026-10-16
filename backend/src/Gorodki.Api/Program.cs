@@ -121,6 +121,7 @@ if (withDatabase)
     builder.Services.AddScoped<SeasonStore>();
     builder.Services.AddScoped<SeasonRollover>();
     builder.Services.AddScoped<FogProcessor>();
+    builder.Services.AddScoped<SegmentEffortProcessor>();
     builder.Services.AddScoped<FogHistory>();
     builder.Services.AddScoped<TerritoryReader>();
 

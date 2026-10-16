@@ -269,6 +269,15 @@ public sealed class RunEntity
     /// в тайлах забега (до него визиты выдали бы захват).
     /// </summary>
     public DateTimeOffset? VisitsRetryAt { get; set; }
+
+    /// <summary>Когда засчитаны проходы отрезков «Королей участков» (§3.13) — один раз за забег; null — ещё нет.</summary>
+    public DateTimeOffset? SegmentsProcessedAt { get; set; }
+
+    /// <summary>Сколько раз подряд проходы отрезков забега не посчитались из-за ошибки.</summary>
+    public int SegmentsFailures { get; set; }
+
+    /// <summary>Проходы отрезков забега, которые не посчитались, не пробуются раньше этого момента.</summary>
+    public DateTimeOffset? SegmentsRetryAt { get; set; }
 }
 
 /// <summary>Слой «Исследования»: у пешком и на велосипеде — своя карта тумана (PLAN.md, §3.10).</summary>
@@ -1157,4 +1166,99 @@ public sealed class HallOfFameEntity
     public int Value { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
+}
+
+// ── «Короли участков» (PLAN.md, §3.13; C16 и задача #146, E16) ──
+
+/// <summary>
+/// Отрезок «Королей участков»: линия по пешеходной дорожке 200–800 м (по данным OpenStreetMap, © участники OpenStreetMap,
+/// ODbL). Короны и «Местная легенда» считаются по проходам (<see cref="SegmentEffortEntity"/>). Список —
+/// docs/architecture/segments.md.
+/// </summary>
+public sealed class SegmentEntity
+{
+    /// <summary>Постоянный номер: по нему телефон спрашивает отрезок, он не меняется при правке линии.</summary>
+    public Guid Id { get; set; }
+
+    /// <summary>Название по-русски, как его видит игрок.</summary>
+    public required string Name { get; set; }
+
+    /// <summary>
+    /// Лига отрезка; <c>null</c> — общий для обеих (корона у каждой своя). Своя лига — там, где по дорожке нельзя ехать
+    /// (<c>bicycle=no</c>) или нельзя идти (велодорожка <c>foot=no</c>).
+    /// </summary>
+    public League? League { get; set; }
+
+    /// <summary>Линия от старта к финишу в UTM 34N (EPSG:32634), вершины на сетке 0,1 м.</summary>
+    public required LineString Line { get; set; }
+
+    /// <summary>Длина линии, метры (1 знак).</summary>
+    public double LengthMeters { get; set; }
+
+    /// <summary>Предложение Claude, ещё не утверждённое Никитой (как у Арены и кварталов). Проходы засчитываются и до утверждения.</summary>
+    public bool Proposal { get; set; }
+}
+
+/// <summary>
+/// Засчитанный проход отрезка (<c>SegmentEffortDetector</c>): кто, в каком забеге и лиге, за сколько. Пишется один раз за
+/// забег — когда он завершён и все точки на месте (<c>runs.segments_processed_at</c>); повтор того же прохода база не
+/// примет (уникальный индекс забег + отрезок + момент старта).
+/// </summary>
+/// <remarks>
+/// Приватность (§3.16): другие видят проход только с <see cref="VisibleAt"/> — границы публичности конца забега, как визиты
+/// и пост о забеге; сам игрок — сразу. Наружу уходит только длительность: момент старта (<see cref="StartedAt"/>) нужен
+/// серверу для сезона и окна «Местной легенды» и в ответы не попадает.
+/// </remarks>
+public sealed class SegmentEffortEntity
+{
+    public long Id { get; set; }
+
+    public Guid SegmentId { get; set; }
+
+    public Guid UserId { get; set; }
+
+    public Guid RunId { get; set; }
+
+    public League League { get; set; }
+
+    /// <summary>Сезон по моменту старта прохода; <c>null</c> — вне сезонов (предсезонье, полевые тесты).</summary>
+    public int? Season { get; set; }
+
+    /// <summary>Время прохода, мс (интерполяция между точками).</summary>
+    public long ElapsedMs { get; set; }
+
+    /// <summary>Момент старта прохода по часам сервера.</summary>
+    public DateTimeOffset StartedAt { get; set; }
+
+    /// <summary>С какого момента проход видят другие (таблица, короны, «Местная легенда», «тебя свергли»).</summary>
+    public DateTimeOffset VisibleAt { get; set; }
+}
+
+/// <summary>
+/// «Тебя свергли с трона» (§3.13, §3.17: высокий приоритет) — событие для «Входящих» (#139): проход
+/// <see cref="EffortId"/> отнял у игрока <see cref="UserId"/> корону отрезка в лиге — сезонную и/или за всё время.
+/// «Входящие» читают только строки с <c>visible_at ≤ now</c>. Номер — <c>Guid.NewGuid()</c>: в UUIDv7 было бы время.
+/// </summary>
+public sealed class SegmentDethronementEntity
+{
+    public Guid Id { get; set; }
+
+    /// <summary>Кого свергли.</summary>
+    public Guid UserId { get; set; }
+
+    public Guid SegmentId { get; set; }
+
+    public League League { get; set; }
+
+    /// <summary>Проход, который отнял корону (удалили его — например, с аккаунтом нового короля — уходит и событие).</summary>
+    public long EffortId { get; set; }
+
+    /// <summary>Номер сезона, корону которого отняли; <c>null</c> — сезонную корону не отнимали.</summary>
+    public int? Season { get; set; }
+
+    /// <summary>Отняли корону за всё время.</summary>
+    public bool AllTime { get; set; }
+
+    /// <summary>С какого момента событие можно показать — не раньше, чем другие увидят сам проход.</summary>
+    public DateTimeOffset VisibleAt { get; set; }
 }

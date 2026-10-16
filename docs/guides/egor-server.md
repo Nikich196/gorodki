@@ -36,9 +36,10 @@
 >
 > Сделал Claude (07.10): кланы и кланы в движке земли (#135), рейтинг территории и суточный срез (#136), «% Бреста» и
 > районов (#138), лента с респектами, жалобами и блокировками (#144); 15.10 — своя статистика (#116), серия с
-> «Заморозкой» (#148, заморозки подключатся с Рюкзаком), дуэли (#147), Зал славы (#137) и карточка недели (#141). Отложено
-> после показа (метка «после-показа»): Входящие, Рюкзак, доверие и бан, Коллекция, «Короли», Sentry. Карточки этих задач
-> ниже оставлены для истории — делать их сейчас не нужно.
+> «Заморозкой» (#148, заморозки подключатся с Рюкзаком), дуэли (#147), Зал славы (#137), карточка недели (#141) и
+> «Короли участков» с засчитыванием проходов (#146, C16, [segments.md](../architecture/segments.md)). Отложено после показа
+> (метка «после-показа»): Входящие, Рюкзак, доверие и бан, Коллекция, Sentry. Карточки этих задач ниже оставлены для
+> истории — делать их сейчас не нужно.
 
 - **Что ты делаешь:** новые адреса и таблицы по готовым образцам, данные для экранов (только чтение), админку, задачи по
   расписанию и чистые функции правил. Землю, журнал захватов и границу публичности трогает только Claude.
@@ -75,7 +76,7 @@
 заготовки контрактов (сделано 26.09: [раздел 7.0](#70-заготовки-контрактов-где-что)) · C5 каркас Hangfire · C18 инструмент калибровки · C3 большая петля (сделано 25.09) · C6 конвейер
 OSM · C11 визиты в ответе забега и помощник границы публичности (сделано 25.09) · C14 линии границ · C2 #101 · C9 очки SP
 за захват (сделано 25.09) · C4 смена сезона (сделано 25.09) · C7 «Ничейные земли» · C8 кланы в движке и на карте · C10 события уведомлений после
-границы · C13 «Радар»/«Магнит» · C12 тайники в конвейере · C16 отрезки и вело · C17 демо-режим.
+границы · C13 «Радар»/«Магнит» · C12 тайники в конвейере · C16 отрезки и вело (отрезки сделаны 15.10) · C17 демо-режим.
 
 ## 2. Карта сервера
 
@@ -115,6 +116,7 @@ backend/
 │     │  ├─ Runs/            забеги: старт, куски точек, финиш
 │     │  ├─ Scoring/         книга очков сезона (ScoreBook): запись в захвате и визитах, чтение с границей публичности
 │     │  ├─ Seasons/         GET /seasons, смена сезона — задача Hangfire (SeasonRollover)
+│     │  ├─ Segments/        «Короли участков»: отрезки, засчитывание проходов, короны (#146, C16)
 │     │  └─ Territory/       GET /territory и публичная проекция (TerritoryReader)
 │     └─ Infrastructure/
 │        ├─ OpenApi/         описание API, удобное для Swift-клиента
@@ -409,7 +411,7 @@ dotnet build Gorodki.slnx                 # собирается?
 | 3 | E8 | Зал славы | 30.11 | E7 | [#137](https://github.com/Nikich196/gorodki/issues/137) — заготовка готова — **сделано Claude 15.10** |
 | 3 | E23 | Бот-симулятор (20 ботов × 30 дней, CSV) | 30.11 | — | после заготовки — *после показа* |
 | 4 | E17 | Дуэли | 08.12 | C5 | [#147](https://github.com/Nikich196/gorodki/issues/147) — заготовка готова — **сделано Claude 15.10** |
-| 4 | E16 | «Короли участков» | 08.12 | C16 (отрезки) | [#146](https://github.com/Nikich196/gorodki/issues/146) — заготовка готова — *после показа* |
+| 4 | E16 | «Короли участков» | 08.12 | C16 (отрезки) | [#146](https://github.com/Nikich196/gorodki/issues/146) — **сделано Claude 15.10** (вместе с C16) |
 | 4 | E18 | Нагрузка k6 и отчёт | 08.12 | деплой | после заготовки — *после показа* |
 | 4 | E21 | `GET /admin/preflight` | 08.12 | — | после заготовки — *после показа* |
 
@@ -666,7 +668,7 @@ flowchart LR
 | E14a друзья [#143](https://github.com/Nikich196/gorodki/issues/143) | `GET /friends`, `POST /friends`, `POST /friends/{id}/accept`, `DELETE /friends/{id}` | `Social/FriendEndpoints.cs` | `friends` | `FriendsTests` (3) |
 | E14b лента [#144](https://github.com/Nikich196/gorodki/issues/144) | `GET /feed?scope=friends\|all&cursor=`, `POST /feed/{id}/respect`, `POST /feed/{id}/report`, `GET /me/blocks`, `PUT/DELETE /me/blocks/{id}` | `Social/FeedEndpoints.cs` | `feed`, `player` | `FeedTests` (3) |
 | E15 «Коллекция» [#145](https://github.com/Nikich196/gorodki/issues/145) | `GET /collection` | `Collection/CollectionEndpoints.cs` | `collection` | `CollectionTests` (1) |
-| E16 «Короли участков» [#146](https://github.com/Nikich196/gorodki/issues/146) | `GET /segments?league=`, `GET /segments/{id}`, `GET /segments/{id}/leaderboard?league=&season=` | `Segments/SegmentEndpoints.cs` | `segments`, `segment`, `segment-leaderboard` | `SegmentsTests` (2) |
+| E16 «Короли участков» [#146](https://github.com/Nikich196/gorodki/issues/146) | `GET /segments?league=`, `GET /segments/{id}`, `GET /segments/{id}/leaderboard?league=&season=` | `Segments/SegmentEndpoints.cs` | `segments`, `segment`, `segment-leaderboard` | `SegmentsTests` — **сделано Claude 15.10** |
 | E17 дуэли [#147](https://github.com/Nikich196/gorodki/issues/147) — **сделано Claude 15.10** | `GET /duels`, `POST /duels`, `GET /duels/{id}`, `POST /duels/{id}/accept`, `POST /duels/{id}/decline` | `Duels/DuelEndpoints.cs` | `duels` | `DuelsTests` (13) |
 | E22 серия [#148](https://github.com/Nikich196/gorodki/issues/148) | `GET /me/streak` | `Streaks/StreakEndpoints.cs` | `streak` | `StreakTests` (2) |
 
@@ -854,7 +856,9 @@ b — посты из захватов и забегов (только числ�
 
 **E16 — «Короли участков»** (PLAN §3.13). Волна 4, 08.12, после C16. `SegmentEffortDetector` (чистая функция): ворота 25 м,
 коридор 30 м, порядок ворот, время — интерполяцией, бег быстрее 30 км/ч не засчитывается; короны, «Местная легенда»,
-админка отрезков. **Заготовка готова: [#146](https://github.com/Nikich196/gorodki/issues/146)** (админка отрезков — после C16).
+админка отрезков. **Сделано Claude 15.10 вместе с C16** ([#146](https://github.com/Nikich196/gorodki/issues/146)): 7 отрезков
+— предложение на утверждение Никиты, засчитывание в фоновом обработчике, адреса `/segments`, событие «тебя свергли с трона»
+для «Входящих» — [segments.md](../architecture/segments.md). Админка отрезков — после показа.
 
 **E18 — нагрузка k6 и отчёт.** Волна 4, 08.12. Сценарии k6 на основные адреса и отчёт — на локальном стенде с
 эмуляцией 0,1 CPU, как у бесплатного Render (PLAN §8, §9).

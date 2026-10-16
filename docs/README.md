@@ -15,6 +15,7 @@
 | [architecture/ios-app.md](architecture/ios-app.md) | Приложение: клиент API, токены в Keychain, обновление при 401, адрес сервера |
 | [architecture/osm-pipeline.md](architecture/osm-pipeline.md) | Конвейер OSM (проект v1): маски, «достижимая» площадь и % Бреста, граница и Арена, атрибуция ODbL |
 | [decisions/osm-questions.md](decisions/osm-questions.md) | Вопросы по OSM и решения 25.09 — буферы масок, пешеходные пути, Арена, «Ничейные земли», ODbL |
+| [architecture/segments.md](architecture/segments.md) | «Короли участков»: отрезки (предложение на утверждение), засчитывание проходов, короны, «Местная легенда», «тебя свергли с трона», приватность |
 | [architecture/run-hud.md](architecture/run-hud.md) | HUD забега, церемония захвата и итог: логика, что считает телефон и что сервер, решения Никиты |
 | [design/tokens.md](design/tokens.md) | Дизайн-система: токены дня и ночи, земли, туман, шрифт, стекло, движение и где это в коде. «Ок» Никиты — в [../design/APPROVALS.md](../design/APPROVALS.md) |
 | [legal/README.md](legal/README.md) | Черновики соглашения, политики и согласия (закон 99-З) — для проверки преподавателем |
