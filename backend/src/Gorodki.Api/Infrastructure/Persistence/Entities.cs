@@ -1,6 +1,6 @@
+using Gorodki.Api.Features.Collection;
 using Gorodki.Api.Features.Duels;
 using Gorodki.Api.Features.HallOfFame;
-using Gorodki.Api.Features.Collection;
 using Gorodki.Api.Features.Inventory;
 using Gorodki.Api.Features.Social;
 using Gorodki.Domain.Clans;

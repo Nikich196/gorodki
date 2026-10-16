@@ -960,6 +960,115 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DuelEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ChallengerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("challenger_id");
+
+                    b.Property<double?>("ChallengerScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("challenger_score");
+
+                    b.Property<Guid?>("ChallengerStakeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("challenger_stake_item_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<short>("Days")
+                        .HasColumnType("smallint")
+                        .HasColumnName("days");
+
+                    b.Property<DateTimeOffset?>("EndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ends_at");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<short?>("Leader")
+                        .HasColumnType("smallint")
+                        .HasColumnName("leader");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<short>("Metric")
+                        .HasColumnType("smallint")
+                        .HasColumnName("metric");
+
+                    b.Property<Guid?>("OpponentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opponent_id");
+
+                    b.Property<double?>("OpponentScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("opponent_score");
+
+                    b.Property<Guid?>("OpponentStakeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opponent_stake_item_id");
+
+                    b.Property<short?>("Outcome")
+                        .HasColumnType("smallint")
+                        .HasColumnName("outcome");
+
+                    b.Property<Guid?>("SegmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("segment_id");
+
+                    b.Property<DateTimeOffset?>("StartsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starts_at");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint")
+                        .HasColumnName("status");
+
+                    b.Property<short?>("WinnerStreak")
+                        .HasColumnType("smallint")
+                        .HasColumnName("winner_streak");
+
+                    b.HasKey("Id")
+                        .HasName("pk_duels");
+
+                    b.HasIndex("ChallengerId")
+                        .HasDatabaseName("ix_duels_challenger_id");
+
+                    b.HasIndex("OpponentId")
+                        .HasDatabaseName("ix_duels_opponent_id");
+
+                    b.HasIndex("Status", "EndsAt")
+                        .HasDatabaseName("ix_duels_status_ends_at");
+
+                    b.ToTable("duels", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_duels_days", "days IN (1, 3, 7)");
+
+                            t.HasCheckConstraint("ck_duels_enums", "metric BETWEEN 0 AND 3 AND status BETWEEN 0 AND 3 AND (outcome IS NULL OR outcome BETWEEN 0 AND 3) AND (leader IS NULL OR leader BETWEEN 1 AND 2)");
+
+                            t.HasCheckConstraint("ck_duels_finished", "(status = 2) = (outcome IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_not_self", "challenger_id <> opponent_id");
+
+                            t.HasCheckConstraint("ck_duels_segment", "(metric = 3) = (segment_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_sides", "status NOT IN (0, 1) OR (challenger_id IS NOT NULL AND opponent_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_started", "status NOT IN (1, 2) OR (starts_at IS NOT NULL AND ends_at IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1183,6 +1292,72 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasName("pk_game_configs");
 
                     b.ToTable("game_configs", "app");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.HallOfFameEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid?>("ClanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("clan_id");
+
+                    b.Property<string>("ClanName")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("clan_name");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("kind");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<int>("Place")
+                        .HasColumnType("integer")
+                        .HasColumnName("place");
+
+                    b.Property<int>("Season")
+                        .HasColumnType("integer")
+                        .HasColumnName("season");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("Value")
+                        .HasColumnType("integer")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_hall_of_fame");
+
+                    b.HasIndex("ClanId")
+                        .HasDatabaseName("ix_hall_of_fame_clan_id");
+
+                    b.HasIndex("Season")
+                        .HasDatabaseName("ix_hall_of_fame_season");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_hall_of_fame_user_id");
+
+                    b.ToTable("hall_of_fame", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_hall_of_fame_kind", "(kind = 0 AND clan_id IS NULL AND clan_name IS NULL) OR (kind = 1 AND user_id IS NULL AND place = 1 AND clan_name IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_hall_of_fame_place", "place BETWEEN 1 AND 3 AND value >= 0");
+                        });
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.InventoryItemEntity", b =>
@@ -1856,6 +2031,18 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("fog_new_cells");
 
+                    b.Property<int?>("FogNewReachableCells")
+                        .HasColumnType("integer")
+                        .HasColumnName("fog_new_reachable_cells");
+
+                    b.Property<double?>("FogNewSquareMeters")
+                        .HasColumnType("double precision")
+                        .HasColumnName("fog_new_square_meters");
+
+                    b.Property<int?>("FogOsmSet")
+                        .HasColumnType("integer")
+                        .HasColumnName("fog_osm_set");
+
                     b.Property<DateTimeOffset?>("FogRetryAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fog_retry_at");
@@ -1895,6 +2082,18 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.Property<int>("ProcessedSeq")
                         .HasColumnType("integer")
                         .HasColumnName("processed_seq");
+
+                    b.Property<int>("SegmentsFailures")
+                        .HasColumnType("integer")
+                        .HasColumnName("segments_failures");
+
+                    b.Property<DateTimeOffset?>("SegmentsProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("segments_processed_at");
+
+                    b.Property<DateTimeOffset?>("SegmentsRetryAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("segments_retry_at");
 
                     b.Property<short>("Source")
                         .HasColumnType("smallint")
@@ -2090,9 +2289,10 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         new
                         {
                             Number = 0,
-                            CleanStart = true,
+                            CleanStart = false,
                             Name = "Сезон 0 (бета)",
-                            StartsAt = new DateTimeOffset(new DateTime(2026, 11, 15, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                            ResetAt = new DateTimeOffset(new DateTime(2026, 10, 14, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            StartsAt = new DateTimeOffset(new DateTime(2026, 10, 14, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         },
                         new
                         {
@@ -2107,6 +2307,230 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                             CleanStart = false,
                             Name = "Сезон 2",
                             StartsAt = new DateTimeOffset(new DateTime(2026, 12, 13, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.SegmentDethronementEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("AllTime")
+                        .HasColumnType("boolean")
+                        .HasColumnName("all_time");
+
+                    b.Property<long>("EffortId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("effort_id");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<int?>("Season")
+                        .HasColumnType("integer")
+                        .HasColumnName("season");
+
+                    b.Property<Guid>("SegmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("segment_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("VisibleAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("visible_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_segment_dethronements");
+
+                    b.HasIndex("SegmentId")
+                        .HasDatabaseName("ix_segment_dethronements_segment_id");
+
+                    b.HasIndex("EffortId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_segment_dethronements_effort_id_user_id");
+
+                    b.HasIndex("UserId", "VisibleAt")
+                        .HasDatabaseName("ix_segment_dethronements_user_id_visible_at");
+
+                    b.ToTable("segment_dethronements", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_segment_dethronements_crown", "season IS NOT NULL OR all_time");
+
+                            t.HasCheckConstraint("ck_segment_dethronements_league", "league BETWEEN 1 AND 2");
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.SegmentEffortEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("ElapsedMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("elapsed_ms");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("run_id");
+
+                    b.Property<int?>("Season")
+                        .HasColumnType("integer")
+                        .HasColumnName("season");
+
+                    b.Property<Guid>("SegmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("segment_id");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("VisibleAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("visible_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_segment_efforts");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_segment_efforts_user_id");
+
+                    b.HasIndex("RunId", "SegmentId", "StartedAt")
+                        .IsUnique()
+                        .HasDatabaseName("ix_segment_efforts_run_id_segment_id_started_at");
+
+                    b.HasIndex("SegmentId", "League", "ElapsedMs")
+                        .HasDatabaseName("ix_segment_efforts_segment_id_league_elapsed_ms");
+
+                    b.ToTable("segment_efforts", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_segment_efforts_elapsed", "elapsed_ms > 0");
+
+                            t.HasCheckConstraint("ck_segment_efforts_league", "league BETWEEN 1 AND 2");
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.SegmentEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<short?>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<double>("LengthMeters")
+                        .HasColumnType("double precision")
+                        .HasColumnName("length_meters");
+
+                    b.Property<LineString>("Line")
+                        .IsRequired()
+                        .HasColumnType("geometry(LineString, 32634)")
+                        .HasColumnName("line");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("Proposal")
+                        .HasColumnType("boolean")
+                        .HasColumnName("proposal");
+
+                    b.HasKey("Id")
+                        .HasName("pk_segments");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_segments_name");
+
+                    b.ToTable("segments", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_segments_league", "league IS NULL OR league BETWEEN 1 AND 2");
+
+                            t.HasCheckConstraint("ck_segments_length", "length_meters BETWEEN 200 AND 800");
+
+                            t.HasCheckConstraint("ck_segments_line_valid", "extensions.st_isvalid(line)");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("3efc905d-b526-4f45-abfe-ff17cded566d"),
+                            League = (short)1,
+                            LengthMeters = 716.39999999999998,
+                            Line = (NetTopologySuite.Geometries.LineString)new NetTopologySuite.IO.WKTReader().Read("SRID=32634;LINESTRING (683942.6 5773654.1, 684300.4 5773642.8, 684306 5773645.5, 684331.8 5773644.4, 684337.6 5773641.1, 684440.3 5773637.2, 684474.5 5773638.5, 684521.8 5773634, 684530 5773639.8, 684546.7 5773638.8, 684554.8 5773632.5, 684597.9 5773630.1, 684633.9 5773631.4, 684638.9 5773635, 684651.7 5773635.8)"),
+                            Name = "Набережная Мухавца (запад)",
+                            Proposal = true
+                        },
+                        new
+                        {
+                            Id = new Guid("e6998253-0408-400f-ac5b-496d39744b0b"),
+                            League = (short)1,
+                            LengthMeters = 572.70000000000005,
+                            Line = (NetTopologySuite.Geometries.LineString)new NetTopologySuite.IO.WKTReader().Read("SRID=32634;LINESTRING (684810.8 5773588.4, 684930.4 5773560.1, 684950 5773559.5, 684964.6 5773565.4, 684977.3 5773576.4, 684985.6 5773590.7, 684991.4 5773617.4, 685000.3 5773634.9, 685010.2 5773643.5, 685027.1 5773651.6, 685253 5773710.1, 685271.7 5773709.4, 685288.8 5773702.3, 685298.9 5773694.2, 685308.5 5773678.1)"),
+                            Name = "Набережная Мухавца (восток)",
+                            Proposal = true
+                        },
+                        new
+                        {
+                            Id = new Guid("fae1d3a6-61ff-426d-8dbb-21c7a36bb527"),
+                            League = (short)2,
+                            LengthMeters = 499.69999999999999,
+                            Line = (NetTopologySuite.Geometries.LineString)new NetTopologySuite.IO.WKTReader().Read("SRID=32634;LINESTRING (684819.4 5773615, 684851.8 5773598.4, 684866.5 5773596.9, 684909 5773616, 684947.7 5773648.2, 685000.2 5773671.5, 685090.3 5773676.4, 685112.2 5773682.3, 685145.4 5773699.5, 685174.4 5773709.6, 685200.7 5773709, 685228.1 5773717.1, 685258.5 5773715.6, 685274.1 5773720.7, 685285 5773717.3)"),
+                            Name = "Велодорожка вдоль Мухавца",
+                            Proposal = true
+                        },
+                        new
+                        {
+                            Id = new Guid("3d367a82-f861-458c-a588-d1adfc2ea914"),
+                            LengthMeters = 467.80000000000001,
+                            Line = (NetTopologySuite.Geometries.LineString)new NetTopologySuite.IO.WKTReader().Read("SRID=32634;LINESTRING (683124 5774846.3, 683168.5 5774854.3, 683216.3 5774870.3, 683238.8 5774883.1, 683247.7 5774865.6, 683304.2 5774899.8, 683316.9 5774881.6, 683512.3 5775018.2)"),
+                            Name = "Парк культуры: центральная аллея",
+                            Proposal = true
+                        },
+                        new
+                        {
+                            Id = new Guid("6a22a3bf-92ee-433f-9f69-1e712cc4681e"),
+                            LengthMeters = 374.10000000000002,
+                            Line = (NetTopologySuite.Geometries.LineString)new NetTopologySuite.IO.WKTReader().Read("SRID=32634;LINESTRING (683321.5 5774428.8, 683321.4 5774437.4, 683264.2 5774560.6, 683309 5774581.3, 683311 5774592, 683305.8 5774611.5, 683315.4 5774658, 683257 5774735.9, 683260.5 5774738.5)"),
+                            Name = "Парк культуры: южная аллея",
+                            Proposal = true
+                        },
+                        new
+                        {
+                            Id = new Guid("eaf3601c-96a9-4578-87fc-7eb0c9823646"),
+                            LengthMeters = 358.89999999999998,
+                            Line = (NetTopologySuite.Geometries.LineString)new NetTopologySuite.IO.WKTReader().Read("SRID=32634;LINESTRING (689076.5 5775222.3, 689094.3 5775282.7, 689101.5 5775320.8, 689011.4 5775561.7)"),
+                            Name = "Университетская аллея (БрГТУ)",
+                            Proposal = true
+                        },
+                        new
+                        {
+                            Id = new Guid("928be0c7-0e89-435b-b4a1-ae6d710b5e32"),
+                            LengthMeters = 397.30000000000001,
+                            Line = (NetTopologySuite.Geometries.LineString)new NetTopologySuite.IO.WKTReader().Read("SRID=32634;LINESTRING (685692.7 5771762.8, 685699.9 5771762.1, 685713.3 5771745.7, 685719 5771746.9, 685745 5771776, 685752.4 5771787.2, 685752.6 5771792.7, 685757.3 5771795.6, 685764.7 5771810.7, 685774.9 5771808.6, 685783.7 5771811.2, 685790.6 5771817.3, 685794.4 5771829.2, 685847.7 5771828, 685880.1 5771832.3, 685885.9 5771836.9, 685892.2 5771833.9, 685938.5 5771843.9, 685940.7 5771855.7, 685950.2 5771864.4, 685963.1 5771865.3, 685970.8 5771861.2, 685975.4 5771855, 686012.5 5771868.5)"),
+                            Name = "Парк 1000-летия Бреста",
+                            Proposal = true
                         });
                 });
 
@@ -2352,6 +2776,21 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_district_tiles_districts_district_id");
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DuelEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ChallengerId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_duels_users_challenger_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("OpponentId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_duels_users_opponent_id");
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", b =>
                 {
                     b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
@@ -2433,6 +2872,21 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_friend_links_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.HallOfFameEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.ClanEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ClanId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_hall_of_fame_clans_clan_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_hall_of_fame_users_user_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.InventoryItemEntity", b =>
@@ -2585,6 +3039,54 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_score_events_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.SegmentDethronementEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.SegmentEffortEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EffortId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_segment_dethronements_segment_efforts_effort_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.SegmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SegmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_segment_dethronements_segments_segment_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_segment_dethronements_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.SegmentEffortEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.RunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_segment_efforts_runs_run_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.SegmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SegmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_segment_efforts_segments_segment_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_segment_efforts_users_user_id");
                 });
 #pragma warning restore 612, 618
         }

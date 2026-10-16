@@ -29,6 +29,378 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
 
             modelBuilder.HasSequence("capture_apply_seq");
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.CacheEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Hint")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("hint");
+
+                    b.Property<double>("Latitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("latitude");
+
+                    b.Property<double>("Longitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("longitude");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("name");
+
+                    b.Property<short>("Number")
+                        .HasColumnType("smallint")
+                        .HasColumnName("number");
+
+                    b.Property<string>("OsmRef")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("osm_ref");
+
+                    b.Property<bool>("Proposal")
+                        .HasColumnType("boolean")
+                        .HasColumnName("proposal");
+
+                    b.Property<short>("Rarity")
+                        .HasColumnType("smallint")
+                        .HasColumnName("rarity");
+
+                    b.Property<int>("SetVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("set_version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_caches");
+
+                    b.HasIndex("Number")
+                        .IsUnique()
+                        .HasDatabaseName("ix_caches_number");
+
+                    b.ToTable("caches", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_caches_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180");
+
+                            t.HasCheckConstraint("ck_caches_rarity", "rarity BETWEEN 0 AND 3");
+
+                            t.HasCheckConstraint("ck_caches_set_version", "set_version >= 1");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("e7b9f178-2812-4941-89f0-54f9d5862cbf"),
+                            Hint = "У главного корпуса БрГТУ расцвёл цветок, которому не нужен полив.",
+                            Latitude = 52.097078000000003,
+                            Longitude = 23.759373,
+                            Name = "Цветок у политеха",
+                            Number = (short)1,
+                            OsmRef = "node/10019033249",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("01ace59d-63e5-469e-b89b-7a369657f353"),
+                            Hint = "На нём не сыграешь ни гамму, ни вальс: он из стали и стоит под открытым небом недалеко от политеха.",
+                            Latitude = 52.097786999999997,
+                            Longitude = 23.751828,
+                            Name = "Стальной рояль",
+                            Number = (short)2,
+                            OsmRef = "node/9197166787",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("0042143d-accd-4a67-b486-49b70d3e38bb"),
+                            Hint = "Фонтан носит имя знаменитого скульптора. Ищи его к востоку от политеха, у большой улицы.",
+                            Latitude = 52.10004,
+                            Longitude = 23.768896999999999,
+                            Name = "Фонтан мастера",
+                            Number = (short)3,
+                            OsmRef = "way/415068481",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("9b370932-a5c8-41f9-b8e5-e41dd6da9c1e"),
+                            Hint = "В сквере на Орловской камни лежат так, будто их расставили нарочно.",
+                            Latitude = 52.105443000000001,
+                            Longitude = 23.761761,
+                            Name = "Каменный сад",
+                            Number = (short)4,
+                            OsmRef = "node/9200345712",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("3f54d96a-75e9-4ff0-901f-071751fb7b0f"),
+                            Hint = "Здесь славят тех, кто привозил Брестчине олимпийские медали.",
+                            Latitude = 52.093108999999998,
+                            Longitude = 23.733629000000001,
+                            Name = "Олимпийская слава",
+                            Number = (short)5,
+                            OsmRef = "node/11186552014",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("73243c38-80a2-4ff9-9e29-4c12bee39c29"),
+                            Hint = "На пешеходной улице стоит сапог, который, по легенде, приносит удачу в денежных делах.",
+                            Latitude = 52.093995999999997,
+                            Longitude = 23.692077000000001,
+                            Name = "Сапог удачи",
+                            Number = (short)6,
+                            OsmRef = "node/12426233051",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("ab57c689-518b-48e5-8792-e3fbb0d1ccd9"),
+                            Hint = "На улице, где фонари зажигают вручную, кто-то потерял очень большую пуговицу.",
+                            Latitude = 52.088799999999999,
+                            Longitude = 23.695076,
+                            Name = "Пуговица фонарщика",
+                            Number = (short)7,
+                            OsmRef = "node/13049500844",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("a47d3c03-c44c-4b40-a285-b98d574a165b"),
+                            Hint = "У реки бьёт вода, которая в реку не течёт.",
+                            Latitude = 52.083022,
+                            Longitude = 23.701407,
+                            Name = "Брызги Мухавца",
+                            Number = (short)8,
+                            OsmRef = "node/4238890791",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("71912e6d-d752-4fd2-b97e-2e7f7f9492c8"),
+                            Hint = "В старом городском саду есть скамья, на которой удобно мириться.",
+                            Latitude = 52.085341,
+                            Longitude = 23.682334000000001,
+                            Name = "Скамья примирения",
+                            Number = (short)9,
+                            OsmRef = "node/9867293107",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("a5729c38-7dc2-4cbe-8a2f-22c1d3e0651b"),
+                            Hint = "Её имя значит «светлая». Ищи у Волгоградской улицы, недалеко от гребного канала.",
+                            Latitude = 52.081395999999998,
+                            Longitude = 23.752575,
+                            Name = "Ясна",
+                            Number = (short)10,
+                            OsmRef = "node/12308889337",
+                            Proposal = true,
+                            Rarity = (short)0,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("ee7240e7-d6f0-455f-a14a-e948d328044b"),
+                            Hint = "Они гребут без лодки и никуда не плывут, хотя вода совсем рядом.",
+                            Latitude = 52.082050000000002,
+                            Longitude = 23.739260999999999,
+                            Name = "Вёсла на суше",
+                            Number = (short)11,
+                            OsmRef = "node/5026997171",
+                            Proposal = true,
+                            Rarity = (short)1,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("ca344498-93f6-4119-802a-e0f92fea4dbd"),
+                            Hint = "Эти груша и яблоко не для еды: они из бетона и растут у улицы имени поэта.",
+                            Latitude = 52.105956999999997,
+                            Longitude = 23.740051999999999,
+                            Name = "Бетонный сад",
+                            Number = (short)12,
+                            OsmRef = "node/10937167443",
+                            Proposal = true,
+                            Rarity = (short)1,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("53a87233-46c7-4b1a-bfd5-c5ebe7b758e8"),
+                            Hint = "Шесть граней будущего у самой длинной улицы города.",
+                            Latitude = 52.095897999999998,
+                            Longitude = 23.742808,
+                            Name = "Шесть граней",
+                            Number = (short)13,
+                            OsmRef = "node/9200336648",
+                            Proposal = true,
+                            Rarity = (short)1,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("f9584e11-f813-4688-b015-4b47234f9766"),
+                            Hint = "Сквер носит имя писательницы, которая писала о Немане. Пройди его по дорожке.",
+                            Latitude = 52.092995999999999,
+                            Longitude = 23.682727,
+                            Name = "Сквер писательницы",
+                            Number = (short)14,
+                            OsmRef = "way/114575106",
+                            Proposal = true,
+                            Rarity = (short)1,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("2f77ffea-e9a9-4ed1-ac30-a923f234e862"),
+                            Hint = "Небольшой сквер к югу от политеха, где тише, чем на Московской.",
+                            Latitude = 52.091813999999999,
+                            Longitude = 23.761987000000001,
+                            Name = "Тихий Гузнянский",
+                            Number = (short)15,
+                            OsmRef = "way/991879991",
+                            Proposal = true,
+                            Rarity = (short)1,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("1f12677e-2c74-4397-bae4-79c3ee1cb14a"),
+                            Hint = "Старое военное слово дало имя тихому скверу к северу от центра.",
+                            Latitude = 52.097808000000001,
+                            Longitude = 23.701319999999999,
+                            Name = "Сквер интенданта",
+                            Number = (short)16,
+                            OsmRef = "way/875741269",
+                            Proposal = true,
+                            Rarity = (short)1,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("678e10dd-89d3-4acd-8747-5a7cebad2f71"),
+                            Hint = "Парк назван в честь круглой даты города. Ищи в его глубине, подальше от улиц.",
+                            Latitude = 52.064715999999997,
+                            Longitude = 23.709900999999999,
+                            Name = "Тысячелетний",
+                            Number = (short)17,
+                            OsmRef = "way/832988462",
+                            Proposal = true,
+                            Rarity = (short)2,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("6de69465-5981-4444-9250-f39104685039"),
+                            Hint = "Парк с самым мирным названием. Его середина — вдали от обеих улиц.",
+                            Latitude = 52.110857000000003,
+                            Longitude = 23.761596999999998,
+                            Name = "Голубь мира",
+                            Number = (short)18,
+                            OsmRef = "way/1000038416",
+                            Proposal = true,
+                            Rarity = (short)2,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("3629fb3c-32ec-45f2-9bcc-bb41c9d1d7a4"),
+                            Hint = "На севере города есть сквер, названный по стороне света. Тропинка в нём без асфальта.",
+                            Latitude = 52.105231000000003,
+                            Longitude = 23.676822000000001,
+                            Name = "Северный ветер",
+                            Number = (short)19,
+                            OsmRef = "way/539306275",
+                            Proposal = true,
+                            Rarity = (short)2,
+                            SetVersion = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("95b5675f-46c7-4d85-a1cc-0c7d1606f186"),
+                            Hint = "Парк назван по стороне света, противоположной Северному скверу. Тайник — там, где дорожки уходят от домов.",
+                            Latitude = 52.059950000000001,
+                            Longitude = 23.735268000000001,
+                            Name = "Южная звезда",
+                            Number = (short)20,
+                            OsmRef = "way/370233804",
+                            Proposal = true,
+                            Rarity = (short)3,
+                            SetVersion = 1
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.CacheFindEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CacheId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cache_id");
+
+                    b.Property<DateTimeOffset>("FoundAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("found_at");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("run_id");
+
+                    b.Property<int>("SetVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("set_version");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("VisibleAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("visible_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_cache_finds");
+
+                    b.HasIndex("RunId")
+                        .HasDatabaseName("ix_cache_finds_run_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_cache_finds_user_id");
+
+                    b.HasIndex("CacheId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_cache_finds_cache_id_user_id");
+
+                    b.ToTable("cache_finds", "app");
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.CaptureEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -985,6 +1357,63 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.InventoryItemEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ActivatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("activated_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateOnly>("GameDay")
+                        .HasColumnType("date")
+                        .HasColumnName("game_day");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<double?>("RemainingMeters")
+                        .HasColumnType("double precision")
+                        .HasColumnName("remaining_meters");
+
+                    b.Property<Guid?>("SourceRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_run_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_inventory_items");
+
+                    b.HasIndex("SourceRunId")
+                        .HasDatabaseName("ix_inventory_items_source_run_id");
+
+                    b.HasIndex("UserId", "ReceivedAt")
+                        .HasDatabaseName("ix_inventory_items_user_id_received_at");
+
+                    b.ToTable("inventory_items", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_inventory_items_expires", "expires_at > received_at");
+
+                            t.HasCheckConstraint("ck_inventory_items_kind", "kind BETWEEN 0 AND 4");
+
+                            t.HasCheckConstraint("ck_inventory_items_remaining", "remaining_meters IS NULL OR remaining_meters >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.InviteEntity", b =>
                 {
                     b.Property<string>("Code")
@@ -1554,6 +1983,18 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
                         .HasColumnName("app_version");
+
+                    b.Property<int>("CachesFailures")
+                        .HasColumnType("integer")
+                        .HasColumnName("caches_failures");
+
+                    b.Property<DateTimeOffset?>("CachesProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("caches_processed_at");
+
+                    b.Property<DateTimeOffset?>("CachesRetryAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("caches_retry_at");
 
                     b.Property<int>("ChunkCount")
                         .HasColumnType("integer")
@@ -2221,6 +2662,30 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.CacheFindEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.CacheEntity", null)
+                        .WithMany()
+                        .HasForeignKey("CacheId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_cache_finds_caches_cache_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.RunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_cache_finds_runs_run_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_cache_finds_users_user_id");
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.CaptureEntity", b =>
                 {
                     b.HasOne("Gorodki.Api.Infrastructure.Persistence.RunEntity", null)
@@ -2419,6 +2884,22 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_hall_of_fame_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.InventoryItemEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.RunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SourceRunId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_inventory_items_runs_source_run_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_inventory_items_users_user_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.LandZoneEntity", b =>
