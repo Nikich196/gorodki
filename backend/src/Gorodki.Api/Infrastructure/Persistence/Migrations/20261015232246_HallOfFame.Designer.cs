@@ -588,6 +588,115 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DuelEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ChallengerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("challenger_id");
+
+                    b.Property<double?>("ChallengerScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("challenger_score");
+
+                    b.Property<Guid?>("ChallengerStakeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("challenger_stake_item_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<short>("Days")
+                        .HasColumnType("smallint")
+                        .HasColumnName("days");
+
+                    b.Property<DateTimeOffset?>("EndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ends_at");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<short?>("Leader")
+                        .HasColumnType("smallint")
+                        .HasColumnName("leader");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<short>("Metric")
+                        .HasColumnType("smallint")
+                        .HasColumnName("metric");
+
+                    b.Property<Guid?>("OpponentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opponent_id");
+
+                    b.Property<double?>("OpponentScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("opponent_score");
+
+                    b.Property<Guid?>("OpponentStakeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opponent_stake_item_id");
+
+                    b.Property<short?>("Outcome")
+                        .HasColumnType("smallint")
+                        .HasColumnName("outcome");
+
+                    b.Property<Guid?>("SegmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("segment_id");
+
+                    b.Property<DateTimeOffset?>("StartsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starts_at");
+
+                    b.Property<short>("Status")
+                        .HasColumnType("smallint")
+                        .HasColumnName("status");
+
+                    b.Property<short?>("WinnerStreak")
+                        .HasColumnType("smallint")
+                        .HasColumnName("winner_streak");
+
+                    b.HasKey("Id")
+                        .HasName("pk_duels");
+
+                    b.HasIndex("ChallengerId")
+                        .HasDatabaseName("ix_duels_challenger_id");
+
+                    b.HasIndex("OpponentId")
+                        .HasDatabaseName("ix_duels_opponent_id");
+
+                    b.HasIndex("Status", "EndsAt")
+                        .HasDatabaseName("ix_duels_status_ends_at");
+
+                    b.ToTable("duels", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_duels_days", "days IN (1, 3, 7)");
+
+                            t.HasCheckConstraint("ck_duels_enums", "metric BETWEEN 0 AND 3 AND status BETWEEN 0 AND 3 AND (outcome IS NULL OR outcome BETWEEN 0 AND 3) AND (leader IS NULL OR leader BETWEEN 1 AND 2)");
+
+                            t.HasCheckConstraint("ck_duels_finished", "(status = 2) = (outcome IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_not_self", "challenger_id <> opponent_id");
+
+                            t.HasCheckConstraint("ck_duels_segment", "(metric = 3) = (segment_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_sides", "status NOT IN (0, 1) OR (challenger_id IS NOT NULL AND opponent_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_duels_started", "status NOT IN (1, 2) OR (starts_at IS NOT NULL AND ends_at IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -759,6 +868,32 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.ToTable("fog_tiles", "app", t =>
                         {
                             t.HasCheckConstraint("ck_fog_tiles_cells", "cell_count BETWEEN 1 AND 65536");
+                        });
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FriendLinkEntity", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<Guid>("FriendId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("friend_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("UserId", "FriendId")
+                        .HasName("pk_friend_links");
+
+                    b.HasIndex("FriendId")
+                        .HasDatabaseName("ix_friend_links_friend_id");
+
+                    b.ToTable("friend_links", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_friend_links_not_self", "user_id <> friend_id");
                         });
                 });
 
@@ -1701,9 +1836,10 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         new
                         {
                             Number = 0,
-                            CleanStart = true,
+                            CleanStart = false,
                             Name = "Сезон 0 (бета)",
-                            StartsAt = new DateTimeOffset(new DateTime(2026, 11, 15, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                            ResetAt = new DateTimeOffset(new DateTime(2026, 10, 14, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            StartsAt = new DateTimeOffset(new DateTime(2026, 10, 14, 21, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
                         },
                         new
                         {
@@ -1791,6 +1927,11 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(24)")
                         .HasColumnName("display_name");
 
+                    b.Property<string>("FriendCode")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("friend_code");
+
                     b.Property<DateTimeOffset?>("FrozenUntil")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("frozen_until");
@@ -1826,6 +1967,11 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_users_apple_subject")
                         .HasFilter("apple_subject IS NOT NULL");
+
+                    b.HasIndex("FriendCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_users_friend_code")
+                        .HasFilter("friend_code IS NOT NULL");
 
                     b.HasIndex("GoogleSubject")
                         .IsUnique()
@@ -1929,6 +2075,21 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_district_tiles_districts_district_id");
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.DuelEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ChallengerId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_duels_users_challenger_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("OpponentId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_duels_users_opponent_id");
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FeedPostEntity", b =>
                 {
                     b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
@@ -1993,6 +2154,23 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_fog_tiles_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.FriendLinkEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("FriendId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_friend_links_users_friend_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_friend_links_users_user_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.HallOfFameEntity", b =>
