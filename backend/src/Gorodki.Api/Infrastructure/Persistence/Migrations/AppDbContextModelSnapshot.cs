@@ -919,6 +919,72 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                     b.ToTable("game_configs", "app");
                 });
 
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.HallOfFameEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid?>("ClanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("clan_id");
+
+                    b.Property<string>("ClanName")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("clan_name");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint")
+                        .HasColumnName("kind");
+
+                    b.Property<short>("League")
+                        .HasColumnType("smallint")
+                        .HasColumnName("league");
+
+                    b.Property<int>("Place")
+                        .HasColumnType("integer")
+                        .HasColumnName("place");
+
+                    b.Property<int>("Season")
+                        .HasColumnType("integer")
+                        .HasColumnName("season");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("Value")
+                        .HasColumnType("integer")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_hall_of_fame");
+
+                    b.HasIndex("ClanId")
+                        .HasDatabaseName("ix_hall_of_fame_clan_id");
+
+                    b.HasIndex("Season")
+                        .HasDatabaseName("ix_hall_of_fame_season");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_hall_of_fame_user_id");
+
+                    b.ToTable("hall_of_fame", "app", t =>
+                        {
+                            t.HasCheckConstraint("ck_hall_of_fame_kind", "(kind = 0 AND clan_id IS NULL AND clan_name IS NULL) OR (kind = 1 AND user_id IS NULL AND place = 1 AND clan_name IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_hall_of_fame_place", "place BETWEEN 1 AND 3 AND value >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.InviteEntity", b =>
                 {
                     b.Property<string>("Code")
@@ -1521,6 +1587,18 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("fog_new_cells");
 
+                    b.Property<int?>("FogNewReachableCells")
+                        .HasColumnType("integer")
+                        .HasColumnName("fog_new_reachable_cells");
+
+                    b.Property<double?>("FogNewSquareMeters")
+                        .HasColumnType("double precision")
+                        .HasColumnName("fog_new_square_meters");
+
+                    b.Property<int?>("FogOsmSet")
+                        .HasColumnType("integer")
+                        .HasColumnName("fog_osm_set");
+
                     b.Property<DateTimeOffset?>("FogRetryAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fog_retry_at");
@@ -2090,6 +2168,21 @@ namespace Gorodki.Api.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_friend_links_users_user_id");
+                });
+
+            modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.HallOfFameEntity", b =>
+                {
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.ClanEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ClanId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_hall_of_fame_clans_clan_id");
+
+                    b.HasOne("Gorodki.Api.Infrastructure.Persistence.UserEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_hall_of_fame_users_user_id");
                 });
 
             modelBuilder.Entity("Gorodki.Api.Infrastructure.Persistence.LandZoneEntity", b =>

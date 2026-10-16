@@ -1,8 +1,12 @@
 using System.Security.Claims;
+using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
+using Gorodki.Api.Features.Leaderboards;
+using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
 using Gorodki.Domain.Leagues;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
 
 namespace Gorodki.Api.Features.HallOfFame;
 
@@ -37,8 +41,9 @@ public sealed record HallOfFameResponse(IReadOnlyList<HallOfFameSeason> Seasons)
 
 /// <summary>
 /// Зал славы (PLAN.md, §3.4: «снимок карты, топ-3, топ-клан; при удалении аккаунта игрок обезличивается»). Снимок —
-/// один раз на сезон по его итогу (<c>ScoreBook.FinalTotalsAsync</c>, начисления, видимые на момент закрытия — 04:00 первого
-/// дня следующего сезона). Задача Егора E8 (docs/guides/egor-server.md, раздел 7).
+/// один раз на сезон по его итогу (<see cref="HallOfFameSnapshots"/>: <c>ScoreBook.FinalTotalsAsync</c>, начисления, видимые
+/// на момент закрытия — 04:00 первого дня следующего сезона). Задача E8 (#137, docs/guides/egor-server.md, раздел 7) —
+/// сделано Claude 15.10 по решению Никиты. «Снимок карты» в контракте не предусмотрен — только места.
 /// </summary>
 public static class HallOfFameEndpoints
 {
@@ -56,16 +61,71 @@ public static class HallOfFameEndpoints
         return app;
     }
 
-    private static Task<Ok<HallOfFameResponse>> GetHallOfFame(
-        ClaimsPrincipal principal, AppDbContext db, CancellationToken cancellationToken)
+    private static async Task<Ok<HallOfFameResponse>> GetHallOfFame(
+        ClaimsPrincipal principal, AppDbContext db, SeasonStore seasons, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #137 (Егор): таблица Зала славы (сезон, лига, вид, место 1–3, игрок — может быть пустым, клан, значение) и
-        // её снимок: задача Hangfire, один раз на сезон, когда ScoreBook.FinalTotalsAsync не null (сезон закрыт) и смена на
-        // следующий сезон выполнена (seasons.reset_at); повтор ничего не меняет. Не по reset_at и не по «сейчас» (карточка E8).
-        // Удаление аккаунта — обезличить (игрок → null), строку не удалять. Имя — читать при запросе по правилу карточки
-        // игрока (#115): согласие меняется. Значение топ-клана (например, сумма очков участников) — уточнит Никита.
-        // Тесты — HallOfFameTests.
-        _ = (principal, db, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #137");
+        var viewer = principal.UserId();
+        var calendar = await seasons.CalendarAsync(cancellationToken);
+
+        // Сезоны в Зале — те, чей снимок сделан (HallOfFameSnapshots): только закрытые; новые сверху.
+        var snapped = await db.JobRuns.AsNoTracking()
+            .Where(j => j.Job == HallOfFameSnapshots.Job)
+            .OrderByDescending(j => j.Key)
+            .Select(j => j.Key)
+            .ToListAsync(cancellationToken);
+        var myClan = await db.ClanMembers.AsNoTracking()
+            .Where(m => m.UserId == viewer)
+            .Select(m => (Guid?)m.ClanId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        // Ник — по правилу карточки игрока (#115), на момент запроса: согласие меняется. Аккаунт удаляется — строка уже
+        // без игрока, как после удаления (тогда база сама ставит user_id = null).
+        var rows = await db.HallOfFame.AsNoTracking()
+            .Where(h => snapped.Contains(h.Season))
+            .Select(h => new
+            {
+                h.Id,
+                h.Season,
+                h.League,
+                h.Kind,
+                h.Place,
+                h.Value,
+                h.ClanId,
+                h.ClanName,
+                Player = db.Users
+                    .Where(u => u.Id == h.UserId && u.DeletionRequestedAt == null)
+                    .Select(u => new { u.Id, u.DisplayName, u.PublicProfile })
+                    .FirstOrDefault(),
+                ClanNow = db.Clans.Where(c => c.Id == h.ClanId).Select(c => c.Name).FirstOrDefault(),
+            })
+            .ToListAsync(cancellationToken);
+
+        // У клана «это ты» — спрашивающий сейчас в нём.
+        HallOfFameEntry Entry(
+            HallOfFameKind kind, League league, int place, int value, Guid? playerId, string? playerName, Guid? clanId, string? clanName) =>
+            kind == HallOfFameKind.Player
+                ? new(kind, league, place, playerId, null, playerName, value, playerId is not null && playerId == viewer)
+                : new(kind, league, place, null, clanId, clanName, value, clanId is not null && clanId == myClan);
+
+        return TypedResults.Ok(new HallOfFameResponse([.. snapped.Select(season => new HallOfFameSeason(
+            season,
+            calendar.Seasons.FirstOrDefault(s => s.Number == season)?.Name ?? $"Сезон {season}",
+            [.. rows
+                .Where(r => r.Season == season)
+                .OrderBy(r => r.League)
+                .ThenBy(r => r.Kind)
+                .ThenBy(r => r.Place)
+                .ThenBy(r => r.Id)
+                .Select(r => Entry(
+                    r.Kind,
+                    r.League,
+                    r.Place,
+                    r.Value,
+                    r.Player?.Id,
+                    r.Player is null
+                        ? null
+                        : r.Player.Id == viewer || r.Player.PublicProfile ? r.Player.DisplayName : LeaderboardEndpoints.Pseudonym(r.Player.Id),
+                    r.ClanId,
+                    r.ClanNow ?? r.ClanName))]))]));
     }
 }

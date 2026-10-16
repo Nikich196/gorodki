@@ -1,3 +1,4 @@
+using CsCheck;
 using Gorodki.Domain.Fog;
 using Gorodki.Domain.Osm;
 
@@ -76,6 +77,48 @@ public sealed class ReachableAreaTests
         Assert.Equal(100, reachable.ShareOf(bike).Percent, 9);
         Assert.Equal(100, total.Percent, 9); // сумма дала бы 170 %
         Assert.Equal(4, foot[A].CountAnd(bike[A]));
+    }
+
+    [Fact]
+    public void A_run_counts_only_reachable_cells_new_to_both_layers()
+    {
+        var reachable = Reachable();
+        var before = Bits(0); // в этом слое клетка 0 уже открыта
+        var bike = Bits(1); // клетка 1 открыта на велосипеде — для «Всего» она не новая
+
+        Assert.Equal(2, reachable.NewCells(A, Bits(0, 1, 2, 3, 60_000), before, bike)); // клетки 2 и 3; 60 000 — не достижима
+        Assert.Equal(4, reachable.NewCells(A, Bits(0, 1, 2, 3), null, null)); // новый тайл, другого слоя нет
+        Assert.Equal(0, reachable.NewCells(Outside, Bits(5, 6), null, null)); // пригород в процент не идёт
+    }
+
+    [Fact]
+    public void New_cells_of_the_runs_add_up_to_the_growth_of_the_total_share()
+    {
+        // Карточка недели (§3.15) складывает «новые достижимые» клетки забегов недели: сумма обязана совпасть с приростом
+        // числителя «Всего» (объединения слоёв) между началом и концом — с любой землёй «до» и в любом порядке забегов.
+        var tiles = new[] { A, B, Outside };
+        var bits = Gen.Int[0, 700].Array[0, 40];
+        var stamp = from foot in Gen.Bool from tile in Gen.Int[0, 2] from cells in bits select (Foot: foot, Tile: tiles[tile], Cells: cells);
+        var cases = from footBefore in bits from bikeBefore in bits from runs in stamp.Array[0, 8] select (footBefore, bikeBefore, runs);
+
+        cases.Sample(c =>
+        {
+            var reachable = Reachable();
+            var foot = new Dictionary<FogTileKey, FogTileBits> { [A] = Bits(c.footBefore) };
+            var bike = new Dictionary<FogTileKey, FogTileBits> { [B] = Bits(c.bikeBefore) };
+            var start = reachable.ShareOfUnion([foot, bike]).OpenedCells;
+            var counted = 0;
+            foreach (var run in c.runs)
+            {
+                var (layer, other) = run.Foot ? (foot, bike) : (bike, foot);
+                var added = Bits(run.Cells);
+                counted += reachable.NewCells(run.Tile, added, layer.GetValueOrDefault(run.Tile), other.GetValueOrDefault(run.Tile));
+                layer.TryAdd(run.Tile, new FogTileBits());
+                layer[run.Tile].UnionWith(added);
+            }
+
+            Assert.Equal(reachable.ShareOfUnion([foot, bike]).OpenedCells - start, counted);
+        }, iter: 2_000);
     }
 
     [Fact]

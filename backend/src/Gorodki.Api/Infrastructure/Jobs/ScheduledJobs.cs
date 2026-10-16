@@ -1,6 +1,7 @@
 using Gorodki.Api.Features.Admin;
 using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Duels;
+using Gorodki.Api.Features.HallOfFame;
 using Gorodki.Api.Features.Leaderboards;
 using Gorodki.Api.Features.Seasons;
 using Gorodki.Api.Infrastructure.Persistence;
@@ -85,6 +86,12 @@ public static class ScheduledJobs
     /// <summary>Расписание судьи дуэлей — каждые 15 минут.</summary>
     public const string DuelsCron = "*/15 * * * *";
 
+    /// <summary>
+    /// Зал славы (PLAN.md, §3.4, #137): каждый час по Минску; сезон попадает в Зал один раз — в момент закрытия (04:00 первого
+    /// дня следующего) или позже, когда и смена на следующий сезон выполнена (<see cref="HallOfFameSnapshots"/>).
+    /// </summary>
+    public const string HallOfFameJob = "hall-of-fame";
+
     public static bool IsEnabled(IConfiguration configuration) => configuration.GetValue(EnabledSetting, defaultValue: true);
 
     public static IServiceCollection AddScheduledJobs(this IServiceCollection services, string connectionString)
@@ -154,6 +161,7 @@ public static class ScheduledJobs
         jobs.AddOrUpdate<TerritorySnapshots>(TerritorySnapshotJob, t => t.RunIfDueAsync(CancellationToken.None), EveryFiveMinutes, minsk);
         jobs.AddOrUpdate<LeaderboardSnapshots>(ExplorationSnapshotJob, s => s.RefreshAsync(CancellationToken.None), EveryFiveMinutes, minsk);
         jobs.AddOrUpdate<DuelReferee>(DuelsJob, d => d.RunAsync(CancellationToken.None), DuelsCron, minsk);
+        jobs.AddOrUpdate<HallOfFameSnapshots>(HallOfFameJob, h => h.RunIfDueAsync(CancellationToken.None), Cron.Hourly(), minsk);
     }
 
     /// <summary>Строка подключения Hangfire: та же база, свой пул на <see cref="MaxPoolSize"/> и своё имя в <c>pg_stat_activity</c>.</summary>

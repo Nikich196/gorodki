@@ -1,4 +1,5 @@
 using Gorodki.Api.Features.Duels;
+using Gorodki.Api.Features.HallOfFame;
 using Gorodki.Api.Features.Social;
 using Gorodki.Domain.Clans;
 using Gorodki.Domain.Duels;
@@ -220,6 +221,22 @@ public sealed class RunEntity
 
     /// <summary>Сколько новых клеток тумана открыл забег — для итога «+N га»; 0 и у забега, помеченного очисткой истории.</summary>
     public int? FogNewCells { get; set; }
+
+    /// <summary>
+    /// Площадь новых клеток (<see cref="FogNewCells"/>), м²: у каждой клетки — своя площадь на широте её тайла. «+N га» в
+    /// карточке недели (PLAN.md, §3.15). У забегов, открывших туман до 16.10, — оценка по площади клетки в Бресте (миграция).
+    /// </summary>
+    public double? FogNewSquareMeters { get; set; }
+
+    /// <summary>
+    /// Сколько клеток «достижимого» города набора <see cref="FogOsmSet"/> забег открыл впервые для «Всего» (ни в этом слое,
+    /// ни в другом за всё время) — прирост числителя пожизненного «% Бреста» (карточка недели, §3.15). <c>null</c> — набора
+    /// не было или туман открыт до 16.10.
+    /// </summary>
+    public int? FogNewReachableCells { get; set; }
+
+    /// <summary>Набор OSM, по «достижимому» которого посчитано <see cref="FogNewReachableCells"/>.</summary>
+    public int? FogOsmSet { get; set; }
 
     /// <summary>Когда засчитаны визиты забега (≥50 м следа внутри своего куска, PLAN.md §3.3) — один раз за забег.</summary>
     public DateTimeOffset? VisitsProcessedAt { get; set; }
@@ -1105,4 +1122,39 @@ public sealed class DuelEntity
     /// <c>null</c> — поровну. Обновляет задача <c>DuelReferee</c>.
     /// </summary>
     public DuelSideKind? Leader { get; set; }
+}
+
+// ── Зал славы (PLAN.md, §3.4; задача #137, E8) ──
+
+/// <summary>
+/// Строка Зала славы — снимок итога закрытого сезона (<c>HallOfFameSnapshots</c>, один раз на сезон): места 1–3 игроков и
+/// первое место клана по лиге. Ник здесь не хранится — его читают при запросе по согласию игрока (оно меняется). Игрок удалил
+/// аккаунт — строка остаётся обезличенной (<see cref="UserId"/> → <c>null</c>, PLAN.md §3.4).
+/// </summary>
+public sealed class HallOfFameEntity
+{
+    public long Id { get; set; }
+
+    public int Season { get; set; }
+
+    public League League { get; set; }
+
+    public HallOfFameKind Kind { get; set; }
+
+    /// <summary>Место: 1–3 у игроков, 1 у клана; одинаковые очки — одинаковое место (1, 2, 2).</summary>
+    public int Place { get; set; }
+
+    /// <summary>Игрок; <c>null</c> — у клана или игрок удалил аккаунт (база ставит <c>null</c> сама при удалении).</summary>
+    public Guid? UserId { get; set; }
+
+    /// <summary>Клан; <c>null</c> — у игрока или клана больше нет (распался — база ставит <c>null</c> сама).</summary>
+    public Guid? ClanId { get; set; }
+
+    /// <summary>Название клана на момент снимка: показывается, когда клана больше нет (пока он есть — нынешнее).</summary>
+    public string? ClanName { get; set; }
+
+    /// <summary>Очки сезона — итог на момент закрытия (у клана — сумма итогов участников).</summary>
+    public int Value { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
 }

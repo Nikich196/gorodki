@@ -86,7 +86,7 @@ public sealed class FogPercentTests(DatabaseFixture database)
             "leninsky", DistrictKind.District, "Ленинский район", null, false, outline, 1_000_000,
             new SortedDictionary<FogTileKey, FogTileBits> { [tile] = opened });
         var cityDistrict = new DistrictData("city", DistrictKind.City, "Брест", null, false, outline, 2_000_000, city);
-        await ImportAsync(version, city, [cityDistrict, district]);
+        await ImportSetAsync(database, version, city, [cityDistrict, district], Cancel);
         await UseFromYear2200Async(api, version);
 
         var summary = (await anna.GetFromJsonAsync<FogSummaryResponse>("/fog/summary", Json, Cancel))!;
@@ -104,7 +104,108 @@ public sealed class FogPercentTests(DatabaseFixture database)
         Assert.Equal((double?)0, theirs.Layers.Single(l => l.Layer == FogLayerKind.Foot && l.Season is null).BrestPercent);
     }
 
+    [Fact]
+    public async Task A_run_remembers_its_new_area_and_the_reachable_cells_it_opened_first_for_both_layers()
+    {
+        // Карточка недели (§3.15) складывает эти числа по забегам недели: площадь — «+N га», «новые достижимые» клетки —
+        // прирост пожизненного «% Бреста» «Всего» (оба слоя, osm-pipeline.md, вопрос 6.10).
+        database.RequireDatabase();
+        await using var api = new ApiFactory(database);
+        var (anna, annaId) = await api.CreatePlayerClientAsync();
+        var area = NewArea();
+        var first = await WalkAndFinishAsync(Cancel, api, anna, Square(area, 0, 0, 100));
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        var second = await WalkAndFinishAsync(Cancel, api, anna, Square(area, 40, 40, 100));
+        api.Time.Advance(TimeSpan.FromMinutes(30));
+        var third = await WalkAndFinishAsync(Cancel, api, anna, Square(area, -40, 80, 100));
+
+        // Набора нет: площадь записана (у каждой клетки — площадь на широте её тайла), «достижимых» нет.
+        await StampAsync(api, first.Id);
+        var opened = await FootTilesAsync(annaId);
+        var afterFirst = await RunAsync(first.Id);
+        var expectedArea = opened.Sum(t => t.Value.Count * FogTileCodec.CellAreaSquareMeters(t.Key));
+        Assert.InRange(afterFirst.FogNewSquareMeters!.Value, expectedArea - 0.11, expectedArea + 0.11);
+        Assert.Equal((null, (int?)null), (afterFirst.FogNewReachableCells, afterFirst.FogOsmSet));
+
+        // «Достижимое» — тайлы первого забега и их соседи целиком: всё, что откроют следующие забеги рядом, достижимо.
+        var city = new SortedDictionary<FogTileKey, FogTileBits>();
+        foreach (var key in opened.Keys)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                for (var dy = -1; dy <= 1; dy++)
+                {
+                    city.TryAdd(new FogTileKey(key.X + dx, key.Y + dy), Full());
+                }
+            }
+        }
+
+        var version = Interlocked.Increment(ref _nextSet);
+        var outline = GeoOps.Factory.CreateMultiPolygon([new TileKey(684, 5775).ToPolygon()]);
+        await ImportSetAsync(database, version, city, [new DistrictData("city", DistrictKind.City, "Брест", null, false, outline, 2_000_000, city)], Cancel);
+        await UseFromYear2200Async(api, version);
+
+        // Второй забег: каждая новая клетка достижима и нова для «Всего».
+        await StampAsync(api, second.Id);
+        var afterSecond = await RunAsync(second.Id);
+        var grown = (await FootTilesAsync(annaId)).Where(t => city.ContainsKey(t.Key)).Sum(t => t.Value.Count)
+            - opened.Where(t => city.ContainsKey(t.Key)).Sum(t => t.Value.Count);
+        Assert.True(grown > 0);
+        Assert.Equal((afterSecond.FogNewCells, (int?)version), (afterSecond.FogNewReachableCells, afterSecond.FogOsmSet));
+        Assert.Equal(grown, afterSecond.FogNewReachableCells);
+
+        // Всё «достижимое» уже открыто на велосипеде: третий забег открывает новое пешком, но для «Всего» — ничего.
+        await using (var db = database.CreateContext())
+        {
+            db.FogTiles.AddRange(city.Keys.Select(key => new FogTileEntity
+            {
+                UserId = annaId,
+                Layer = FogLayerKind.Bike,
+                Season = SeasonCalendar.AllTime,
+                TileX = key.X,
+                TileY = key.Y,
+                Bits = FogTileCodec.Compress(Full()),
+                CellCount = FogTileBits.WordCount * 64,
+                Version = 1,
+                UpdatedAt = api.Time.GetUtcNow(),
+            }));
+            await db.SaveChangesAsync(Cancel);
+        }
+
+        await StampAsync(api, third.Id);
+        var afterThird = await RunAsync(third.Id);
+        Assert.True(afterThird.FogNewCells > 0);
+        Assert.Equal((0, (int?)version), (afterThird.FogNewReachableCells, afterThird.FogOsmSet));
+    }
+
     // MARK: — вспомогательное
+
+    private static FogTileBits Full()
+    {
+        var bits = new FogTileBits();
+        for (var cell = 0; cell < FogTileBits.WordCount * 64; cell++)
+        {
+            bits.Set(cell);
+        }
+
+        return bits;
+    }
+
+    private async Task<RunEntity> RunAsync(Guid runId)
+    {
+        await using var db = database.CreateContext();
+        return await db.Runs.AsNoTracking().SingleAsync(r => r.Id == runId, Cancel);
+    }
+
+    /// <summary>Пешеходный туман игрока за всё время по тайлам.</summary>
+    private async Task<Dictionary<FogTileKey, FogTileBits>> FootTilesAsync(Guid userId)
+    {
+        await using var db = database.CreateContext();
+        return (await db.FogTiles.AsNoTracking()
+                .Where(f => f.UserId == userId && f.Layer == FogLayerKind.Foot && f.Season == SeasonCalendar.AllTime)
+                .ToListAsync(Cancel))
+            .ToDictionary(f => new FogTileKey(f.TileX, f.TileY), f => FogTileCodec.Decompress(f.Bits));
+    }
 
     private static async Task StampAsync(ApiFactory api, Guid runId)
     {
@@ -112,7 +213,13 @@ public sealed class FogPercentTests(DatabaseFixture database)
         Assert.True(await scope.ServiceProvider.GetRequiredService<FogProcessor>().StampRunAsync(runId, CancellationToken.None) > 0);
     }
 
-    private async Task ImportAsync(int version, SortedDictionary<FogTileKey, FogTileBits> reachable, IReadOnlyList<DistrictData> districts)
+    /// <summary>Набор OSM в базу теста: только «достижимое» и районы (масок и землепользования нет, играть можно везде).</summary>
+    internal static async Task ImportSetAsync(
+        DatabaseFixture database,
+        int version,
+        SortedDictionary<FogTileKey, FogTileBits> reachable,
+        IReadOnlyList<DistrictData> districts,
+        CancellationToken cancel)
     {
         var data = new OsmSetData
         {
@@ -131,7 +238,7 @@ public sealed class FogPercentTests(DatabaseFixture database)
         var content = new OsmSetFileContent(
             version, data, source, OsmSetFile.Metadata(version, data, parameters, source, fingerprint, builtAt), fingerprint, builtAt);
         await using var db = database.CreateContext();
-        Assert.Equal(SetImporter.Outcome.Imported, await SetImporter.ImportAsync(db, content, DateTimeOffset.UtcNow, Cancel));
+        Assert.Equal(SetImporter.Outcome.Imported, await SetImporter.ImportAsync(db, content, DateTimeOffset.UtcNow, cancel));
     }
 
     /// <summary>Конфиг с набором действует с 2200 года (для остальных тестов — никогда), часы теста — туда же.</summary>
