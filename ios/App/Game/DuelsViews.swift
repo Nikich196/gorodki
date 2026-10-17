@@ -278,7 +278,6 @@ private struct NewDuelSheet: View {
 }
 
 extension DuelInfo {
-    /// Вызов пришёл мне и ждёт ответа. ЗАДАЧА #147: сервер добавляет поле `incoming` — до него ждущий ответа вызов
-    /// считается входящим (принять свой же вызов сервер не даст — ответит 409).
-    var isIncoming: Bool { status == .pending }
+    /// Вызов пришёл мне и ждёт ответа — поле сервера `incoming` (#147).
+    var isIncoming: Bool { status == .pending && incoming }
 }

@@ -54,7 +54,7 @@ final class SoundBoard {
         case .tap, .toggle: 0.35
         case .swoosh: 0.45
         case .chime: 0.55
-        case .start, .capture, .rank: 0.8
+        case .start, .capture, .rank, .reveal: 0.8
         }
     }
 }
@@ -94,6 +94,27 @@ final class Haptics {
             [
                 swell, transient(at: 0.44, intensity: 1, sharpness: 1),
                 transient(at: 0.6, intensity: 0.5, sharpness: 0.6),
+            ],
+            curves: [curve], fallback: .success)
+    }
+
+    /// Награда (`RewardRevealView`): гул нарастает 0,8 с, пока карточка «заряжается», на перевороте — сильный удар и два
+    /// лёгких отголоска искр. В такт звуку `reveal`.
+    func reveal() {
+        let charge = CHHapticEvent(
+            eventType: .hapticContinuous,
+            parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.7),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.2),
+            ], relativeTime: 0, duration: 0.8)
+        let curve = CHHapticParameterCurve(
+            parameterID: .hapticIntensityControl,
+            controlPoints: [.init(relativeTime: 0, value: 0.1), .init(relativeTime: 0.78, value: 1)], relativeTime: 0)
+        play(
+            [
+                charge, transient(at: 0.82, intensity: 1, sharpness: 1),
+                transient(at: 0.98, intensity: 0.45, sharpness: 0.8),
+                transient(at: 1.12, intensity: 0.3, sharpness: 0.9),
             ],
             curves: [curve], fallback: .success)
     }

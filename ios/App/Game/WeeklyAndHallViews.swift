@@ -15,6 +15,7 @@ struct WeeklyCardScreen: View {
             ScrollView {
                 VStack(spacing: 18) {
                     WeeklyCardArt(card: card)
+                        .modifier(CardEntrance())
                     if let image = render(card) {
                         ShareLink(
                             item: image, preview: SharePreview("Моя неделя в «Городках»", image: image)
@@ -203,5 +204,40 @@ private struct HallRow: View {
         .frame(minHeight: 56)
         .background(entry.me ? Brand.ember.day.color.opacity(0.10) : .clear)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Появление карточки (дизайн-проход 16.10): разворачивается из наклона с пружиной, по ней пробегает блик, лёгкий удар
+/// вибрации и колокольчик. «Уменьшить движение» — просто на месте.
+struct CardEntrance: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.brandSound) private var sound
+    @State private var shown = false
+    @State private var shine: CGFloat = -1
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                GeometryReader { proxy in
+                    LinearGradient(
+                        colors: [.clear, .white.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(width: proxy.size.width * 0.45)
+                    .rotationEffect(.degrees(20))
+                    .offset(x: shine * proxy.size.width * 1.6)
+                }
+                .clipShape(.rect(cornerRadius: 28, style: .continuous))
+                .allowsHitTesting(false)
+            }
+            .rotation3DEffect(.degrees(shown || reduceMotion ? 0 : 65), axis: (x: 1, y: -0.3, z: 0), perspective: 0.5)
+            .scaleEffect(shown || reduceMotion ? 1 : 0.86)
+            .opacity(shown || reduceMotion ? 1 : 0)
+            .sensoryFeedback(.impact(weight: .medium), trigger: shown)
+            .onAppear {
+                guard !shown else { return }
+                withAnimation(.spring(duration: 0.75, bounce: 0.3)) { shown = true }
+                withAnimation(.easeInOut(duration: 1.0).delay(0.45)) { shine = 1 }
+                sound.play(.chime)
+            }
     }
 }

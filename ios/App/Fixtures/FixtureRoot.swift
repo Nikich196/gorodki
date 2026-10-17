@@ -55,6 +55,9 @@ struct FixtureRoot: View {
             .notifications,
             .assignment:
             SheetFixtureScreen(screen: screen)
+        case .reveal:
+            RewardRevealView(reward: Reward.sample) {}
+                .background { Color.clear.atmosphereBackground() }
         case .kings, .segment, .duels, .backpack, .collection, .weekly, .hallOfFame, .achievements:
             NavigationStack {
                 gameScreen

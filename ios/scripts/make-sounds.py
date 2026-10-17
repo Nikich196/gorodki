@@ -11,6 +11,7 @@
 - swoosh  — листание интро: «свуш» шума с плывущим фильтром;
 - tap     — нажатие главной кнопки: тихий щелчок;
 - toggle  — отметка: двойной «поп».
+- reveal  — награда: «свуш» нарастает 0,8 с и раскрывается колокольным аккордом (карточка переворачивается).
 """
 
 import math
@@ -141,6 +142,25 @@ def toggle():
     return out
 
 
+def reveal():
+    rnd = random.Random(16)
+    out = silence(2.0)
+    rise = 0.8
+    n = int(RATE * rise)
+    low = 0.0
+    sweep = []
+    for i in range(n):
+        t = i / n
+        cutoff = 200 + 4200 * t * t  # фильтр поднимается — «заряд»
+        alpha = 1 - math.exp(-2 * math.pi * cutoff / RATE)
+        low += alpha * (rnd.uniform(-1, 1) - low)
+        sweep.append(low * (t ** 1.6) * 0.9)
+    mix(out, sweep, 0.0)
+    for index, freq in enumerate((659.25, 830.61, 987.77, 1318.5)):
+        mix(out, [v * (0.75 + 0.08 * index) for v in bell(freq, 1.15, decay=0.5)], 0.8 + index * 0.05)
+    return out
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     write("start", start(), 0.7)
@@ -150,3 +170,4 @@ if __name__ == "__main__":
     write("swoosh", swoosh(), 0.4)
     write("tap", tap(), 0.35)
     write("toggle", toggle(), 0.35)
+    write("reveal", reveal(), 0.65)

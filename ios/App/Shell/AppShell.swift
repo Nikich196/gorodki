@@ -50,6 +50,14 @@ struct AppShell: View {
             InboxSheet(model: model.social.inbox)
                 .navigationTransition(.zoom(sourceID: SocialTransitionID.inbox, in: runTransition))
         }
+        // Новая награда (достижение, тайник, корона) — карточка с анимацией поверх всего, по одной.
+        .overlay {
+            if let reward = model.social.game.rewards.first {
+                RewardRevealView(reward: reward) { model.social.game.rewardShown() }
+                    .id(reward.id)
+                    .transition(.opacity)
+            }
+        }
         .environment(\.runScreens, model.run)
         .environment(model.social)
         .environment(\.runTransition, runTransition)

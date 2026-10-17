@@ -1,3 +1,4 @@
+import DesignSystem
 import Foundation
 import GorodkiAPI
 import Observation
@@ -14,6 +15,11 @@ enum Loadable<Value> {
 
     var failure: SocialFailure? {
         if case .failed(let failure) = self { failure } else { nil }
+    }
+
+    /// Источник ответил — загрузилось или нет.
+    var isSettled: Bool {
+        if case .idle = self { false } else { true }
     }
 }
 
@@ -37,6 +43,8 @@ final class GameModel {
     var actionError: String?
     /// Идёт действие — кнопки ждут.
     private(set) var busy = false
+    /// Новые награды в очереди показа (`RewardRevealView` поверх приложения) — по одной, каждая один раз.
+    private(set) var rewards: [Reward] = []
 
     @ObservationIgnored let source: (any GameBackend)?
 
@@ -57,7 +65,12 @@ final class GameModel {
 
     func loadStreak() async { streak = await fetch { try await $0.streak() } }
     func loadInventory() async { inventory = await fetch { try await $0.inventory() } }
-    func loadCollection() async { collection = await fetch { try await $0.collection() } }
+    func loadCollection() async {
+        collection = await fetch { try await $0.collection() }
+        if let caches = collection.value?.caches {
+            offer(caches.compactMap(Self.reward), kind: "caches")
+        }
+    }
     func loadWeekly() async { weekly = await fetch { try await $0.weekly(week: nil) } }
     func loadHallOfFame() async { hallOfFame = await fetch { try await $0.hallOfFame() } }
     func loadDuels() async { duels = await fetch { try await $0.duels() } }
@@ -65,6 +78,43 @@ final class GameModel {
     func loadSegments() async {
         let league = kingsLeague
         segments = await fetch { try await $0.segments(league: league) }
+        if let list = segments.value {
+            offer(list.segments.compactMap { Self.crown($0, league: list.league) }, kind: "crowns")
+        }
+    }
+
+    // MARK: - Награды
+
+    /// Новые награды — в очередь показа; уже показанные и уже стоящие в очереди — нет.
+    func offer(_ list: [Reward], kind: String) {
+        let fresh = SeenRewards.unseen(list, kind: kind).filter { reward in !rewards.contains { $0.id == reward.id } }
+        rewards += fresh
+    }
+
+    /// Награду показали и забрали — следующая.
+    func rewardShown() {
+        guard let first = rewards.first else { return }
+        SeenRewards.markSeen(first.id)
+        rewards.removeFirst()
+    }
+
+    private static func reward(_ cache: CacheBadge) -> Reward? {
+        guard cache.foundAtMs != nil else { return nil }
+        return Reward(
+            id: "cache:\(cache.id)", symbol: cache.rarity.symbol, color: cache.rarity.color,
+            label: cache.rarity.title.uppercased() + " ТАЙНИК", title: cache.name ?? "Тайник",
+            subtitle: cache.goldFrame
+                ? "Ты нашёл его первым — золотая рамка" : cache.finderNumber.map { "№ \($0) нашедших" } ?? "Найден")
+    }
+
+    private static func crown(_ segment: Components.Schemas.SegmentSummary, league: Components.Schemas.League)
+        -> Reward?
+    {
+        guard let crown = segment.seasonCrown, crown.me else { return nil }
+        return Reward(
+            id: "crown:\(segment.id):\(league.rawValue)", symbol: "crown.fill", color: Brand.amber.day.color,
+            label: "КОРОНА СЕЗОНА", title: segment.name,
+            subtitle: "Лучшее время: " + SegmentTime.text(milliseconds: crown.timeMs))
     }
 
     /// Всё для строк раздела «Игра» в профиле — параллельно.
@@ -73,7 +123,8 @@ final class GameModel {
         async let inventory: Void = loadInventory()
         async let collection: Void = loadCollection()
         async let duels: Void = loadDuels()
-        _ = await (streak, inventory, collection, duels)
+        async let segments: Void = loadSegments()
+        _ = await (streak, inventory, collection, duels, segments)
     }
 
     // MARK: - Действия
