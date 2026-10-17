@@ -1,3 +1,4 @@
+using Gorodki.Api.Features.Collection;
 using Gorodki.Domain.Geo;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
@@ -90,6 +91,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<SegmentEffortEntity> SegmentEfforts => Set<SegmentEffortEntity>();
 
     public DbSet<SegmentDethronementEntity> SegmentDethronements => Set<SegmentDethronementEntity>();
+
+    public DbSet<CacheEntity> Caches => Set<CacheEntity>();
+
+    public DbSet<CacheFindEntity> CacheFinds => Set<CacheFindEntity>();
+
+    public DbSet<InventoryItemEntity> InventoryItems => Set<InventoryItemEntity>();
 
     /// <summary>
     /// Общие настройки подключения — и для сервера, и для инструментов миграций.
@@ -426,6 +433,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         ConfigureDuels(model);
         ConfigureHallOfFame(model);
         ConfigureSegments(model);
+        ConfigureCachesAndInventory(model);
 
         model.Entity<JobRunEntity>(run =>
         {
@@ -656,6 +664,60 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             {
                 t.HasCheckConstraint("ck_segment_dethronements_league", "league BETWEEN 1 AND 2");
                 t.HasCheckConstraint("ck_segment_dethronements_crown", "season IS NOT NULL OR all_time");
+            });
+        });
+    }
+
+    /// <summary>
+    /// Тайники и находки (PLAN.md, §3.12; #145), Рюкзак (§3.11; #140). Находки и фишки с номером игрока уходят каскадом
+    /// вместе с аккаунтом; находка — одна на (тайник, игрок). Начальный набор тайников — <see cref="CacheSeed"/>.
+    /// </summary>
+    private static void ConfigureCachesAndInventory(ModelBuilder model)
+    {
+        model.Entity<CacheEntity>(cache =>
+        {
+            cache.HasKey(c => c.Id);
+            cache.Property(c => c.Id).ValueGeneratedNever();
+            cache.Property(c => c.Rarity).HasConversion<short>();
+            cache.Property(c => c.Name).HasMaxLength(60);
+            cache.Property(c => c.Hint).HasMaxLength(200);
+            cache.Property(c => c.OsmRef).HasMaxLength(40);
+            cache.HasIndex(c => c.Number).IsUnique();
+            cache.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_caches_rarity", "rarity BETWEEN 0 AND 3");
+                t.HasCheckConstraint("ck_caches_coordinates", "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180");
+                t.HasCheckConstraint("ck_caches_set_version", "set_version >= 1");
+            });
+            cache.HasData(CacheSeed.All);
+        });
+
+        model.Entity<CacheFindEntity>(find =>
+        {
+            find.HasKey(f => f.Id);
+            find.Property(f => f.Id).ValueGeneratedNever();
+            find.HasIndex(f => new { f.CacheId, f.UserId }).IsUnique();
+            find.HasIndex(f => f.UserId);
+            find.HasIndex(f => f.RunId);
+            find.HasOne<CacheEntity>().WithMany().HasForeignKey(f => f.CacheId).OnDelete(DeleteBehavior.Cascade);
+            find.HasOne<UserEntity>().WithMany().HasForeignKey(f => f.UserId).OnDelete(DeleteBehavior.Cascade);
+            find.HasOne<RunEntity>().WithMany().HasForeignKey(f => f.RunId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        model.Entity<InventoryItemEntity>(item =>
+        {
+            item.HasKey(i => i.Id);
+            item.Property(i => i.Id).ValueGeneratedNever();
+            item.Property(i => i.Kind).HasConversion<short>();
+            item.HasIndex(i => new { i.UserId, i.ReceivedAt });
+            item.HasIndex(i => i.SourceRunId);
+            item.HasOne<UserEntity>().WithMany().HasForeignKey(i => i.UserId).OnDelete(DeleteBehavior.Cascade);
+            item.HasOne<RunEntity>().WithMany().HasForeignKey(i => i.SourceRunId).OnDelete(DeleteBehavior.SetNull);
+            item.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_inventory_items_kind", "kind BETWEEN 0 AND 4");
+                t.HasCheckConstraint("ck_inventory_items_remaining", "remaining_meters IS NULL OR remaining_meters >= 0");
+                t.HasCheckConstraint("ck_inventory_items_expires", "expires_at > received_at");
             });
         });
     }

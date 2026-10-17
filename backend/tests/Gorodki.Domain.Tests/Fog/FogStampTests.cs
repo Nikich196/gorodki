@@ -78,6 +78,26 @@ public sealed class FogStampTests
         Assert.True(onBike.IsRevealed(CellAt(Point(2, 75, 0))));
     }
 
+    [Fact]
+    public void Radar_doubles_the_radius_for_its_metres_and_reports_what_it_used()
+    {
+        // 280 м пути; «Радар» — на первые 100 м: клетка в 40 м сбоку открыта в начале и закрыта в конце.
+        var points = Line(count: 201);
+
+        var plain = FogStamp.Of(points, Accepted(points.Length), League.Run, Rules);
+        var (withRadar, used) = FogStamp.WithRadar(points, Accepted(points.Length), League.Run, Rules, radarMeters: 100);
+        var (noRadar, none) = FogStamp.WithRadar(points, Accepted(points.Length), League.Run, Rules, radarMeters: 0);
+        var (whole, all) = FogStamp.WithRadar(points, Accepted(points.Length), League.Run, Rules, radarMeters: 3_000);
+
+        Assert.True(withRadar.IsRevealed(CellAt(Point(0, 30, 40))));
+        Assert.False(withRadar.IsRevealed(CellAt(Point(0, 250, 40))));
+        Assert.False(plain.IsRevealed(CellAt(Point(0, 30, 40))));
+        Assert.Equal(100, used);
+        Assert.Equal((plain.CellCount, 0.0), (noRadar.CellCount, none)); // без «Радара» — бит в бит как раньше
+        Assert.InRange(all, 279, 281); // израсходовано не больше пройденного
+        Assert.True(whole.CellCount > 1.6 * plain.CellCount);
+    }
+
     private static readonly (double X, double Y) Origin = (684_500, 5_775_500);
 
     private static JudgeVerdict[] Accepted(int count) => [.. Enumerable.Repeat(JudgeVerdict.Accepted, count)];

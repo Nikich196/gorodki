@@ -111,7 +111,7 @@ public sealed class CaptureWorkerTests
         await worker.HousekeepingAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            ["захваты", "визиты", "туман", "отрезки", "раскрытия", "откаты",
+            ["захваты", "визиты", "туман", "отрезки", "тайники", "раскрытия", "откаты",
                 "журнал захватов", "забытые забеги", "сырые точки", "удаление аккаунтов"],
             log.FailedStages);
     }

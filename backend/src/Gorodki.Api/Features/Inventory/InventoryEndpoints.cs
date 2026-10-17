@@ -1,7 +1,10 @@
 using System.Security.Claims;
+using Gorodki.Api.Features.Auth;
 using Gorodki.Api.Features.Captures;
 using Gorodki.Api.Infrastructure.Persistence;
+using Gorodki.Domain.Inventory;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
 
 namespace Gorodki.Api.Features.Inventory;
 
@@ -40,14 +43,16 @@ public sealed record InventoryItemResponse(
 public sealed record InventoryResponse(int Slots, IReadOnlyList<InventoryItemResponse> Items);
 
 /// <summary>
-/// «Припасы» и Рюкзак (PLAN.md, §3.11): 1 фишка за каждые 2 км валидного движения, не больше 4 в сутки, 12 ячеек, живут 7
-/// дней; тип — детерминированно от номера забега, повтор забега «Припасов» не даёт. Геоданных нет: «Припасы» — за дистанцию,
-/// а не за место. Задача Егора E11 (docs/guides/egor-server.md, раздел 7).
+/// «Припасы» и Рюкзак (PLAN.md, §3.11): 1 фишка за каждые 2 км засчитанного пути забега, не больше 4 в игровые сутки, 12
+/// ячеек, живут 7 дней до активации; в Сезоне 0 — только «Радар» и «Заморозка серии», по очереди; повтор забега «Припасов»
+/// не даёт. Геоданных нет: «Припасы» — за дистанцию, а не за место. Выдача — <see cref="Backpack.GrantAsync"/> (вместе с
+/// визитами), «Радар» — в открытии тумана (<c>FogProcessor</c>), «Заморозка серии» — в серии (<c>StreakEndpoints</c>).
+/// Задача #140 (E11), сделано Claude 16.10.
 /// </summary>
 public static class InventoryEndpoints
 {
     /// <summary>Ячеек в Рюкзаке (§3.11).</summary>
-    public const int Slots = 12;
+    public const int Slots = SupplyRules.Slots;
 
     public static IEndpointRouteBuilder MapInventoryEndpoints(this IEndpointRouteBuilder app)
     {
@@ -66,24 +71,72 @@ public static class InventoryEndpoints
         return app;
     }
 
-    private static Task<Results<Ok<InventoryResponse>, NotFound>> GetInventory(
+    private static async Task<Results<Ok<InventoryResponse>, NotFound>> GetInventory(
         ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #140 (Егор): таблица inventory_items (игрок, вид, получена, истекает, активирована, осталось метров,
-        // забег-источник); миграция, удаление и выгрузка (egor-server.md, 2.4). Выдача «Припасов» — после подсчёта метров
-        // забега (рядом с VisitProcessor): 1 за 2 км, до 4 в игровые сутки по Минску, не больше 12 ячеек, повтор (Replay) не
-        // даёт, тип — детерминированно от номера забега. Здесь — свои неистёкшие фишки. Тесты — InventoryTests.
-        _ = (principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #140");
+        if (principal.UserId() is not { } userId || !await db.Users.AnyAsync(u => u.Id == userId, cancellationToken))
+        {
+            return TypedResults.NotFound();
+        }
+
+        var items = await Backpack.VisibleAsync(db, userId, time.GetUtcNow(), cancellationToken);
+        return TypedResults.Ok(new InventoryResponse(Slots, [.. items.Select(ToResponse)]));
     }
 
-    private static Task<Results<Ok<InventoryItemResponse>, ProblemHttpResult>> ActivateItem(
+    private static async Task<Results<Ok<InventoryItemResponse>, ProblemHttpResult>> ActivateItem(
         Guid id, ClaimsPrincipal principal, AppDbContext db, TimeProvider time, CancellationToken cancellationToken)
     {
-        // ЗАДАЧА #140 (Егор): фишка ищется среди своих одним запросом (чужая — 404 item_not_found, egor-server.md,
-        // раздел 4, п. 5). Активный забег игрока (RunStatus.Active) — 409 run_active. Тесты — InventoryTests; строка в
-        // IdorTests.AwaitingTasks.
-        _ = (id, principal, db, time, cancellationToken);
-        throw new NotImplementedException("ЗАДАЧА #140");
+        // Своя фишка — условием в том же запросе: чужая — «нет такой» (404), а не 403 (egor-server.md, раздел 4, п. 5).
+        var userId = principal.UserId();
+        var item = await db.InventoryItems.AsNoTracking().SingleOrDefaultAsync(i => i.Id == id && i.UserId == userId, cancellationToken);
+        if (item is null)
+        {
+            return Problem(StatusCodes.Status404NotFound, "item_not_found", "Такой фишки нет.");
+        }
+
+        // «Активация — только стоя или перед „Стартом“» (§3.11): сервер видит только незавершённый забег. Забег, брошенный
+        // телефоном, сервер закрывает сам (RunRetention) — до этого активация ждёт.
+        if (await db.Runs.AnyAsync(r => r.UserId == item.UserId && r.Status == RunStatus.Active, cancellationToken))
+        {
+            return Problem(StatusCodes.Status409Conflict, "run_active", "Идёт забег — фишку можно активировать только вне забега.");
+        }
+
+        var now = time.GetUtcNow();
+        if (item.ActivatedAt is not null)
+        {
+            return ItemActive();
+        }
+
+        if (item.ExpiresAt <= now)
+        {
+            return Problem(StatusCodes.Status409Conflict, "item_expired", "Срок фишки истёк.");
+        }
+
+        // Одной командой с условием: две активации одновременно не пройдут обе.
+        var activated = await db.InventoryItems
+            .Where(i => i.Id == item.Id && i.ActivatedAt == null)
+            .ExecuteUpdateAsync(set => set.SetProperty(i => i.ActivatedAt, now), cancellationToken);
+        if (activated == 0)
+        {
+            return ItemActive();
+        }
+
+        item.ActivatedAt = now;
+        return TypedResults.Ok(ToResponse(item));
     }
+
+    private static InventoryItemResponse ToResponse(InventoryItemEntity item) =>
+        new(
+            item.Id,
+            item.Kind,
+            item.ReceivedAt.ToUnixTimeMilliseconds(),
+            item.ExpiresAt.ToUnixTimeMilliseconds(),
+            item.ActivatedAt is not null,
+            item.RemainingMeters);
+
+    private static ProblemHttpResult ItemActive() =>
+        Problem(StatusCodes.Status409Conflict, "item_active", "Фишка уже активирована.");
+
+    private static ProblemHttpResult Problem(int status, string code, string title) =>
+        TypedResults.Problem(title: title, statusCode: status, extensions: new Dictionary<string, object?> { ["code"] = code });
 }

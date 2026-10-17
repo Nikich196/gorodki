@@ -13,7 +13,7 @@ namespace Gorodki.IntegrationTests;
 /// <summary>
 /// Серия — <c>GET /me/streak</c> (PLAN.md, §3.7): какие забеги из базы становятся днями серии. Само правило (пропуск,
 /// «Заморозка серии», граница суток по Минску, километр за сутки) — чистая функция, её тесты без Docker:
-/// <c>StreakRulesTests</c>. Заморозок пока нет ни у кого — их выдаёт Рюкзак (#140).
+/// <c>StreakRulesTests</c>. Заморозки выдаёт Рюкзак (#140): активация — <c>InventoryTests</c>.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class StreakTests(DatabaseFixture database)

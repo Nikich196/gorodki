@@ -123,6 +123,7 @@ if (withDatabase)
     builder.Services.AddScoped<FogProcessor>();
     builder.Services.AddScoped<SegmentEffortProcessor>();
     builder.Services.AddScoped<FogHistory>();
+    builder.Services.AddScoped<CacheProcessor>();
     builder.Services.AddScoped<TerritoryReader>();
 
     // Дуэли (PLAN.md, §3.14; #147): счёт, судья (задача Hangfire) и три точки подключения — ставка (Рюкзак, #140), отрезки

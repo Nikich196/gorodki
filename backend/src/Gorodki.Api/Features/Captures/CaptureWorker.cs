@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Gorodki.Api.Features.Collection;
 using Gorodki.Api.Features.Fog;
 using Gorodki.Api.Features.Me;
 using Gorodki.Api.Features.Realtime;
@@ -37,7 +38,7 @@ public sealed class CaptureSignal
 }
 
 /// <summary>
-/// Фоновый обработчик захватов, визитов, тумана, проходов отрезков и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
+/// Фоновый обработчик захватов, визитов, тумана, проходов отрезков, тайников и откатов: один поток (ADR 0003), опрос раз в 5 секунд или по сигналу. Каждый забег — в своей области DI.
 /// Два экземпляра сервера во время деплоя не мешают друг другу: заявки берутся в аренду.
 /// </summary>
 /// <remarks>
@@ -141,6 +142,19 @@ public sealed class CaptureWorker(
                 await InScopeAsync<SegmentEffortProcessor, List<Guid>>(s => s.RunsReadyAsync(20, cancellationToken)),
                 id => InScopeAsync<SegmentEffortProcessor>(s => s.ProcessRunAsync(id, cancellationToken)),
                 id => InScopeAsync<SegmentEffortProcessor>(s => s.PostponeAsync(id, cancellationToken)),
+                logger,
+                cancellationToken),
+            logger,
+            cancellationToken);
+
+        // Тайники (§3.12, #145) — по образцу тумана: забег проверяется один раз, когда завершён и все точки на месте.
+        await StageAsync(
+            "тайники",
+            async () => await EachRunAsync(
+                "тайники",
+                await InScopeAsync<CacheProcessor, List<Guid>>(c => c.RunsReadyAsync(20, cancellationToken)),
+                id => InScopeAsync<CacheProcessor>(c => c.ProcessRunAsync(id, cancellationToken)),
+                id => InScopeAsync<CacheProcessor>(c => c.PostponeAsync(id, cancellationToken)),
                 logger,
                 cancellationToken),
             logger,
