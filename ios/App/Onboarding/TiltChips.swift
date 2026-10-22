@@ -6,8 +6,9 @@ import UIKit
 /// Значки интро, которые пересыпаются от наклона телефона (Никита 15.10: «чтобы значки рассыпались, наклонил телефон —
 /// они пересыпались»). Свои значки, не чужие логотипы: звёзды-крепости в цветах игроков, кроссовок, флажок, кубок,
 /// огонь. Гравитация — от датчика положения (`CMMotionManager.deviceMotion`, разрешения «Движение и фитнес» не нужно);
-/// без датчика (симулятор) значки лежат у пола и подпрыгивают. Каждый заметный удар — лёгкая вибрация. «Уменьшить движение» — значки
-/// лежат на полу неподвижно.
+/// без датчика (симулятор) — по ориентации устройства (`UIDevice.orientation`): повернул на бок — пересыпались вбок,
+/// вверх ногами — к верху экрана, с кувырком при повороте (Никита 22.10: «кручу телефон, а шарики болтаются сами по
+/// себе»). Каждый заметный удар — лёгкая вибрация. «Уменьшить движение» — значки лежат на полу неподвижно.
 struct TiltChips: View {
     /// Где пол и потолок: значки живут между надписью и панелью.
     var top: CGFloat
@@ -108,11 +109,18 @@ final class ChipWorld {
     private let motion = CMMotionManager()
     private var gravity = CGVector(dx: 0, dy: 1)
     private var hasMotion = false
+    /// Наблюдатель поворота устройства — когда датчика положения нет.
+    private var orientationObserver: (any NSObjectProtocol)?
     private var lastBump = Date.distantPast
     private let bump = UIImpactFeedbackGenerator(style: .soft)
 
     func startMotion(reduceMotion: Bool) {
-        guard !reduceMotion, motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
+        guard !reduceMotion else { return }
+        guard motion.isDeviceMotionAvailable else {
+            followOrientation()
+            return
+        }
+        guard !motion.isDeviceMotionActive else { return }
         hasMotion = true
         motion.deviceMotionUpdateInterval = 1.0 / 60
         motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
@@ -127,6 +135,55 @@ final class ChipWorld {
 
     func stopMotion() {
         motion.stopDeviceMotionUpdates()
+        if let orientationObserver {
+            NotificationCenter.default.removeObserver(orientationObserver)
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
+            self.orientationObserver = nil
+        }
+    }
+
+    /// Без датчика: «низ» — по ориентации устройства. Экран только портретный, поэтому повёрнутое устройство меняет
+    /// сторону, куда падают значки, а не сам экран.
+    private func followOrientation() {
+        guard orientationObserver == nil else { return }
+        let device = UIDevice.current
+        device.beginGeneratingDeviceOrientationNotifications()
+        gravity = Self.gravity(for: device.orientation) ?? gravity
+        orientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let down = Self.gravity(for: UIDevice.current.orientation), down != self.gravity else {
+                    return
+                }
+                self.gravity = down
+                self.tumble()
+            }
+        }
+    }
+
+    /// Куда «низ» в координатах портретного экрана; лицом вверх или вниз — без изменений (`nil`).
+    static func gravity(for orientation: UIDeviceOrientation) -> CGVector? {
+        switch orientation {
+        case .portrait: CGVector(dx: 0, dy: 1)
+        case .portraitUpsideDown: CGVector(dx: 0, dy: -1)
+        // landscapeLeft — кнопка «Домой» справа: верх устройства слева, вниз смотрит левый край экрана; landscapeRight —
+        // наоборот.
+        case .landscapeLeft: CGVector(dx: -1, dy: 0)
+        case .landscapeRight: CGVector(dx: 1, dy: 0)
+        default: nil
+        }
+    }
+
+    /// Поворот — значки подбрасывает и закручивает, дальше их несёт новая «сила тяжести».
+    private func tumble() {
+        var generator = SeededRandom(seed: UInt64(chips.count) &+ UInt64(Date.now.timeIntervalSince1970))
+        for index in chips.indices {
+            chips[index].velocity.dx += (generator.next() - 0.5) * 520
+            chips[index].velocity.dy += (generator.next() - 0.5) * 520
+            chips[index].spin += (generator.next() - 0.5) * 8
+        }
+        bump.impactOccurred(intensity: 0.6)
     }
 
     func step(to date: Date, area newArea: CGRect) {
@@ -138,20 +195,13 @@ final class ChipWorld {
         let dt = min(1.0 / 30, max(0, date.timeIntervalSince(last ?? date)))
         last = date
         guard dt > 0 else { return }
-        let t = date.timeIntervalSinceReferenceDate
-        let g: CGVector =
-            hasMotion
-            ? CGVector(dx: gravity.dx * 2200, dy: gravity.dy * 2200)
-            : CGVector(dx: sin(t * 0.5) * 70, dy: 420)  // симулятор: значки у пола и подпрыгивают
+        // С датчиком — его вектор (по длине — сколько наклонён), без него — ориентация устройства.
+        let g = CGVector(dx: gravity.dx * 2200, dy: gravity.dy * 2200)
         var strongest: CGFloat = 0
         for index in chips.indices {
             var chip = chips[index]
             chip.velocity.dx += g.dx * dt
             chip.velocity.dy += g.dy * dt
-            if !hasMotion {
-                chip.velocity.dx += sin(t * 1.3 + Double(index)) * 14 * dt
-                chip.velocity.dy -= max(0, sin(t * 0.9 + Double(index) * 1.3)) * 520 * dt
-            }
             chip.velocity.dx *= 0.995
             chip.velocity.dy *= 0.995
             chip.position.x += chip.velocity.dx * dt
