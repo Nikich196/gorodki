@@ -167,8 +167,10 @@ final class ChipWorld {
         switch orientation {
         case .portrait: CGVector(dx: 0, dy: 1)
         case .portraitUpsideDown: CGVector(dx: 0, dy: -1)
-        case .landscapeLeft: CGVector(dx: 1, dy: 0)  // верх устройства слева — вниз смотрит правый край экрана
-        case .landscapeRight: CGVector(dx: -1, dy: 0)
+        // landscapeLeft — кнопка «Домой» справа: верх устройства слева, вниз смотрит левый край экрана; landscapeRight —
+        // наоборот.
+        case .landscapeLeft: CGVector(dx: -1, dy: 0)
+        case .landscapeRight: CGVector(dx: 1, dy: 0)
         default: nil
         }
     }
